@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import "mapbox-gl/dist/mapbox-gl.css";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Bicycle01Icon,
@@ -94,34 +95,18 @@ const GH_LEVELS = [
   "#39d353",
 ];
 
-// ─── Map tile helpers ──────────────────────────────────────────────────────────
+// ─── Map config ──────────────────────────────────────────────────────────────
 
-const MAP_TILE = 256;
-const PARIS_MAP_LAT = 48.857;
-const PARIS_MAP_LON = 2.347;
-const PARIS_MAP_ZOOM = 11;
-
-function tileFloat(lat: number, lon: number, z: number) {
-  const n = 2 ** z;
-  const x = ((lon + 180) / 360) * n;
-  const latRad = (lat * Math.PI) / 180;
-  const y =
-    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-  return { x, y };
-}
-
-// Pixel offset of a point relative to the map centre at a given zoom
-function projectOffset(
-  centerLat: number,
-  centerLon: number,
-  lat: number,
-  lon: number,
-  z: number,
-) {
-  const c = tileFloat(centerLat, centerLon, z);
-  const p = tileFloat(lat, lon, z);
-  return { dx: (p.x - c.x) * MAP_TILE, dy: (p.y - c.y) * MAP_TILE };
-}
+// GL JS (3D / custom styles) requires a PUBLIC token (pk.*); secret sk.* tokens
+// are rejected by GL JS, so we fall back to the static image when one is set.
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+const MAPBOX_IS_PUBLIC = MAPBOX_TOKEN.startsWith("pk.");
+const MAPBOX_STYLE =
+  process.env.NEXT_PUBLIC_MAPBOX_STYLE ??
+  "mapbox://styles/aurelien-louvel/cmquvfo9v001v01qqgqp8685a";
+const MAP_ZOOM = 10;
+// Centre fixe sur Paris, légèrement décalé à droite
+const PARIS_CENTER: [number, number] = [2.37, 48.859];
 
 function formatPace(speedKmh: number): string {
   const pace = 60 / speedKmh;
@@ -208,6 +193,7 @@ function LocationCard({
   slide: Extract<StorySlide, { type: "location" }>;
 }) {
   const [now, setNow] = useState(() => new Date());
+  const [pinPos, setPinPos] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
@@ -218,15 +204,6 @@ function LocationCard({
     return <PlaceholderSlide icon={MapPinpoint01Icon} label="carte à venir" />;
   }
 
-  // Pin offset relative to the static Paris map image
-  const marker = projectOffset(
-    PARIS_MAP_LAT,
-    PARIS_MAP_LON,
-    slide.lat,
-    slide.lon,
-    PARIS_MAP_ZOOM,
-  );
-
   const timeStr = new Intl.DateTimeFormat("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
@@ -235,24 +212,26 @@ function LocationCard({
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#e8e8e8]">
-      {/* Static Paris map */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/paris-map.webp" alt="" className="absolute inset-0 h-full w-full object-cover" />
+      {/* Carte centrée sur Paris, pin positionné par map.project() */}
+      <MapboxBackground
+        lat={slide.lat}
+        lon={slide.lon}
+        onPinPosition={setPinPos}
+      />
 
       <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/25 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/60 to-transparent" />
 
-      {/* Location dot — pinned on address, clamped 24px from each edge */}
-      <span
-        className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
-        style={{
-          left: `clamp(24px, calc(50% + ${marker.dx}px), calc(100% - 24px))`,
-          top: `clamp(24px, calc(50% + ${marker.dy}px), calc(100% - 24px))`,
-        }}
-      >
-        <span className="absolute h-10 w-10 animate-slow-ping rounded-full bg-[#007AFF]/25" />
-        <span className="relative block h-4 w-4 rounded-full bg-[#007AFF] shadow-lg ring-[3px] ring-white" />
-      </span>
+      {/* Pin exactement à l'adresse selon map.project() */}
+      {pinPos && (
+        <span
+          className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+          style={{ left: pinPos.x, top: pinPos.y }}
+        >
+          <span className="absolute h-10 w-10 animate-slow-ping rounded-full bg-[#007AFF]/25" />
+          <span className="relative block h-4 w-4 rounded-full bg-[#007AFF] shadow-lg ring-[3px] ring-white" />
+        </span>
+      )}
 
       {/* Top bar */}
       <div className="absolute inset-x-0 top-0 flex items-center gap-1.5 p-4 text-white drop-shadow">
@@ -287,6 +266,72 @@ function LocationCard({
       </div>
     </div>
   );
+}
+
+// Mapbox GL background — centred on Paris. Custom/3D styles need a public
+// (pk.*) token; with a secret/missing token we fall back to the static image.
+function MapboxBackground({
+  lat,
+  lon,
+  onPinPosition,
+}: {
+  lat: number;
+  lon: number;
+  onPinPosition?: (pos: { x: number; y: number }) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ref.current || !MAPBOX_IS_PUBLIC) return;
+
+    let map: import("mapbox-gl").Map | null = null;
+    let cancelled = false;
+
+    import("mapbox-gl").then(({ default: mapboxgl }) => {
+      if (cancelled || !ref.current) return;
+      mapboxgl.accessToken = MAPBOX_TOKEN;
+      map = new mapboxgl.Map({
+        container: ref.current,
+        style: MAPBOX_STYLE,
+        center: PARIS_CENTER,
+        zoom: MAP_ZOOM,
+        interactive: false,
+        attributionControl: false,
+      });
+      // Strip the Mapbox logo + attribution chrome
+      const stripChrome = () =>
+        ref.current
+          ?.querySelectorAll(
+            ".mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right",
+          )
+          .forEach((el) => el.remove());
+      stripChrome();
+      map.on("load", () => {
+        stripChrome();
+        if (!map || cancelled) return;
+        const point = map.project([lon, lat]);
+        onPinPosition?.({ x: point.x, y: point.y });
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      map?.remove();
+    };
+  }, [lat, lon]);
+
+  if (!MAPBOX_IS_PUBLIC) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src="/paris-map.webp"
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover object-[45%_30%]"
+      />
+    );
+  }
+
+  return <div ref={ref} className="absolute inset-0 h-full w-full" />;
 }
 
 // ─── Music card ──────────────────────────────────────────────────────────
@@ -715,7 +760,7 @@ export function SlideContent({
 // ─── Valorant card ────────────────────────────────────────────────────────────
 
 type MatchData = {
-  result: "victory" | "defeat";
+  result: "victory" | "defeat" | "draw";
   score: string | null;
   mapName: string | null;
   mapSplashUrl: string | null;
@@ -745,6 +790,28 @@ async function fetchValorantMatch(
     return null;
   }
 }
+
+// Result → accent colour, full-card gradient & label. Draw is a neutral grey.
+const RESULT_STYLE = {
+  victory: {
+    label: "VICTORY",
+    accent: "#4ade80",
+    gradient:
+      "linear-gradient(to top, rgba(0,60,20,1) 0%, rgba(0,60,20,0.85) 35%, rgba(0,40,15,0.4) 65%, transparent 100%)",
+  },
+  defeat: {
+    label: "DEFEAT",
+    accent: "#f87171",
+    gradient:
+      "linear-gradient(to top, rgba(60,0,15,1) 0%, rgba(60,0,15,0.85) 35%, rgba(40,0,10,0.4) 65%, transparent 100%)",
+  },
+  draw: {
+    label: "DRAW",
+    accent: "#9ca3af",
+    gradient:
+      "linear-gradient(to top, rgba(38,38,42,1) 0%, rgba(38,38,42,0.85) 35%, rgba(28,28,31,0.4) 65%, transparent 100%)",
+  },
+} as const;
 
 function ValorantCard({
   slide,
@@ -791,8 +858,7 @@ function ValorantCard({
     );
   }
 
-  const isWin = data.result === "victory";
-  const accent = isWin ? "#4ade80" : "#f87171";
+  const r = RESULT_STYLE[data.result];
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden text-white">
@@ -809,11 +875,7 @@ function ValorantCard({
       {/* Win/loss gradient — very pronounced */}
       <div
         className="absolute inset-x-0 bottom-0 h-full"
-        style={{
-          background: isWin
-            ? "linear-gradient(to top, rgba(0,60,20,1) 0%, rgba(0,60,20,0.85) 35%, rgba(0,40,15,0.4) 65%, transparent 100%)"
-            : "linear-gradient(to top, rgba(60,0,15,1) 0%, rgba(60,0,15,0.85) 35%, rgba(40,0,10,0.4) 65%, transparent 100%)",
-        }}
+        style={{ background: r.gradient }}
       />
       {/* Top veil */}
       <div
@@ -842,9 +904,9 @@ function ValorantCard({
         <div className="mt-1 flex items-center gap-2">
           <span
             className="block text-2xl font-black leading-none tracking-tight"
-            style={{ color: accent }}
+            style={{ color: r.accent }}
           >
-            {isWin ? "VICTORY" : "DEFEAT"}
+            {r.label}
           </span>
           {data.score && (
             <span className="text-2xl font-bold text-white/80">
