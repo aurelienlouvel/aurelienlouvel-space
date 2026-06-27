@@ -1,9 +1,11 @@
 import { LogoTile } from "@/components/blocks/LogoTile";
 import { formatDateRange } from "@/lib/date-utils";
+import { cn } from "@/lib/utils";
 
 export function TimelineRow({
   orgName,
   logoUrl,
+  websiteUrl,
   title,
   contractType,
   startDate,
@@ -12,14 +14,15 @@ export function TimelineRow({
 }: {
   orgName: string | null;
   logoUrl: string | null;
+  websiteUrl?: string | null;
   title: string;
   contractType?: string | null;
   startDate: string | null;
   endDate: string | null;
   ongoingFallback?: boolean;
 }) {
-  return (
-    <div className="flex gap-4">
+  const content = (
+    <>
       <LogoTile
         name={orgName ?? title}
         logoUrl={logoUrl}
@@ -50,6 +53,26 @@ export function TimelineRow({
           </span>
         )}
       </div>
-    </div>
+    </>
   );
+
+  const rowClassName = cn(
+    "flex gap-4 rounded-xl px-4 py-4 -mx-2 transition-colors",
+    websiteUrl && "hover:bg-stone-50",
+  );
+
+  if (websiteUrl) {
+    return (
+      <a
+        href={websiteUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={rowClassName}
+      >
+        {content}
+      </a>
+    );
+  }
+
+  return <div className={rowClassName}>{content}</div>;
 }
