@@ -1,14 +1,34 @@
 "use client";
 
-import { useRef, useState, useEffect, useLayoutEffect, useCallback, useMemo, Suspense } from "react";
+import {
+  useRef,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  Suspense,
+} from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { motion, AnimatePresence, useMotionValue, type MotionValue } from "motion/react";
+import {
+  motion,
+  AnimatePresence,
+  useMotionValue,
+  type MotionValue,
+} from "motion/react";
 import * as THREE from "three";
 import type { ArtifactCanvasItem } from "@/sanity/queries";
 import { ArtifactMesh, CARD_W, CARD_H } from "./ArtifactMesh";
-import { getCardHeight, _videoDimsCache, MIN_CARD_H, MAX_CARD_H, triggerIntro, focusState } from "@/lib/artifact-utils";
+import {
+  getCardHeight,
+  _videoDimsCache,
+  MIN_CARD_H,
+  MAX_CARD_H,
+  triggerIntro,
+  focusState,
+} from "@/lib/artifact-utils";
 import { easeOutExpo, easeZoom } from "@/lib/easings";
-import { ArtifactInfo } from "./ArtifactInfo";
+import { ArtifactInfo } from "@/components/blocks/ArtifactInfo";
 
 // ─── Tunable params ────────────────────────────────────────────────────────────
 //
@@ -19,40 +39,40 @@ import { ArtifactInfo } from "./ArtifactInfo";
 //
 type Params = {
   // ── Tile layout (change → tile rebuild) ─────────────────────────────────────
-  cols:        number; // grid columns
-  gapX:        number; // extra px between cols  (cell_w = CARD_W + gapX)
-  gapY:        number; // extra px between rows  (cell_h = CARD_H + gapY)
-  colStagger:  number; // random vertical offset per column (px)
-  jitterX:     number; // ±px random horizontal nudge per item
-  jitterY:     number; // ±px random vertical nudge per item
-  minPerTile:  number; // min slot count per tile
-  scaleMin:    number; // smallest card scale
-  scaleMax:    number; // largest  card scale
+  cols: number; // grid columns
+  gapX: number; // extra px between cols  (cell_w = CARD_W + gapX)
+  gapY: number; // extra px between rows  (cell_h = CARD_H + gapY)
+  colStagger: number; // random vertical offset per column (px)
+  jitterX: number; // ±px random horizontal nudge per item
+  jitterY: number; // ±px random vertical nudge per item
+  minPerTile: number; // min slot count per tile
+  scaleMin: number; // smallest card scale
+  scaleMax: number; // largest  card scale
   // ── Camera (live — no rebuild) ───────────────────────────────────────────────
-  camOffsetX:  number; // camera shifts right on focus (card left, panel fits right)
+  camOffsetX: number; // camera shifts right on focus (card left, panel fits right)
   focusVCenter: number; // vertical position of focused item (0=top · 0.5=center · 1=bottom)
   // ── Info panel (live) ────────────────────────────────────────────────────────
-  gapPanel:    number; // px gap between card right edge and info panel
+  gapPanel: number; // px gap between card right edge and info panel
   // ── Background dots (live — uniform update in useFrame) ──────────────────────
-  gridCell:    number; // world-space dot grid cell size
-  dotRadius:   number; // dot radius in world units
+  gridCell: number; // world-space dot grid cell size
+  dotRadius: number; // dot radius in world units
 };
 
 const DEFAULT_PARAMS: Params = {
-  cols:        4,
-  gapX:        280,
-  gapY:        150,   // masonry : écart vertical CONSTANT entre cards (sur hauteurs réelles)
-  colStagger:  200,
-  jitterX:     30,
-  jitterY:     90,    // variation verticale ORGANIQUE en plus (toujours ≥ 0)
-  minPerTile:  40,
-  scaleMin:    0.80,
-  scaleMax:    1.15,
-  camOffsetX:   220,
+  cols: 4,
+  gapX: 280,
+  gapY: 150, // masonry : écart vertical CONSTANT entre cards (sur hauteurs réelles)
+  colStagger: 200,
+  jitterX: 30,
+  jitterY: 90, // variation verticale ORGANIQUE en plus (toujours ≥ 0)
+  minPerTile: 40,
+  scaleMin: 0.8,
+  scaleMax: 1.15,
+  camOffsetX: 220,
   focusVCenter: 0.5,
-  gapPanel:    80,
-  gridCell:    64,
-  dotRadius:   2.0,
+  gapPanel: 80,
+  gridCell: 64,
+  dotRadius: 2.0,
 };
 
 // ─── Responsive layout ─────────────────────────────────────────────────────────
@@ -60,11 +80,24 @@ const DEFAULT_PARAMS: Params = {
 //  en bas. Desktop : masonry multi-colonnes (defaults ci-dessus).
 const MOBILE_BREAKPOINT = 768;
 const MOBILE_LAYOUT: Partial<Params> = {
-  cols: 1, gapX: 180, gapY: 140, colStagger: 0,
-  jitterX: 20, jitterY: 70, scaleMin: 0.80, scaleMax: 1.0,
+  cols: 1,
+  gapX: 180,
+  gapY: 140,
+  colStagger: 0,
+  jitterX: 20,
+  jitterY: 70,
+  scaleMin: 0.8,
+  scaleMax: 1.0,
 };
 const LAYOUT_KEYS = [
-  "cols", "gapX", "gapY", "colStagger", "jitterX", "jitterY", "scaleMin", "scaleMax",
+  "cols",
+  "gapX",
+  "gapY",
+  "colStagger",
+  "jitterX",
+  "jitterY",
+  "scaleMin",
+  "scaleMax",
 ] as const;
 function applyResponsiveLayout(p: Params, mobile: boolean) {
   const src = mobile ? { ...DEFAULT_PARAMS, ...MOBILE_LAYOUT } : DEFAULT_PARAMS;
@@ -85,7 +118,13 @@ function focusBox(vw: number, vh: number, mobile: boolean) {
     ? { h: vh * 0.52, wMax: vw * 0.94 }
     : { h: vh * 0.82, wMax: Math.min(vw * 0.56, 820) };
 }
-function computeFocusZoom(worldW: number, worldH: number, vw: number, vh: number, mobile: boolean) {
+function computeFocusZoom(
+  worldW: number,
+  worldH: number,
+  vw: number,
+  vh: number,
+  mobile: boolean,
+) {
   const { h, wMax } = focusBox(vw, vh, mobile);
   const z = Math.min(h / worldH, wMax / worldW); // hauteur prioritaire, largeur = cap
   return Math.max(FOCUS_MIN_ZOOM, Math.min(FOCUS_MAX_ZOOM, z));
@@ -97,8 +136,8 @@ function gapStats(p: Params) {
   return {
     minGapX: Math.round(cellW - 2 * p.jitterX - CARD_W * p.scaleMax),
     maxGapX: Math.round(cellW + 2 * p.jitterX - CARD_W * p.scaleMin),
-    minGapY: Math.round(p.gapY),               // masonry : écart vertical direct
-    maxGapY: Math.round(p.gapY + p.jitterY),    // + variation organique (≥ 0)
+    minGapY: Math.round(p.gapY), // masonry : écart vertical direct
+    maxGapY: Math.round(p.gapY + p.jitterY), // + variation organique (≥ 0)
   };
 }
 
@@ -106,7 +145,7 @@ function gapStats(p: Params) {
 type SelectedInstance = {
   artifact: ArtifactCanvasItem;
   groupIdx: number;
-  itemIdx:  number;
+  itemIdx: number;
 } | null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -119,11 +158,11 @@ function seededRand(seed: number): number {
 function cardScale(i: number, scaleMin: number, scaleMax: number): number {
   const r = seededRand(i * 13 + 7);
   let t: number;
-  if      (r < 0.12) t = 0.00;
-  else if (r < 0.30) t = 0.25;
-  else if (r < 0.62) t = 0.50;
+  if (r < 0.12) t = 0.0;
+  else if (r < 0.3) t = 0.25;
+  else if (r < 0.62) t = 0.5;
   else if (r < 0.84) t = 0.75;
-  else               t = 1.00;
+  else t = 1.0;
   return scaleMin + t * (scaleMax - scaleMin);
 }
 
@@ -144,18 +183,25 @@ function cardScale(i: number, scaleMin: number, scaleMax: number): number {
 //
 function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
   const {
-    cols: COLS, gapX: GAP_X, gapY: GAP_Y,
-    colStagger: COL_STAGGER, jitterX: JITTER_X, jitterY: JITTER_Y,
-    minPerTile: MIN_PER_TILE, scaleMin, scaleMax,
+    cols: COLS,
+    gapX: GAP_X,
+    gapY: GAP_Y,
+    colStagger: COL_STAGGER,
+    jitterX: JITTER_X,
+    jitterY: JITTER_Y,
+    minPerTile: MIN_PER_TILE,
+    scaleMin,
+    scaleMax,
   } = p;
 
-  const n    = Math.max(MIN_PER_TILE, artifacts.length);
+  const n = Math.max(MIN_PER_TILE, artifacts.length);
   const rows = Math.ceil(n / COLS);
 
   const TILE_W = COLS * (CARD_W + GAP_X);
 
-  const stagger = Array.from({ length: COLS }, (_, c) =>
-    seededRand(c * 97 + 13) * COL_STAGGER,
+  const stagger = Array.from(
+    { length: COLS },
+    (_, c) => seededRand(c * 97 + 13) * COL_STAGGER,
   );
 
   const cssPos = Array.from({ length: n }, (_, i) => {
@@ -163,7 +209,10 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
     const row = Math.floor(i / COLS);
     return {
       x: col * (CARD_W + GAP_X) + (seededRand(i * 7 + 1) - 0.5) * JITTER_X * 2,
-      y: row * (CARD_H + GAP_Y) + stagger[col] + (seededRand(i * 7 + 2) - 0.5) * JITTER_Y * 2,
+      y:
+        row * (CARD_H + GAP_Y) +
+        stagger[col] +
+        (seededRand(i * 7 + 2) - 0.5) * JITTER_Y * 2,
     };
   });
 
@@ -192,7 +241,7 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
   const slotW = (c: number, r: number): number =>
     (((r % rows) + rows) % rows) * COLS + (((c % COLS) + COLS) % COLS);
 
-  const allIdx   = Array.from({ length: artifacts.length }, (_, k) => k);
+  const allIdx = Array.from({ length: artifacts.length }, (_, k) => k);
   const assignment: number[] = new Array(n).fill(-1);
 
   // ── Pass 1: centre-to-edge greedy assignment ───────────────────────────────
@@ -209,15 +258,16 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
       }
     }
 
-    const pool       = allIdx.filter(k => !blocked.has(k));
+    const pool = allIdx.filter((k) => !blocked.has(k));
     const candidates = pool.length > 0 ? pool : allIdx;
 
     if (rank < artifacts.length && candidates.includes(shuffled[rank])) {
       assignment[si] = shuffled[rank];
     } else {
-      assignment[si] = candidates[
-        Math.floor(seededRand(si * 23 + rank * 11 + 5) * candidates.length)
-      ];
+      assignment[si] =
+        candidates[
+          Math.floor(seededRand(si * 23 + rank * 11 + 5) * candidates.length)
+        ];
     }
   });
 
@@ -231,7 +281,7 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
 
       // Collect all neighbour artifacts (toroidal)
       const neighborArtifacts = new Set<number>();
-      let   hasConflict       = false;
+      let hasConflict = false;
       for (let dc = -1; dc <= 1; dc++) {
         for (let dr = -1; dr <= 1; dr++) {
           if (!dc && !dr) continue;
@@ -245,11 +295,12 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
 
       if (!hasConflict) continue;
 
-      const candidates = allIdx.filter(k => !neighborArtifacts.has(k));
+      const candidates = allIdx.filter((k) => !neighborArtifacts.has(k));
       if (candidates.length > 0) {
-        assignment[si] = candidates[
-          Math.floor(seededRand(si * 41 + sweep * 23 + 7) * candidates.length)
-        ];
+        assignment[si] =
+          candidates[
+            Math.floor(seededRand(si * 41 + sweep * 23 + 7) * candidates.length)
+          ];
         anyFixed = true;
       }
     }
@@ -269,7 +320,7 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
   //  minimum reste homogène). TILE_H = colonne la plus haute → au raccord de
   //  tuilage l'écart est ≥ GAP_Y, jamais de chevauchement.
   const centerY = new Array<number>(n).fill(0);
-  const cursor  = stagger.slice(); // bord haut courant par colonne
+  const cursor = stagger.slice(); // bord haut courant par colonne
   for (let i = 0; i < n; i++) {
     const c = i % COLS;
     centerY[i] = cursor[c] + slotH[i] / 2;
@@ -286,8 +337,8 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
   ]);
 
   const items = Array.from({ length: n }, (_, i) => ({
-    item:  artifacts[assignment[i]],
-    key:   `${artifacts[assignment[i]]._id}-${i}`,
+    item: artifacts[assignment[i]],
+    key: `${artifacts[assignment[i]]._id}-${i}`,
     scale: cardScale(i, scaleMin, scaleMax),
     cardH: slotH[i],
   }));
@@ -296,18 +347,24 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
 }
 
 // ─── Background dots ──────────────────────────────────────────────────────────
-function GridBackground({ paramsRef }: { paramsRef: React.MutableRefObject<Params> }) {
+function GridBackground({
+  paramsRef,
+}: {
+  paramsRef: React.MutableRefObject<Params>;
+}) {
   const meshRef = useRef<THREE.Mesh>(null);
   const { camera, size } = useThree();
 
-  const material = useMemo(() => new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite:  false,
-    uniforms: {
-      uGridSize:  { value: DEFAULT_PARAMS.gridCell },
-      uDotRadius: { value: DEFAULT_PARAMS.dotRadius },
-    },
-    vertexShader: `
+  const material = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        uniforms: {
+          uGridSize: { value: DEFAULT_PARAMS.gridCell },
+          uDotRadius: { value: DEFAULT_PARAMS.dotRadius },
+        },
+        vertexShader: `
       varying vec2 vWorldPos;
       void main() {
         vec4 world = modelMatrix * vec4(position, 1.0);
@@ -315,7 +372,7 @@ function GridBackground({ paramsRef }: { paramsRef: React.MutableRefObject<Param
         gl_Position = projectionMatrix * viewMatrix * world;
       }
     `,
-    fragmentShader: `
+        fragmentShader: `
       uniform float uGridSize;
       uniform float uDotRadius;
       varying vec2 vWorldPos;
@@ -327,17 +384,19 @@ function GridBackground({ paramsRef }: { paramsRef: React.MutableRefObject<Param
         gl_FragColor = vec4(0.87, 0.86, 0.85, alpha);
       }
     `,
-  }), []);
+      }),
+    [],
+  );
 
   useEffect(() => () => material.dispose(), [material]);
 
   useFrame(() => {
     if (!meshRef.current) return;
-    const q   = paramsRef.current;
+    const q = paramsRef.current;
     const cam = camera as THREE.OrthographicCamera;
-    material.uniforms.uGridSize.value  = q.gridCell;
+    material.uniforms.uGridSize.value = q.gridCell;
     material.uniforms.uDotRadius.value = q.dotRadius;
-    const visW = size.width  / cam.zoom;
+    const visW = size.width / cam.zoom;
     const visH = size.height / cam.zoom;
     meshRef.current.position.set(cam.position.x, cam.position.y, -10);
     meshRef.current.scale.set(visW * 4, visH * 4, 1);
@@ -360,31 +419,41 @@ function GridBackground({ paramsRef }: { paramsRef: React.MutableRefObject<Param
 //
 // Arrivée /play : onde des dots + vague des cards + dézoom démarrent EN MÊME TEMPS.
 const INTRO_ZOOM_DURATION = 1050; // ms — dézoom caméra 0.5→1
-const FOCUS_DURATION      = 750;  // ms — focus snap
+const FOCUS_DURATION = 750; // ms — focus snap
 // Panel appears once media is nearly stable (Framer Motion delay, not a timer)
-const PANEL_DELAY_S       = (FOCUS_DURATION * 0.75) / 1000; // seconds for Framer Motion
+const PANEL_DELAY_S = (FOCUS_DURATION * 0.75) / 1000; // seconds for Framer Motion
 
 function CameraController({
-  selectTarget, zoomTarget, focusExitRef, paramsRef, active, running, introKey,
+  selectTarget,
+  zoomTarget,
+  focusExitRef,
+  paramsRef,
+  active,
+  running,
+  introKey,
 }: {
   selectTarget: React.MutableRefObject<{ x: number; y: number } | null>;
-  zoomTarget:   React.MutableRefObject<number>;
+  zoomTarget: React.MutableRefObject<number>;
   focusExitRef: React.MutableRefObject<(() => void) | null>;
-  paramsRef:    React.MutableRefObject<Params>;
-  active:       boolean;
-  running:      boolean; // frameloop alive — false only when fully at rest (hidden)
-  introKey:     number;  // bumps when the canvas is actually revealed → play intro
+  paramsRef: React.MutableRefObject<Params>;
+  active: boolean;
+  running: boolean; // frameloop alive — false only when fully at rest (hidden)
+  introKey: number; // bumps when the canvas is actually revealed → play intro
 }) {
   const { camera } = useThree();
-  const wheel    = useRef({ x: 0, y: 0 });
-  const inFocus  = useRef(false);
+  const wheel = useRef({ x: 0, y: 0 });
+  const inFocus = useRef(false);
   // Time-based intro zoom animation (null = not running)
-  const zoomAnim  = useRef<{ startTime: number; fromZoom: number } | null>(null);
+  const zoomAnim = useRef<{ startTime: number; fromZoom: number } | null>(null);
   // Time-based focus animation — position + zoom synchronized on the same curve
   const focusAnim = useRef<{
     startTime: number;
-    fromX: number; fromY: number; toX: number; toY: number;
-    fromZoom: number; toZoom: number;
+    fromX: number;
+    fromY: number;
+    toX: number;
+    toY: number;
+    fromZoom: number;
+    toZoom: number;
   } | null>(null);
 
   // Wheel → accumulate raw deltas, cancel intro zoom if still running
@@ -396,14 +465,14 @@ function CameraController({
         inFocus.current = false;
       }
       if (zoomAnim.current) {
-        zoomAnim.current   = null;   // abort intro zoom — user is already navigating
+        zoomAnim.current = null; // abort intro zoom — user is already navigating
         zoomTarget.current = 1.0;
       }
-      focusAnim.current    = null;   // abort any in-progress focus snap
+      focusAnim.current = null; // abort any in-progress focus snap
       selectTarget.current = null;
-      zoomTarget.current   = 1.0;
-      wheel.current.x     += e.deltaX;
-      wheel.current.y     -= e.deltaY;
+      zoomTarget.current = 1.0;
+      wheel.current.x += e.deltaX;
+      wheel.current.y -= e.deltaY;
     };
     window.addEventListener("wheel", onWheel, { passive: false });
     return () => window.removeEventListener("wheel", onWheel);
@@ -412,9 +481,9 @@ function CameraController({
   // Reset transient camera state whenever the canvas goes inactive (leaving /play)
   useEffect(() => {
     if (!active) {
-      wheel.current      = { x: 0, y: 0 };
-      zoomAnim.current   = null;
-      focusAnim.current  = null;
+      wheel.current = { x: 0, y: 0 };
+      zoomAnim.current = null;
+      focusAnim.current = null;
       zoomTarget.current = 1.0;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -439,15 +508,17 @@ function CameraController({
   useEffect(() => {
     if (introKey === 0) return;
     const cam = camera as THREE.OrthographicCamera;
-    cam.zoom           = 0.5;
+    cam.zoom = 0.5;
     cam.updateProjectionMatrix();
-    wheel.current      = { x: 0, y: 0 };
+    wheel.current = { x: 0, y: 0 };
 
-    triggerIntro();       // vague des cards
+    triggerIntro(); // vague des cards
     zoomTarget.current = 1.0;
-    zoomAnim.current   = { startTime: performance.now(), fromZoom: cam.zoom }; // dézoom
+    zoomAnim.current = { startTime: performance.now(), fromZoom: cam.zoom }; // dézoom
 
-    return () => { zoomAnim.current = null; };
+    return () => {
+      zoomAnim.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [introKey, camera]);
 
@@ -463,12 +534,12 @@ function CameraController({
     if (selectTarget.current && !focusAnim.current && !zoomAnim.current) {
       focusAnim.current = {
         startTime: performance.now(),
-        fromX:     cam.position.x,
-        fromY:     cam.position.y,
-        toX:       selectTarget.current.x,
-        toY:       selectTarget.current.y,
-        fromZoom:  cam.zoom,
-        toZoom:    zoomTarget.current,
+        fromX: cam.position.x,
+        fromY: cam.position.y,
+        toX: selectTarget.current.x,
+        toY: selectTarget.current.y,
+        fromZoom: cam.zoom,
+        toZoom: zoomTarget.current,
       };
     }
 
@@ -476,29 +547,32 @@ function CameraController({
     if (zoomAnim.current) {
       // Intro zoom (phase 3) — courbe custom cubic-bezier(1,-0.01,.42,1)
       const elapsed = performance.now() - zoomAnim.current.startTime;
-      const t       = Math.min(1, elapsed / INTRO_ZOOM_DURATION);
-      cam.zoom      = zoomAnim.current.fromZoom + (1.0 - zoomAnim.current.fromZoom) * easeZoom(t);
+      const t = Math.min(1, elapsed / INTRO_ZOOM_DURATION);
+      cam.zoom =
+        zoomAnim.current.fromZoom +
+        (1.0 - zoomAnim.current.fromZoom) * easeZoom(t);
       cam.updateProjectionMatrix();
-      if (t >= 1) { cam.zoom = 1.0; zoomAnim.current = null; }
-
+      if (t >= 1) {
+        cam.zoom = 1.0;
+        zoomAnim.current = null;
+      }
     } else if (focusAnim.current) {
       // Focus: position + zoom — easeOutExpo, smooth decel, no bounce
       const elapsed = performance.now() - focusAnim.current.startTime;
-      const t       = Math.min(1, elapsed / FOCUS_DURATION);
-      const ease    = easeOutExpo(t);
+      const t = Math.min(1, elapsed / FOCUS_DURATION);
+      const ease = easeOutExpo(t);
       const { fromX, fromY, toX, toY, fromZoom, toZoom } = focusAnim.current;
       cam.position.x = fromX + (toX - fromX) * ease;
       cam.position.y = fromY + (toY - fromY) * ease;
-      cam.zoom       = fromZoom + (toZoom - fromZoom) * ease;
+      cam.zoom = fromZoom + (toZoom - fromZoom) * ease;
       cam.updateProjectionMatrix();
       if (t >= 1) {
         cam.position.set(toX, toY, cam.position.z);
         cam.zoom = toZoom;
         cam.updateProjectionMatrix();
         selectTarget.current = null;
-        focusAnim.current    = null;
+        focusAnim.current = null;
       }
-
     } else {
       // Idle: zoom lerp for exit-focus, then wheel pan
       const zDiff = zoomTarget.current - cam.zoom;
@@ -522,15 +596,21 @@ function CameraController({
 
 // ─── Panel positioner ─────────────────────────────────────────────────────────
 function PanelPositioner({
-  worldPosRef, halfWRef, halfHRef, panelX, panelY, paramsRef, isMobile,
+  worldPosRef,
+  halfWRef,
+  halfHRef,
+  panelX,
+  panelY,
+  paramsRef,
+  isMobile,
 }: {
   worldPosRef: React.MutableRefObject<[number, number] | null>;
-  halfWRef:    React.MutableRefObject<number>;
-  halfHRef:    React.MutableRefObject<number>;
-  panelX:      MotionValue<number>;
-  panelY:      MotionValue<number>;
-  paramsRef:   React.MutableRefObject<Params>;
-  isMobile:    boolean;
+  halfWRef: React.MutableRefObject<number>;
+  halfHRef: React.MutableRefObject<number>;
+  panelX: MotionValue<number>;
+  panelY: MotionValue<number>;
+  paramsRef: React.MutableRefObject<Params>;
+  isMobile: boolean;
 }) {
   const { camera, size } = useThree();
 
@@ -538,11 +618,11 @@ function PanelPositioner({
     const wp = worldPosRef.current;
     if (!wp) return;
     const cam = camera as THREE.OrthographicCamera;
-    const sx  = (wp[0] - cam.position.x) * cam.zoom + size.width  / 2;
-    const sy  = -(wp[1] - cam.position.y) * cam.zoom + size.height / 2;
+    const sx = (wp[0] - cam.position.x) * cam.zoom + size.width / 2;
+    const sy = -(wp[1] - cam.position.y) * cam.zoom + size.height / 2;
     const halfW = halfWRef.current * cam.zoom;
     const halfH = halfHRef.current * cam.zoom;
-    const gap   = paramsRef.current.gapPanel;
+    const gap = paramsRef.current.gapPanel;
     if (isMobile) {
       // panel sous la card, aligné sur son bord gauche
       panelX.set(sx - halfW);
@@ -559,33 +639,54 @@ function PanelPositioner({
 
 // ─── Infinite tile neighbourhood (3 × 3 = 9 groups) ─────────────────────────
 function InfiniteTiles({
-  tile, videoTextures, selected, onSelect,
-  selectTarget, zoomTarget, focusExitRef,
-  worldPosRef, halfWRef, halfHRef, panelX, panelY, paramsRef, active, running, introKey, isMobile,
+  tile,
+  videoTextures,
+  selected,
+  onSelect,
+  selectTarget,
+  zoomTarget,
+  focusExitRef,
+  worldPosRef,
+  halfWRef,
+  halfHRef,
+  panelX,
+  panelY,
+  paramsRef,
+  active,
+  running,
+  introKey,
+  isMobile,
 }: {
-  tile:          ReturnType<typeof buildTile>;
+  tile: ReturnType<typeof buildTile>;
   videoTextures: Map<string, THREE.VideoTexture>;
-  selected:      SelectedInstance;
-  onSelect:      (item: ArtifactCanvasItem, point: [number, number], halfW: number, halfH: number, groupIdx: number, itemIdx: number) => void;
-  selectTarget:  React.MutableRefObject<{ x: number; y: number } | null>;
-  zoomTarget:    React.MutableRefObject<number>;
-  focusExitRef:  React.MutableRefObject<(() => void) | null>;
-  worldPosRef:   React.MutableRefObject<[number, number] | null>;
-  halfWRef:      React.MutableRefObject<number>;
-  halfHRef:      React.MutableRefObject<number>;
-  panelX:        MotionValue<number>;
-  panelY:        MotionValue<number>;
-  paramsRef:     React.MutableRefObject<Params>;
-  active:        boolean;
-  running:       boolean;
-  introKey:      number;
-  isMobile:      boolean;
+  selected: SelectedInstance;
+  onSelect: (
+    item: ArtifactCanvasItem,
+    point: [number, number],
+    halfW: number,
+    halfH: number,
+    groupIdx: number,
+    itemIdx: number,
+  ) => void;
+  selectTarget: React.MutableRefObject<{ x: number; y: number } | null>;
+  zoomTarget: React.MutableRefObject<number>;
+  focusExitRef: React.MutableRefObject<(() => void) | null>;
+  worldPosRef: React.MutableRefObject<[number, number] | null>;
+  halfWRef: React.MutableRefObject<number>;
+  halfHRef: React.MutableRefObject<number>;
+  panelX: MotionValue<number>;
+  panelY: MotionValue<number>;
+  paramsRef: React.MutableRefObject<Params>;
+  active: boolean;
+  running: boolean;
+  introKey: number;
+  isMobile: boolean;
 }) {
   const { camera } = useThree();
   const { TILE_W, TILE_H, items, positions } = tile;
 
   const groupRefs = useRef<(THREE.Group | null)[]>(Array(9).fill(null));
-  const prevTile  = useRef({ x: 0, y: 0 });
+  const prevTile = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     let k = 0;
@@ -609,7 +710,11 @@ function InfiniteTiles({
     let k = 0;
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
-        groupRefs.current[k]?.position.set((tx + dx) * TILE_W, (ty + dy) * TILE_H, 0);
+        groupRefs.current[k]?.position.set(
+          (tx + dx) * TILE_W,
+          (ty + dy) * TILE_H,
+          0,
+        );
         k++;
       }
     }
@@ -642,7 +747,9 @@ function InfiniteTiles({
         return (
           <group
             key={k}
-            ref={(el) => { groupRefs.current[k] = el; }}
+            ref={(el) => {
+              groupRefs.current[k] = el;
+            }}
             position={[dx * TILE_W, dy * TILE_H, 0]}
           >
             {items.map(({ item, key, scale, cardH }, i) => (
@@ -653,11 +760,20 @@ function InfiniteTiles({
                   isSelected={
                     selected !== null &&
                     selected.groupIdx === k &&
-                    selected.itemIdx  === i
+                    selected.itemIdx === i
                   }
                   cardScale={scale}
                   cardH={cardH}
-                  onSelect={(point) => onSelect(item, point, (CARD_W * scale) / 2, (cardH * scale) / 2, k, i)}
+                  onSelect={(point) =>
+                    onSelect(
+                      item,
+                      point,
+                      (CARD_W * scale) / 2,
+                      (cardH * scale) / 2,
+                      k,
+                      i,
+                    )
+                  }
                   videoTexture={videoTextures.get(item._id)}
                 />
               </Suspense>
@@ -676,7 +792,7 @@ function DebugPane({
   paramsRef,
   onLayoutChange,
 }: {
-  paramsRef:      React.MutableRefObject<Params>;
+  paramsRef: React.MutableRefObject<Params>;
   onLayoutChange: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -684,53 +800,140 @@ function DebugPane({
   useEffect(() => {
     if (!IS_DEV || !containerRef.current) return;
 
-    let disposed  = false;
+    let disposed = false;
     let disposeFn: (() => void) | null = null;
 
     import("tweakpane").then(({ Pane }) => {
       if (disposed || !containerRef.current) return;
 
-      const pane = new Pane({ container: containerRef.current, title: "Canvas debug" });
+      const pane = new Pane({
+        container: containerRef.current,
+        title: "Canvas debug",
+      });
       disposeFn = () => pane.dispose();
 
       const q = paramsRef.current;
 
       // ── Layout ──────────────────────────────────────────────────────────────
       const layout = pane.addFolder({ title: "Layout", expanded: true });
-      layout.addBinding(q, "cols",       { label: "columns",  min: 2,  max: 8,   step: 1  }).on("change", onLayoutChange);
-      layout.addBinding(q, "gapX",       { label: "gap X",    min: 50, max: 700, step: 10 }).on("change", onLayoutChange);
-      layout.addBinding(q, "gapY",       { label: "gap Y",    min: 50, max: 600, step: 10 }).on("change", onLayoutChange);
-      layout.addBinding(q, "colStagger", { label: "stagger",  min: 0,  max: 500, step: 10 }).on("change", onLayoutChange);
-      layout.addBinding(q, "jitterX",    { label: "jitter X", min: 0,  max: 250, step: 5  }).on("change", onLayoutChange);
-      layout.addBinding(q, "jitterY",    { label: "jitter Y", min: 0,  max: 250, step: 5  }).on("change", onLayoutChange);
+      layout
+        .addBinding(q, "cols", { label: "columns", min: 2, max: 8, step: 1 })
+        .on("change", onLayoutChange);
+      layout
+        .addBinding(q, "gapX", { label: "gap X", min: 50, max: 700, step: 10 })
+        .on("change", onLayoutChange);
+      layout
+        .addBinding(q, "gapY", { label: "gap Y", min: 50, max: 600, step: 10 })
+        .on("change", onLayoutChange);
+      layout
+        .addBinding(q, "colStagger", {
+          label: "stagger",
+          min: 0,
+          max: 500,
+          step: 10,
+        })
+        .on("change", onLayoutChange);
+      layout
+        .addBinding(q, "jitterX", {
+          label: "jitter X",
+          min: 0,
+          max: 250,
+          step: 5,
+        })
+        .on("change", onLayoutChange);
+      layout
+        .addBinding(q, "jitterY", {
+          label: "jitter Y",
+          min: 0,
+          max: 250,
+          step: 5,
+        })
+        .on("change", onLayoutChange);
 
       // ── Gap stats (read-only monitors) ──────────────────────────────────────
-      const stats       = gapStats(q);
-      const statsFolder = pane.addFolder({ title: "Gap stats (px)", expanded: false });
-      statsFolder.addBinding(stats, "minGapX", { label: "min X", readonly: true });
-      statsFolder.addBinding(stats, "maxGapX", { label: "max X", readonly: true });
-      statsFolder.addBinding(stats, "minGapY", { label: "min Y", readonly: true });
-      statsFolder.addBinding(stats, "maxGapY", { label: "max Y", readonly: true });
-      layout.on("change", () => { Object.assign(stats, gapStats(paramsRef.current)); pane.refresh(); });
+      const stats = gapStats(q);
+      const statsFolder = pane.addFolder({
+        title: "Gap stats (px)",
+        expanded: false,
+      });
+      statsFolder.addBinding(stats, "minGapX", {
+        label: "min X",
+        readonly: true,
+      });
+      statsFolder.addBinding(stats, "maxGapX", {
+        label: "max X",
+        readonly: true,
+      });
+      statsFolder.addBinding(stats, "minGapY", {
+        label: "min Y",
+        readonly: true,
+      });
+      statsFolder.addBinding(stats, "maxGapY", {
+        label: "max Y",
+        readonly: true,
+      });
+      layout.on("change", () => {
+        Object.assign(stats, gapStats(paramsRef.current));
+        pane.refresh();
+      });
 
       // ── Card sizes ──────────────────────────────────────────────────────────
       const cards = pane.addFolder({ title: "Card sizes", expanded: false });
-      cards.addBinding(q, "scaleMin", { label: "scale min", min: 0.3, max: 1.0, step: 0.05 }).on("change", onLayoutChange);
-      cards.addBinding(q, "scaleMax", { label: "scale max", min: 1.0, max: 2.0, step: 0.05 }).on("change", onLayoutChange);
+      cards
+        .addBinding(q, "scaleMin", {
+          label: "scale min",
+          min: 0.3,
+          max: 1.0,
+          step: 0.05,
+        })
+        .on("change", onLayoutChange);
+      cards
+        .addBinding(q, "scaleMax", {
+          label: "scale max",
+          min: 1.0,
+          max: 2.0,
+          step: 0.05,
+        })
+        .on("change", onLayoutChange);
 
       // ── Camera ──────────────────────────────────────────────────────────────
       const cam = pane.addFolder({ title: "Camera", expanded: false });
-      cam.addBinding(q, "camOffsetX",   { label: "cam offset X",       min: 0,   max: 400, step: 5    });
-      cam.addBinding(q, "focusVCenter", { label: "v-center (0↑ · 1↓)", min: 0.1, max: 0.9, step: 0.01 });
+      cam.addBinding(q, "camOffsetX", {
+        label: "cam offset X",
+        min: 0,
+        max: 400,
+        step: 5,
+      });
+      cam.addBinding(q, "focusVCenter", {
+        label: "v-center (0↑ · 1↓)",
+        min: 0.1,
+        max: 0.9,
+        step: 0.01,
+      });
 
       // ── Info panel ──────────────────────────────────────────────────────────
       const panel = pane.addFolder({ title: "Info panel", expanded: false });
-      panel.addBinding(q, "gapPanel", { label: "gap", min: 8, max: 100, step: 4 });
+      panel.addBinding(q, "gapPanel", {
+        label: "gap",
+        min: 8,
+        max: 100,
+        step: 4,
+      });
 
       // ── Dots ────────────────────────────────────────────────────────────────
       const dots = pane.addFolder({ title: "Dots", expanded: false });
-      dots.addBinding(q, "gridCell",  { label: "spacing", min: 20,  max: 200, step: 5   });
-      dots.addBinding(q, "dotRadius", { label: "radius",  min: 0.5, max: 6.0, step: 0.1 });
+      dots.addBinding(q, "gridCell", {
+        label: "spacing",
+        min: 20,
+        max: 200,
+        step: 5,
+      });
+      dots.addBinding(q, "dotRadius", {
+        label: "radius",
+        min: 0.5,
+        max: 6.0,
+        step: 0.1,
+      });
     });
 
     return () => {
@@ -790,40 +993,47 @@ let _hasVisited = false;
 const _videoCache = new Map<string, THREE.VideoTexture>();
 
 // ─── Main component ────────────────────────────────────────────────────────────
-export function InfiniteCanvas({ artifacts, active = true, running = active }: {
+export function InfiniteCanvas({
+  artifacts,
+  active = true,
+  running = active,
+}: {
   artifacts: ArtifactCanvasItem[];
-  active?:   boolean;
-  running?:  boolean; // keeps frameloop alive during outro even when active=false
+  active?: boolean;
+  running?: boolean; // keeps frameloop alive during outro even when active=false
 }) {
   // firstMount captures _hasVisited at construction time (before we flip it)
   const firstMount = useRef(!_hasVisited);
 
-  const [selected, setSelected]   = useState<SelectedInstance>(null);
-  const [loading, setLoading]     = useState(firstMount.current);
+  const [selected, setSelected] = useState<SelectedInstance>(null);
+  const [loading, setLoading] = useState(firstMount.current);
   const [tileVersion, setTileVersion] = useState(0);
   // Bumps when the canvas is actually revealed (active & not loading) → triggers
   // the intro. Decoupling from `active` ensures the first-visit intro isn't
   // consumed behind the LoadingBar during WebGL init.
-  const [introKey, setIntroKey]   = useState(0);
-  const readyRef                  = useRef(false);
+  const [introKey, setIntroKey] = useState(0);
+  const readyRef = useRef(false);
 
   // Responsive — grille verticale en mobile (≤768px)
-  const [isMobile, setIsMobile]   = useState(false);
-  const isMobileRef               = useRef(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const isMobileRef = useRef(false);
 
-  const paramsRef           = useRef<Params>({ ...DEFAULT_PARAMS });
-  const selectTargetRef     = useRef<{ x: number; y: number } | null>(null);
+  const paramsRef = useRef<Params>({ ...DEFAULT_PARAMS });
+  const selectTargetRef = useRef<{ x: number; y: number } | null>(null);
   const selectedWorldPosRef = useRef<[number, number] | null>(null);
-  const selectedHalfWRef    = useRef<number>(CARD_W / 2);
-  const selectedHalfHRef    = useRef<number>(CARD_H / 2);
+  const selectedHalfWRef = useRef<number>(CARD_W / 2);
+  const selectedHalfHRef = useRef<number>(CARD_H / 2);
   // Always start at 0.5 — CameraController handles the dezoom on each visit
-  const zoomTargetRef       = useRef<number>(0.5);
-  const focusExitRef        = useRef<(() => void) | null>(null);
+  const zoomTargetRef = useRef<number>(0.5);
+  const focusExitRef = useRef<(() => void) | null>(null);
 
   const panelX = useMotionValue(-9999);
   const panelY = useMotionValue(0);
 
-  const handleLayoutChange = useCallback(() => setTileVersion(v => v + 1), []);
+  const handleLayoutChange = useCallback(
+    () => setTileVersion((v) => v + 1),
+    [],
+  );
 
   // Détecte mobile/desktop → bascule la grille (verticale ↔ masonry) + rebuild
   useEffect(() => {
@@ -861,22 +1071,27 @@ export function InfiniteCanvas({ artifacts, active = true, running = active }: {
       const m = a.firstMedia;
       if (m?._type !== "galleryVideo" || !m.videoFileUrl) return;
 
-      const vid       = document.createElement("video");
-      vid.crossOrigin = "anonymous";   // MUST be before src to avoid CORS taint
-      vid.src         = m.videoFileUrl;
-      vid.muted       = true;
-      vid.autoplay    = true;
-      vid.loop        = true;
+      const vid = document.createElement("video");
+      vid.crossOrigin = "anonymous"; // MUST be before src to avoid CORS taint
+      vid.src = m.videoFileUrl;
+      vid.muted = true;
+      vid.autoplay = true;
+      vid.loop = true;
       vid.playsInline = true;
-      vid.preload     = "auto";        // texture WebGL — streaming complet nécessaire
+      vid.preload = "auto"; // texture WebGL — streaming complet nécessaire
       Object.assign(vid.style, {
-        position: "fixed", opacity: "0", pointerEvents: "none",
-        width: "1px", height: "1px", top: "0", left: "0",
+        position: "fixed",
+        opacity: "0",
+        pointerEvents: "none",
+        width: "1px",
+        height: "1px",
+        top: "0",
+        left: "0",
       });
       document.body.appendChild(vid);
       vid.play().catch(() => {
         const retry = () => vid.play().catch(() => {});
-        document.addEventListener("click",      retry, { once: true });
+        document.addEventListener("click", retry, { once: true });
         document.addEventListener("touchstart", retry, { once: true });
       });
 
@@ -904,9 +1119,13 @@ export function InfiniteCanvas({ artifacts, active = true, running = active }: {
 
       const update = () => {
         if (!vid.videoWidth || !vid.videoHeight) return;
-        const h = Math.max(MIN_CARD_H, Math.min(MAX_CARD_H,
-          Math.round(CARD_W * vid.videoHeight / vid.videoWidth),
-        ));
+        const h = Math.max(
+          MIN_CARD_H,
+          Math.min(
+            MAX_CARD_H,
+            Math.round((CARD_W * vid.videoHeight) / vid.videoWidth),
+          ),
+        );
         _videoDimsCache.set(a._id, h);
         handleLayoutChange(); // reconstruit la tile avec le vrai ratio
       };
@@ -923,7 +1142,9 @@ export function InfiniteCanvas({ artifacts, active = true, running = active }: {
   }, [artifacts, handleLayoutChange]);
 
   // Mark visited on mount (used by loading bar — shows only on first visit)
-  useEffect(() => { _hasVisited = true; }, []);
+  useEffect(() => {
+    _hasVisited = true;
+  }, []);
 
   // Loading bar — only on first visit (revisits have all assets cached).
   // Simple fixed-duration timer — more reliable than DefaultLoadingManager
@@ -951,7 +1172,7 @@ export function InfiniteCanvas({ artifacts, active = true, running = active }: {
   const handleDeselect = useCallback(() => {
     setSelected(null);
     selectedWorldPosRef.current = null;
-    zoomTargetRef.current       = 1.0;
+    zoomTargetRef.current = 1.0;
     panelX.set(-9999);
   }, [panelX]);
 
@@ -970,34 +1191,40 @@ export function InfiniteCanvas({ artifacts, active = true, running = active }: {
 
   const handleSelect = useCallback(
     (
-      item:     ArtifactCanvasItem,
-      point:    [number, number],
-      halfW:    number,
-      halfH:    number,
+      item: ArtifactCanvasItem,
+      point: [number, number],
+      halfW: number,
+      halfH: number,
       groupIdx: number,
-      itemIdx:  number,
+      itemIdx: number,
     ) => {
-      const q      = paramsRef.current;
+      const q = paramsRef.current;
       const mobile = isMobileRef.current;
-      const vw     = window.innerWidth;
-      const vh     = window.innerHeight;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
 
       // Zoom adaptatif : la card rentre dans une boîte cible (max W/H), donc
       // toutes les cards focus apparaissent ~à la même taille. (*1.04 = pop sel.)
-      const z = computeFocusZoom(halfW * 2 * 1.04, halfH * 2 * 1.04, vw, vh, mobile);
+      const z = computeFocusZoom(
+        halfW * 2 * 1.04,
+        halfH * 2 * 1.04,
+        vw,
+        vh,
+        mobile,
+      );
 
       // Cadrage caméra : card en haut (mobile, panel dessous) ou décalée à
       // gauche (desktop, panel à droite).
       const targetX = mobile ? point[0] : point[0] + q.camOffsetX / z;
-      const vFrac   = mobile ? 0.30 : q.focusVCenter; // centre card (0 haut · 1 bas)
-      const targetY = point[1] - (0.5 - vFrac) * vh / z;
+      const vFrac = mobile ? 0.3 : q.focusVCenter; // centre card (0 haut · 1 bas)
+      const targetY = point[1] - ((0.5 - vFrac) * vh) / z;
 
       setSelected({ artifact: item, groupIdx, itemIdx });
-      selectTargetRef.current     = { x: targetX, y: targetY };
+      selectTargetRef.current = { x: targetX, y: targetY };
       selectedWorldPosRef.current = point;
-      selectedHalfWRef.current    = halfW;
-      selectedHalfHRef.current    = halfH;
-      zoomTargetRef.current       = z;
+      selectedHalfWRef.current = halfW;
+      selectedHalfHRef.current = halfH;
+      zoomTargetRef.current = z;
     },
     [],
   );
@@ -1023,7 +1250,11 @@ export function InfiniteCanvas({ artifacts, active = true, running = active }: {
         <Canvas
           orthographic
           camera={{ zoom: 0.5, position: [0, 0, 100], near: 0.1, far: 10000 }}
-          gl={{ antialias: true, powerPreference: "high-performance", alpha: true }}
+          gl={{
+            antialias: true,
+            powerPreference: "high-performance",
+            alpha: true,
+          }}
           frameloop={running ? "always" : "never"}
           onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
           onPointerMissed={handleDeselect}
@@ -1058,8 +1289,18 @@ export function InfiniteCanvas({ artifacts, active = true, running = active }: {
             className="fixed z-50 pointer-events-none"
             style={{ left: 0, top: 0, x: panelX, y: panelY }}
             initial={{ opacity: 0 }}
-            animate={{ opacity: 1, transition: { duration: 0.22, delay: PANEL_DELAY_S, ease: "easeOut" } }}
-            exit={{ opacity: 0, transition: { duration: 0.14, ease: "easeIn" } }}
+            animate={{
+              opacity: 1,
+              transition: {
+                duration: 0.22,
+                delay: PANEL_DELAY_S,
+                ease: "easeOut",
+              },
+            }}
+            exit={{
+              opacity: 0,
+              transition: { duration: 0.14, ease: "easeIn" },
+            }}
           >
             <div className="pointer-events-auto">
               <ArtifactInfo artifact={selected.artifact} />

@@ -13,8 +13,8 @@ import { RoleBlock } from "@/components/blocks/RoleBlock";
 import { ProjectMediaBlock } from "@/components/blocks/ProjectMediaBlock";
 import { MatesBlock } from "@/components/blocks/MatesBlock";
 import { ContentRenderer } from "@/components/blocks/ContentRenderer";
-import { ProjectPageClient } from "./ProjectPageClient";
-import { PageShell } from "@/components/PageShell";
+import { ProjectPageClient } from "@/components/layout/ProjectPageClient";
+import { PageShell } from "@/components/layout/PageShell";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Separator } from "@/components/ui/Separator";
 import {
@@ -162,7 +162,11 @@ export default async function ProjectPage({
               {project.startDate && (
                 <div className="shrink-0">
                   <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-400 mb-3">
-                    <HugeiconsIcon icon={Clock04Icon} size={12} strokeWidth={2} />
+                    <HugeiconsIcon
+                      icon={Clock04Icon}
+                      size={12}
+                      strokeWidth={2}
+                    />
                     duration
                   </div>
                   <p className="text-lg font-semibold text-stone-700 whitespace-nowrap">

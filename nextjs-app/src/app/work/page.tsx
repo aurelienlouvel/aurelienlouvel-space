@@ -2,7 +2,7 @@ import { ViewTransition } from "react";
 import { client } from "@/sanity/client";
 import { projectsListQuery, type ProjectListItem } from "@/sanity/queries";
 import { WorkGrid } from "@/components/blocks/WorkGrid";
-import { PageShell } from "@/components/PageShell";
+import { PageShell } from "@/components/layout/PageShell";
 
 export const revalidate = 60;
 

@@ -53,7 +53,6 @@ export function ActionBar() {
   const widthMv = useMotionValue<number | string>("auto");
   const initialized = useRef(false);
 
-  // Animate actual CSS width (not FLIP scale transforms) to avoid content distortion
   useLayoutEffect(() => {
     const el = barRef.current;
     if (!el) return;
@@ -148,62 +147,62 @@ export function ActionBar() {
               </nav>
 
               <div className="hidden sm:flex items-center">
-              {sep}
+                {sep}
 
-              <div className="relative">
-                <AnimatePresence>
-                  {toast !== null && (
-                    <motion.span
-                      key={toast.id}
-                      className={cn(
-                        "pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-full px-2.5 py-1 text-xs",
-                        toast.color.bg,
-                        toast.color.text,
-                      )}
-                      initial={{ opacity: 0, y: 40, rotate: toast.rotate }}
-                      animate={{ opacity: 1, y: -8, rotate: toast.rotate }}
-                      exit={{
-                        opacity: 0,
-                        y: -20,
-                        x: toast.rotate > 0 ? 10 : -10,
-                        rotate: toast.rotate,
-                        transition: { duration: 0.26, ease: "easeOut" },
-                      }}
-                      transition={{
-                        type: "spring",
-                        stiffness: 460,
-                        damping: 28,
-                      }}
-                    >
-                      email copied ;)
-                    </motion.span>
-                  )}
-                </AnimatePresence>
+                <div className="relative">
+                  <AnimatePresence>
+                    {toast !== null && (
+                      <motion.span
+                        key={toast.id}
+                        className={cn(
+                          "pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-full px-2.5 py-1 text-xs",
+                          toast.color.bg,
+                          toast.color.text,
+                        )}
+                        initial={{ opacity: 0, y: 40, rotate: toast.rotate }}
+                        animate={{ opacity: 1, y: -8, rotate: toast.rotate }}
+                        exit={{
+                          opacity: 0,
+                          y: -20,
+                          x: toast.rotate > 0 ? 10 : -10,
+                          rotate: toast.rotate,
+                          transition: { duration: 0.26, ease: "easeOut" },
+                        }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 460,
+                          damping: 28,
+                        }}
+                      >
+                        email copied ;)
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
 
-                <motion.button
-                  onClick={handleCopy}
-                  className="flex h-10 items-center gap-1.5 rounded-xl bg-sky-50 px-3 text-base font-medium text-sky-500 cursor-pointer"
-                  whileHover={{ scale: 0.95, rotate: -1.5 }}
-                  whileTap={{ scale: 0.87, rotate: -2 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
-                >
-                  <HugeiconsIcon
-                    icon={MessageMultiple02Icon}
-                    size={15}
-                    strokeWidth={2}
-                  />
-                  let&apos;s chat
-                </motion.button>
-              </div>
+                  <motion.button
+                    onClick={handleCopy}
+                    className="flex h-10 items-center gap-1.5 rounded-xl bg-sky-50 px-3 text-base font-medium text-sky-500 cursor-pointer"
+                    whileHover={{ scale: 0.95, rotate: -1.5 }}
+                    whileTap={{ scale: 0.87, rotate: -2 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                  >
+                    <HugeiconsIcon
+                      icon={MessageMultiple02Icon}
+                      size={15}
+                      strokeWidth={2}
+                    />
+                    let&apos;s chat
+                  </motion.button>
+                </div>
               </div>
             </div>
           ) : (
             <div className="flex h-full items-center px-2 whitespace-nowrap">
               <motion.button
                 onClick={() => {
-                  markWorkReturn(); // la grille ne rejoue pas son intro au retour
+                  markWorkReturn();
                   router.push("/work", {
-                    scroll: false, // pas de scroll-to-top Next : PageShell restaure la position
+                    scroll: false,
                     transitionTypes: ["nav-back"],
                   });
                 }}

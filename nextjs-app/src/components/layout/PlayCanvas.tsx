@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import type { ArtifactCanvasItem } from "@/sanity/queries";
-import { InfiniteCanvas } from "./InfiniteCanvas";
+import { InfiniteCanvas } from "@/components/layout/InfiniteCanvas";
 import { triggerOutro, OUTRO_DURATION, OUTRO_STAGGER_MAX } from "@/lib/artifact-utils";
 import { EASE_IN_OUT_CSS } from "@/lib/easings";
 
@@ -19,71 +19,87 @@ const EXIT_TOTAL  = Math.max(OUTRO_DURATION + OUTRO_STAGGER_MAX, FADE_OUT_MS) + 
 // → la vague d'outro de la page reste visible dessous, puis le canvas prend le relais.
 const ENTER_DELAY = 260;
 
+// Module-level — survives navigations, flips to true on first /play visit
+let _everMounted = false;
+
 /**
- * Wrapper persistant — monté une fois, jamais démonté.
+ * Monté dans le root layout — persistant, jamais démonté.
  *
- * - Entrée /play : après ENTER_DELAY, fade-in (opacity 0→1, FADE_IN_MS) pendant
- *                  que l'intro three se met en place (reset des cards + dezoom).
- *                  Le fade-in masque la frame résiduelle (cards à zoom 1) qui,
- *                  en révélation instantanée, causait un flash avant le dezoom.
- * - Sortie /play : outro des cards + crossfade du conteneur (opacity → 0) qui
- *                  efface le voile blanc et révèle la page suivante, sans
- *                  palier blanc. Caché après EXIT_TOTAL.
+ * - Premier passage sur /play : monte le canvas après 360 ms (fin de la
+ *   transition de route sortante) puis fade-in (FADE_IN_MS).
+ * - Entrée /play (revisites) : fade-in après ENTER_DELAY.
+ * - Sortie /play : outro des cards + crossfade opacity → 0, puis masqué.
  */
 export function PlayCanvas({ artifacts }: { artifacts: ArtifactCanvasItem[] }) {
   const pathname = usePathname();
   const isPlay   = pathname === "/play";
 
-  const [active,  setActive]  = useState(isPlay);
-  const [running, setRunning] = useState(isPlay);
-  const [visible, setVisible] = useState(isPlay);
-  const [opacity, setOpacity] = useState(isPlay ? 1 : 0);
-  // transition CSS opacity — activée pendant les fades d'entrée/sortie
+  const [mounted, setMounted] = useState(_everMounted);
+  const [active,  setActive]  = useState(isPlay && _everMounted);
+  const [running, setRunning] = useState(isPlay && _everMounted);
+  const [visible, setVisible] = useState(isPlay && _everMounted);
+  const [opacity, setOpacity] = useState(isPlay && _everMounted ? 1 : 0);
   const [fading,  setFading]  = useState(false);
   const [fadeMs,  setFadeMs]  = useState(FADE_OUT_MS);
-  // expo.inOut : démarrage lent → l'opacity reste très basse les 1ères frames,
-  // ce qui masque aussi la frame résiduelle (cards à zoom 1) à l'entrée.
   const [fadeEase, setFadeEase] = useState<string>(EASE_IN_OUT_CSS);
 
   const prevIsPlay = useRef(isPlay);
   const timerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const wasPlay = prevIsPlay.current;
-    prevIsPlay.current = isPlay;
     if (timerRef.current) clearTimeout(timerRef.current);
 
-    if (isPlay && !wasPlay) {
-      // ── Entrée /play ─────────────────────────────────────────────
-      setRunning(true);
+    // ── Premier montage sur /play ────────────────────────────────────────────
+    if (isPlay && !_everMounted) {
       timerRef.current = setTimeout(() => {
-        setFading(true);        // fade-in (et non révélation instantanée)
+        _everMounted = true;
+        setMounted(true);
+        setRunning(true);
+        setFading(true);
         setFadeMs(FADE_IN_MS);
         setFadeEase(EASE_IN_OUT_CSS);
         setVisible(true);
-        setActive(true);        // → déclenche l'intro (reset cards + dezoom)
+        setActive(true);
+        setOpacity(1);
+      }, 360); // fin de la transition de route sortante
+      return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    }
+
+    // ── Revisites : entrée / sortie ──────────────────────────────────────────
+    const wasPlay = prevIsPlay.current;
+    prevIsPlay.current = isPlay;
+
+    if (isPlay && !wasPlay) {
+      // Entrée /play
+      setRunning(true);
+      timerRef.current = setTimeout(() => {
+        setFading(true);
+        setFadeMs(FADE_IN_MS);
+        setFadeEase(EASE_IN_OUT_CSS);
+        setVisible(true);
+        setActive(true);
         setOpacity(1);
       }, ENTER_DELAY);
     } else if (!isPlay && wasPlay) {
-      // ── Sortie /play ─────────────────────────────────────────────
-      triggerOutro();       // mouvement d'outro des cards (three.js)
-      setActive(false);     // coupe les interactions / focus
-      setRunning(true);     // garde le frameloop pour jouer l'outro
-      setVisible(true);     // reste visible le temps du crossfade
-      setFading(true);      // active la transition CSS
+      // Sortie /play
+      triggerOutro();
+      setActive(false);
+      setRunning(true);
+      setVisible(true);
+      setFading(true);
       setFadeMs(FADE_OUT_MS);
       setFadeEase(EASE_IN_OUT_CSS);
-      setOpacity(0);        // voile blanc + cards fondent → révèle la page
+      setOpacity(0);
       timerRef.current = setTimeout(() => {
         setRunning(false);
         setVisible(false);
       }, EXIT_TOTAL);
     }
 
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [isPlay]);
+
+  if (!mounted) return null;
 
   return (
     <div

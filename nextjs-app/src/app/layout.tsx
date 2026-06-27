@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { unstable_cache } from "next/cache";
 import "./globals.css";
-import { ActionBar } from "@/components/ActionBar";
+import { ActionBar } from "@/components/nav/ActionBar";
 import { ActionBarProvider } from "@/contexts/ActionBarContext";
 import { ScrollInit } from "@/components/ScrollInit";
-import { PlayCanvasMount } from "@/components/play/PlayCanvasMount";
+import { PlayCanvas } from "@/components/layout/PlayCanvas";
 import { BodyTheme } from "@/components/BodyTheme";
 import { client } from "@/sanity/client";
 import {
@@ -45,7 +45,7 @@ export default async function RootLayout({
       <body className="min-h-dvh bg-white text-foreground">
         <BodyTheme />
         <ActionBarProvider>
-          <PlayCanvasMount artifacts={artifacts} />
+          <PlayCanvas artifacts={artifacts} />
           <ScrollInit />
           {children}
           <ActionBar />
