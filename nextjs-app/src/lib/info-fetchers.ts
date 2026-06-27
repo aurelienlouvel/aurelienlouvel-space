@@ -20,16 +20,20 @@ export async function getStravaActivity(shareUrl: string | null) {
   try {
     const sessionRes = await fetch(
       `https://www.statshunters.com/share/${shareHash}`,
-      { cache: "no-store" },
+      { next: { revalidate: 300 } },
     );
     const setCookies: string[] =
-      (sessionRes.headers as Headers & { getSetCookie?(): string[] }).getSetCookie?.() ?? [];
+      (
+        sessionRes.headers as Headers & { getSetCookie?(): string[] }
+      ).getSetCookie?.() ?? [];
     const cookies: Record<string, string> = {};
     for (const header of setCookies) {
       const [nameValue] = header.split(";");
       const eqIdx = nameValue.indexOf("=");
       if (eqIdx > -1) {
-        cookies[nameValue.slice(0, eqIdx).trim()] = nameValue.slice(eqIdx + 1).trim();
+        cookies[nameValue.slice(0, eqIdx).trim()] = nameValue
+          .slice(eqIdx + 1)
+          .trim();
       }
     }
     const xsrfToken = decodeURIComponent(cookies["XSRF-TOKEN"] ?? "");
@@ -60,7 +64,10 @@ export async function getStravaActivity(shareUrl: string | null) {
       speedKmh: Math.round(latest.avg * 10) / 10,
       distanceKm: Math.round(latest.distance / 100) / 10,
       durationMin: Math.round(latest.moving_time / 60),
-      bpm: latest.average_heartrate > 0 ? Math.round(latest.average_heartrate) : null,
+      bpm:
+        latest.average_heartrate > 0
+          ? Math.round(latest.average_heartrate)
+          : null,
       elevationM: Math.round(latest.total_elevation_gain),
       // Full datetime (StatsHunters returns "YYYY-MM-DD HH:MM:SS")
       date: latest.date.replace(" ", "T"),
@@ -189,7 +196,7 @@ export async function getMapData(address: string | null) {
     return {
       lat: latitude,
       lon: longitude,
-      label: city && country ? `${city}, ${country}` : country ?? null,
+      label: city && country ? `${city}, ${country}` : (country ?? null),
       timezone,
       temperature,
       weatherCode,
@@ -263,7 +270,8 @@ export async function getAppleMusicData(url: string | null) {
     );
     if (!track) return null;
     return {
-      artworkUrl: track.artworkUrl100?.replace("100x100bb", "600x600bb") ?? null,
+      artworkUrl:
+        track.artworkUrl100?.replace("100x100bb", "600x600bb") ?? null,
       trackName: track.trackName ?? null,
       artistName: track.artistName ?? null,
       previewUrl: track.previewUrl ?? null,
@@ -272,4 +280,3 @@ export async function getAppleMusicData(url: string | null) {
     return null;
   }
 }
-

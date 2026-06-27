@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 type MatchData = {
-  result: "victory" | "defeat";
+  result: "victory" | "defeat" | "draw";
   score: string | null;
   mapName: string | null;
   mapSplashUrl: string | null;
@@ -89,6 +89,8 @@ async function fromHenrik(
   const rounds = (team?.rounds ?? {}) as Record<string, unknown>;
   const roundsWon = typeof rounds.won === "number" ? rounds.won : null;
   const roundsLost = typeof rounds.lost === "number" ? rounds.lost : null;
+  const isDraw =
+    roundsWon != null && roundsLost != null && roundsWon === roundsLost;
 
   const stats = (player.stats ?? {}) as Record<string, unknown>;
   const agent = (player.agent ?? {}) as Record<string, unknown>;
@@ -114,7 +116,7 @@ async function fromHenrik(
   const acs = totalRounds > 0 && score != null ? Math.round(score / totalRounds) : null;
 
   return {
-    result: hasWon ? "victory" : "defeat",
+    result: isDraw ? "draw" : hasWon ? "victory" : "defeat",
     score: roundsWon != null && roundsLost != null ? `${roundsWon}-${roundsLost}` : null,
     mapName,
     mapSplashUrl: visuals.mapSplashUrl,
