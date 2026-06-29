@@ -198,7 +198,7 @@
 @layer base {
     * {
         @apply border-border outline-ring/50;
-        /*font-variation-settings: "wght" var(--font-wght, 480);*/
+        font-variation-settings: "wght" var(--font-wght, 480);
     }
     body {
         @apply bg-background text-foreground;
