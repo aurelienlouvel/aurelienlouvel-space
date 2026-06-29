@@ -423,11 +423,14 @@ const FOCUS_DURATION = 750; // ms — focus snap
 // Panel appears once media is nearly stable (Framer Motion delay, not a timer)
 const PANEL_DELAY_S = (FOCUS_DURATION * 0.75) / 1000; // seconds for Framer Motion
 
+const DRAG_THRESHOLD = 6;
+
 function CameraController({
   selectTarget,
   zoomTarget,
   focusExitRef,
   paramsRef,
+  panDeltaRef,
   active,
   running,
   introKey,
@@ -436,6 +439,7 @@ function CameraController({
   zoomTarget: React.MutableRefObject<number>;
   focusExitRef: React.MutableRefObject<(() => void) | null>;
   paramsRef: React.MutableRefObject<Params>;
+  panDeltaRef: React.MutableRefObject<{ x: number; y: number }>;
   active: boolean;
   running: boolean; // frameloop alive — false only when fully at rest (hidden)
   introKey: number; // bumps when the canvas is actually revealed → play intro
@@ -443,6 +447,7 @@ function CameraController({
   const { camera } = useThree();
   const wheel = useRef({ x: 0, y: 0 });
   const inFocus = useRef(false);
+  const velocityRef = useRef({ x: 0, y: 0 }); // inertia after drag release
   // Time-based intro zoom animation (null = not running)
   const zoomAnim = useRef<{ startTime: number; fromZoom: number } | null>(null);
   // Time-based focus animation — position + zoom synchronized on the same curve
@@ -460,6 +465,7 @@ function CameraController({
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      velocityRef.current = { x: 0, y: 0 }; // stop inertia on scroll
       if (inFocus.current) {
         focusExitRef.current?.();
         inFocus.current = false;
@@ -477,6 +483,83 @@ function CameraController({
     window.addEventListener("wheel", onWheel, { passive: false });
     return () => window.removeEventListener("wheel", onWheel);
   }, [selectTarget, zoomTarget, focusExitRef]);
+
+  // Drag (mouse left-button) + touch swipe → pan + inertia on release
+  // Threshold avoids triggering pan on accidental micro-movements during clicks.
+  // _dragMoved is a module-level flag so handleSelect / handleDeselect can skip.
+  useEffect(() => {
+    if (!active) {
+      velocityRef.current = { x: 0, y: 0 };
+      return;
+    }
+    let dragActive = false;
+    let startX = 0, startY = 0, lastX = 0, lastY = 0;
+    // Circular buffer of recent moves for accurate release velocity
+    const recentMoves: Array<{ x: number; y: number; t: number }> = [];
+
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (inFocus.current) return;
+      dragActive = true;
+      startX = lastX = e.clientX;
+      startY = lastY = e.clientY;
+      _dragMoved = false;
+      velocityRef.current = { x: 0, y: 0 }; // stop ongoing inertia
+      recentMoves.length = 0;
+      recentMoves.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+      if (zoomAnim.current) { zoomAnim.current = null; zoomTarget.current = 1.0; }
+      focusAnim.current = null;
+      selectTarget.current = null;
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!dragActive) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      const now = performance.now();
+      recentMoves.push({ x: e.clientX, y: e.clientY, t: now });
+      // Keep only last 80ms for velocity estimation
+      while (recentMoves.length > 1 && now - recentMoves[0].t > 80) recentMoves.shift();
+      if (!_dragMoved) {
+        const totalDx = e.clientX - startX;
+        const totalDy = e.clientY - startY;
+        if (Math.abs(totalDx) < DRAG_THRESHOLD && Math.abs(totalDy) < DRAG_THRESHOLD) return;
+        _dragMoved = true;
+      }
+      // x: drag right → camera left (inverted); y: drag down → camera up (same)
+      panDeltaRef.current.x -= dx;
+      panDeltaRef.current.y += dy;
+    };
+
+    const onUp = () => {
+      if (dragActive && recentMoves.length >= 2) {
+        const first = recentMoves[0];
+        const last = recentMoves[recentMoves.length - 1];
+        const dt = last.t - first.t;
+        if (dt > 5) {
+          // Camera coord convention: invert x, keep y
+          velocityRef.current.x = -(last.x - first.x) / dt;
+          velocityRef.current.y =  (last.y - first.y) / dt;
+        }
+      }
+      dragActive = false;
+      setTimeout(() => { _dragMoved = false; }, 50);
+    };
+
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   // Reset transient camera state whenever the canvas goes inactive (leaving /play)
   useEffect(() => {
@@ -522,7 +605,7 @@ function CameraController({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [introKey, camera]);
 
-  useFrame(() => {
+  useFrame((_state, delta) => {
     const cam = camera as THREE.OrthographicCamera;
 
     // Cancel intro zoom if selection starts mid-animation
@@ -574,7 +657,7 @@ function CameraController({
         focusAnim.current = null;
       }
     } else {
-      // Idle: zoom lerp for exit-focus, then wheel pan
+      // Idle: zoom lerp for exit-focus, then inertia + wheel/drag pan
       const zDiff = zoomTarget.current - cam.zoom;
       if (Math.abs(zDiff) > 0.001) {
         cam.zoom += zDiff * 0.16;
@@ -583,9 +666,26 @@ function CameraController({
         cam.zoom = zoomTarget.current;
         cam.updateProjectionMatrix();
       }
-      cam.position.x += wheel.current.x / cam.zoom;
-      cam.position.y += wheel.current.y / cam.zoom;
+      // Inertia — velocity in camera px/ms, decays with exp friction
+      const vx = velocityRef.current.x;
+      const vy = velocityRef.current.y;
+      if (vx !== 0 || vy !== 0) {
+        const deltaMs = delta * 1000;
+        cam.position.x += vx * deltaMs / cam.zoom;
+        cam.position.y += vy * deltaMs / cam.zoom;
+        const decay = Math.exp(-2.5 * delta);
+        velocityRef.current.x *= decay;
+        velocityRef.current.y *= decay;
+        if (Math.abs(velocityRef.current.x) < 0.0001 && Math.abs(velocityRef.current.y) < 0.0001) {
+          velocityRef.current.x = 0;
+          velocityRef.current.y = 0;
+        }
+      }
+      cam.position.x += (wheel.current.x + panDeltaRef.current.x) / cam.zoom;
+      cam.position.y += (wheel.current.y + panDeltaRef.current.y) / cam.zoom;
       wheel.current = { x: 0, y: 0 };
+      panDeltaRef.current.x = 0;
+      panDeltaRef.current.y = 0;
     }
 
     inFocus.current = cam.zoom > 1.01;
@@ -652,6 +752,7 @@ function InfiniteTiles({
   panelX,
   panelY,
   paramsRef,
+  panDeltaRef,
   active,
   running,
   introKey,
@@ -677,6 +778,7 @@ function InfiniteTiles({
   panelX: MotionValue<number>;
   panelY: MotionValue<number>;
   paramsRef: React.MutableRefObject<Params>;
+  panDeltaRef: React.MutableRefObject<{ x: number; y: number }>;
   active: boolean;
   running: boolean;
   introKey: number;
@@ -728,6 +830,7 @@ function InfiniteTiles({
         zoomTarget={zoomTarget}
         focusExitRef={focusExitRef}
         paramsRef={paramsRef}
+        panDeltaRef={panDeltaRef}
         active={active}
         running={running}
         introKey={introKey}
@@ -990,6 +1093,7 @@ function LoadingBar({ loading }: { loading: boolean }) {
 //                 keep playing in background and are instantly reusable on return
 //
 let _hasVisited = false;
+let _dragMoved = false;
 const _videoCache = new Map<string, THREE.VideoTexture>();
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -1026,6 +1130,7 @@ export function InfiniteCanvas({
   // Always start at 0.5 — CameraController handles the dezoom on each visit
   const zoomTargetRef = useRef<number>(0.5);
   const focusExitRef = useRef<(() => void) | null>(null);
+  const panDeltaRef = useRef({ x: 0, y: 0 });
 
   const panelX = useMotionValue(-9999);
   const panelY = useMotionValue(0);
@@ -1170,6 +1275,7 @@ export function InfiniteCanvas({
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleDeselect = useCallback(() => {
+    if (_dragMoved) return;
     setSelected(null);
     selectedWorldPosRef.current = null;
     zoomTargetRef.current = 1.0;
@@ -1198,6 +1304,7 @@ export function InfiniteCanvas({
       groupIdx: number,
       itemIdx: number,
     ) => {
+      if (_dragMoved) return;
       const q = paramsRef.current;
       const mobile = isMobileRef.current;
       const vw = window.innerWidth;
@@ -1246,7 +1353,7 @@ export function InfiniteCanvas({
       <LoadingBar loading={loading && active} />
 
       {/* Canvas — always visible, dezoom 0.5→1 on mount */}
-      <div style={{ position: "absolute", inset: 0 }}>
+      <div style={{ position: "absolute", inset: 0, touchAction: "none" }}>
         <Canvas
           orthographic
           camera={{ zoom: 0.5, position: [0, 0, 100], near: 0.1, far: 10000 }}
@@ -1273,6 +1380,7 @@ export function InfiniteCanvas({
             panelX={panelX}
             panelY={panelY}
             paramsRef={paramsRef}
+            panDeltaRef={panDeltaRef}
             active={active}
             running={running}
             introKey={introKey}
