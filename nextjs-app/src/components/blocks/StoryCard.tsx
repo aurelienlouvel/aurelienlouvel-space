@@ -929,13 +929,23 @@ function ValorantCard({
       {/* Stats row: agent icon + KDA · ACS · HS% aligned left */}
       <div className="relative mx-5 flex items-center gap-4 border-t border-white/[0.07] py-3">
         {data.agentIconUrl && (
-          <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-white/20">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={data.agentIconUrl}
-              alt={data.agentName ?? ""}
-              className="h-full w-full object-cover"
-            />
+          <div className="relative h-9 w-9 shrink-0">
+            <div className="h-full w-full overflow-hidden rounded-lg border border-white/20">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={data.agentIconUrl}
+                alt={data.agentName ?? ""}
+                className="h-full w-full object-cover"
+              />
+            </div>
+            {data.rankIconUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={data.rankIconUrl}
+                alt={data.rank ?? ""}
+                className="absolute -top-2 -right-2 h-5 w-5 object-contain drop-shadow"
+              />
+            )}
           </div>
         )}
         <div className="flex gap-4">
