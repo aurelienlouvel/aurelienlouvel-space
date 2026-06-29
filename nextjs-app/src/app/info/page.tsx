@@ -227,7 +227,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Experience</h4>
                 </AnimatedItem>
-                <div className="flex flex-col gap-10">
+                <div className="flex flex-col gap-4">
                   {experiences.map((exp, i) => (
                     <AnimatedItem key={exp._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
@@ -252,7 +252,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Education</h4>
                 </AnimatedItem>
-                <div className="flex flex-col gap-10">
+                <div className="flex flex-col gap-4">
                   {education.map((edu, i) => (
                     <AnimatedItem key={edu._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
@@ -275,7 +275,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Volunteer</h4>
                 </AnimatedItem>
-                <div className="flex flex-col gap-10">
+                <div className="flex flex-col gap-4">
                   {volunteering.map((vol, i) => (
                     <AnimatedItem key={vol._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
@@ -299,7 +299,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-4">Awards</h4>
                 </AnimatedItem>
-                <div className="flex flex-col gap-10">
+                <div className="flex flex-col gap-4">
                   {awards.map((award, i) => (
                     <AnimatedItem key={award._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
@@ -321,7 +321,7 @@ export default async function InfoPage() {
               <a
                 href="/aurelien-louvel-resume-en.pdf"
                 download
-                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-base text-stone-400 transition-all -rotate-2 hover:scale-[1.04] hover:-rotate-3 hover:bg-stone-50 hover:text-stone-800"
+                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-base text-stone-400 transition-all -rotate-1 hover:scale-[1.04] hover:-rotate-3 hover:bg-stone-50 hover:text-stone-800"
               >
                 <svg
                   width="13"

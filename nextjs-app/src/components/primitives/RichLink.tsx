@@ -6,6 +6,7 @@ import {
   HoverCardTrigger,
   HoverCardContent,
 } from "@/components/ui/HoverCard";
+import { cn } from "@/lib/utils";
 
 interface RichLinkProps {
   href: string;
@@ -71,12 +72,7 @@ export function RichLink({ href, blank, children }: RichLinkProps) {
   }, [href]);
 
   return (
-    <HoverCard>
-      {/*
-       * py-2 -my-2 : le padding vertical est réel (fond gris visible)
-       * mais les marges négatives annulent sa contribution à la hauteur de ligne.
-       * Résultat : aucun impact sur l'interligne.
-       */}
+    <HoverCard className="contents">
       <HoverCardTrigger
         href={href}
         target={blank ? "_blank" : undefined}
@@ -84,7 +80,11 @@ export function RichLink({ href, blank, children }: RichLinkProps) {
         delay={250}
         closeDelay={100}
         onPointerEnter={prefetch}
-        className="inline-flex items-center gap-1 px-2 py-2 -my-2 rounded-lg no-underline text-current hover:bg-stone-50 transition-colors duration-150 group"
+        className={cn(
+          "inline whitespace-nowrap rounded-lg px-1.5 leading-[inherit]",
+          "box-decoration-clone [box-decoration-break:clone]",
+          "no-underline text-current hover:bg-stone-50 transition-colors duration-150 group",
+        )}
       >
         {faviconUrl && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -94,7 +94,7 @@ export function RichLink({ href, blank, children }: RichLinkProps) {
             aria-hidden
             width={12}
             height={12}
-            className="w-3 h-3 rounded-[2px] shrink-0 object-contain"
+            className="mr-1 inline-block size-3 shrink-0 rounded-[2px] object-contain align-middle !mt-0 !mb-0"
             onError={(e) => {
               e.currentTarget.style.display = "none";
             }}
@@ -107,11 +107,10 @@ export function RichLink({ href, blank, children }: RichLinkProps) {
 
       <HoverCardContent
         side="bottom"
-        align="start"
+        align="center"
         sideOffset={8}
         className="w-72 p-0 overflow-hidden"
       >
-        {/* ── OG image ─────────────────────────────────────────── */}
         {loading ? (
           <div className="w-full h-36 bg-stone-100 animate-pulse" />
         ) : meta?.image ? (
@@ -128,9 +127,7 @@ export function RichLink({ href, blank, children }: RichLinkProps) {
           </div>
         ) : null}
 
-        {/* ── Text content ─────────────────────────────────────── */}
         <div className="p-3 flex flex-col gap-1.5">
-          {/* Title */}
           {loading ? (
             <div className="h-3.5 bg-stone-100 rounded-md animate-pulse w-3/4" />
           ) : (
@@ -139,7 +136,6 @@ export function RichLink({ href, blank, children }: RichLinkProps) {
             </p>
           )}
 
-          {/* Description */}
           {loading ? (
             <div className="flex flex-col gap-1.5">
               <div className="h-2.5 bg-stone-100 rounded-md animate-pulse" />
@@ -152,7 +148,6 @@ export function RichLink({ href, blank, children }: RichLinkProps) {
             </p>
           ) : null}
 
-          {/* ── Footer: favicon + link text ──────────────────────── */}
           <div className="flex items-center gap-1.5 mt-0.5">
             {faviconUrl && (
               // eslint-disable-next-line @next/next/no-img-element

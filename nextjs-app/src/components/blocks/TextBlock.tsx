@@ -2,7 +2,7 @@
 
 import { PortableText } from "@portabletext/react";
 import type { BlockText } from "@/sanity/queries";
-import { RichLink } from "./RichLink";
+import { RichLink } from "@/components/primitives/RichLink";
 
 type LinkMark = { _type: string; href?: string; blank?: boolean };
 
