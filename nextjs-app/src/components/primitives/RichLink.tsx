@@ -72,7 +72,7 @@ export function RichLink({ href, blank, children }: RichLinkProps) {
   }, [href]);
 
   return (
-    <HoverCard className="contents">
+    <HoverCard>
       <HoverCardTrigger
         href={href}
         target={blank ? "_blank" : undefined}
