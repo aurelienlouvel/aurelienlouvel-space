@@ -57,23 +57,40 @@ export function ActionBar() {
     const el = barRef.current;
     if (!el) return;
 
-    const saved = el.style.width;
-    el.style.width = "max-content";
-    const natural = el.offsetWidth;
-    el.style.width = saved;
+    const measure = () => {
+      const saved = el.style.width;
+      el.style.width = "max-content";
+      // ceil : offsetWidth arrondit vers le bas → ellipsis fantôme d'1px
+      const natural = Math.ceil(el.getBoundingClientRect().width);
+      el.style.width = saved;
+      return Math.min(natural, window.innerWidth - 24);
+    };
 
     if (!initialized.current) {
       initialized.current = true;
-      widthMv.set(natural);
-      return;
+      widthMv.set(measure());
+    } else {
+      animate(widthMv, measure(), {
+        type: "spring",
+        stiffness: 320,
+        damping: 28,
+        mass: 1,
+      });
     }
 
-    animate(widthMv, natural, {
-      type: "spring",
-      stiffness: 320,
-      damping: 28,
-      mass: 1,
+    // Hard load : la 1re mesure se fait avec la police de fallback (métriques
+    // plus étroites) → re-mesure une fois les webfonts chargées.
+    let cancelled = false;
+    document.fonts?.ready.then(() => {
+      if (!cancelled) widthMv.set(measure());
     });
+
+    const onResize = () => widthMv.set(measure());
+    window.addEventListener("resize", onResize);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("resize", onResize);
+    };
   }, [mode, projectData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = () => {
@@ -88,7 +105,7 @@ export function ActionBar() {
 
   return (
     <div
-      className="fixed bottom-12 inset-x-0 z-50 flex justify-center pointer-events-none px-6"
+      className="fixed bottom-12 inset-x-0 z-50 flex justify-center pointer-events-none px-3"
       style={{ viewTransitionName: "action-bar" }}
     >
       <div className="pointer-events-auto">
@@ -197,7 +214,7 @@ export function ActionBar() {
               </div>
             </div>
           ) : (
-            <div className="flex h-full items-center px-2 whitespace-nowrap">
+            <div className="flex h-full items-center px-2 overflow-hidden">
               <motion.button
                 onClick={() => {
                   markWorkReturn();
@@ -220,7 +237,7 @@ export function ActionBar() {
               </motion.button>
 
               {projectData?.title && (
-                <span className="whitespace-nowrap px-3 text-base font-medium text-zinc-950">
+                <span className="min-w-0 flex-1 truncate px-3 text-base font-medium text-zinc-950">
                   {projectData.title}
                 </span>
               )}

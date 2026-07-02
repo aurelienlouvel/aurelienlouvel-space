@@ -240,10 +240,8 @@
 }
 
 h1 {
-    font-size: var(--text-6xl);
     font-weight: 640;
     --font-wght: 640;
-    line-height: var(--text-6xl--line-height);
     letter-spacing: var(--tracking-tight);
     color: var(--color-stone-800);
 }

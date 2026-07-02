@@ -60,22 +60,22 @@ export default async function ProjectPage({
               redirectUrl={project.redirectUrl}
             />
 
-            <div className="px-16 py-12">
-              <h1 className="max-w-[820] text-pretty mb-8">{project.title}</h1>
+            <div className="px-4 sm:px-16 py-8 sm:py-12">
+              <h1 className="max-w-[820px] text-pretty mb-8 text-4xl sm:text-6xl px-1 sm:px-0">{project.title}</h1>
 
-              <div className="flex flex-row items-center gap-4 px-1.5">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-2">
                 {/* Organisation */}
                 {project.organisation && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-nowrap">
                     {project.organisation.logoUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={project.organisation.logoUrl}
                         alt=""
-                        className="h-6 w-6 rounded-sm object-contain"
+                        className="h-6 w-6 rounded-sm object-contain flex-shrink-0"
                       />
                     )}
-                    <span className="text-md font-medium text-stone-700">
+                    <span className="text-md font-medium text-stone-700 whitespace-nowrap">
                       {project.organisation.name}
                     </span>
                   </div>
@@ -105,7 +105,7 @@ export default async function ProjectPage({
               />
             )}
 
-            <div className="px-16 py-12 flex flex-wrap gap-12">
+            <div className="px-6 sm:px-16 py-8 sm:py-12 flex flex-wrap gap-8 sm:gap-12">
               {/* Role */}
               {project.roles && project.roles.length > 0 && (
                 <RoleBlock roles={project.roles} />

@@ -10,7 +10,8 @@ export function ProjectMediaBlock({
   title: string;
 }) {
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-4xl bg-muted">
+    <div className="px-4 sm:px-0">
+      <div className="relative aspect-video w-full overflow-hidden rounded-4xl bg-muted">
       {isVideo ? (
         <video
           src={url}
@@ -22,6 +23,7 @@ export function ProjectMediaBlock({
       ) : (
         <Image src={url} alt={title} fill className="object-cover" priority />
       )}
+      </div>
     </div>
   );
 }
