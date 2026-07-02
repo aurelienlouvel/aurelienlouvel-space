@@ -54,7 +54,7 @@ export default async function ProjectPage({
     >
       <PageShell restore="top">
         <main className="w-full bg-white rounded-t-2xl">
-          <div className="mx-auto max-w-5xl pt-4 sm:pt-16 sm:pb-64">
+          <div className="mx-auto max-w-5xl pt-4 sm:pt-16 pb-12 sm:pb-64">
             <ProjectPageClient
               title={project.title}
               redirectUrl={project.redirectUrl}
