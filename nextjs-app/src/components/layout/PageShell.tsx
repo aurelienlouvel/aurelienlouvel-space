@@ -100,7 +100,7 @@ export function PageShell({
   return (
     <div
       ref={wrapperRef}
-      className="page-shell fixed inset-0 overflow-y-auto overscroll-contain"
+      className="page-shell fixed inset-0 overflow-y-auto overscroll-none bg-white"
     >
       <div ref={contentRef}>{children}</div>
     </div>

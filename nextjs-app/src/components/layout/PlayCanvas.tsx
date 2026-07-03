@@ -111,7 +111,7 @@ export function PlayCanvas({ artifacts }: { artifacts: ArtifactCanvasItem[] }) {
         transition:    fading ? `opacity ${fadeMs}ms ${fadeEase}` : "none",
         visibility:    visible ? "visible" : "hidden",
         pointerEvents: active  ? "auto"    : "none",
-        zIndex:        visible ? 0         : -1,
+        zIndex:        visible ? 0         : -50,
       }}
     >
       <InfiniteCanvas artifacts={artifacts} active={active} running={running} />
