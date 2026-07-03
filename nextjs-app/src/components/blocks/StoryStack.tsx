@@ -75,10 +75,8 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
     setElapsed(0);
   }, []);
 
-  // Reset elapsed when step changes
-  useEffect(() => {
-    setElapsed(0);
-  }, [step]);
+  // step only ever changes via advance(), which already resets elapsed in the
+  // same batch — no separate reset effect needed.
 
   // Tick every 100ms when running
   useEffect(() => {
@@ -89,9 +87,12 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
     return () => clearInterval(id);
   }, [step, hasMultiple, musicPaused]);
 
-  // Advance when elapsed reaches duration
+  // Advance when elapsed reaches duration. advance() itself calls setState,
+  // but this is a genuine reaction to the ticking timer crossing a threshold —
+  // not a value derivable during render.
   useEffect(() => {
     if (hasMultiple && elapsed >= STORY_DURATION * 1000) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       advance();
     }
   }, [elapsed, hasMultiple, advance]);

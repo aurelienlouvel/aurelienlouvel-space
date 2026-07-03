@@ -390,6 +390,9 @@ function GridBackground({
 
   useEffect(() => () => material.dispose(), [material]);
 
+  // Three.js material/mesh are mutable, GPU-backed objects driven every frame —
+  // the standard R3F pattern (mutate in useFrame, don't set state).
+  /* eslint-disable react-hooks/immutability */
   useFrame(() => {
     if (!meshRef.current) return;
     const q = paramsRef.current;
@@ -401,6 +404,7 @@ function GridBackground({
     meshRef.current.position.set(cam.position.x, cam.position.y, -10);
     meshRef.current.scale.set(visW * 4, visH * 4, 1);
   });
+  /* eslint-enable react-hooks/immutability */
 
   return (
     <mesh ref={meshRef} material={material} renderOrder={-1}>
@@ -429,7 +433,6 @@ function CameraController({
   selectTarget,
   zoomTarget,
   focusExitRef,
-  paramsRef,
   panDeltaRef,
   active,
   running,
@@ -438,7 +441,6 @@ function CameraController({
   selectTarget: React.MutableRefObject<{ x: number; y: number } | null>;
   zoomTarget: React.MutableRefObject<number>;
   focusExitRef: React.MutableRefObject<(() => void) | null>;
-  paramsRef: React.MutableRefObject<Params>;
   panDeltaRef: React.MutableRefObject<{ x: number; y: number }>;
   active: boolean;
   running: boolean; // frameloop alive — false only when fully at rest (hidden)
@@ -560,6 +562,11 @@ function CameraController({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  // From here down, every effect/useFrame mutates the R3F camera (a mutable,
+  // GPU-backed Three.js object, not React state) or refs shared with the
+  // parent — the standard imperative R3F pattern, not accidental impurity.
+  /* eslint-disable react-hooks/immutability */
 
   // Reset transient camera state whenever the canvas goes inactive (leaving /play)
   useEffect(() => {
@@ -690,6 +697,7 @@ function CameraController({
 
     inFocus.current = cam.zoom > 1.01;
   });
+  /* eslint-enable react-hooks/immutability */
 
   return null;
 }
@@ -829,7 +837,6 @@ function InfiniteTiles({
         selectTarget={selectTarget}
         zoomTarget={zoomTarget}
         focusExitRef={focusExitRef}
-        paramsRef={paramsRef}
         panDeltaRef={panDeltaRef}
         active={active}
         running={running}
@@ -1110,6 +1117,9 @@ export function InfiniteCanvas({
   const firstMount = useRef(!_hasVisited);
 
   const [selected, setSelected] = useState<SelectedInstance>(null);
+  // firstMount.current is written once above and never reassigned — safe to
+  // read synchronously here to seed the initial loading state.
+  // eslint-disable-next-line react-hooks/refs
   const [loading, setLoading] = useState(firstMount.current);
   const [tileVersion, setTileVersion] = useState(0);
   // Bumps when the canvas is actually revealed (active & not loading) → triggers
@@ -1155,7 +1165,10 @@ export function InfiniteCanvas({
     return () => mq.removeEventListener("change", apply);
   }, [handleLayoutChange]);
 
+  // paramsRef holds tunable layout params mutated by other effects; tileVersion
+  // is the deliberate reactive trigger to recompute this memo off that ref.
   const tile = useMemo(
+    // eslint-disable-next-line react-hooks/refs
     () => buildTile(artifacts, paramsRef.current),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [artifacts, tileVersion],
@@ -1282,16 +1295,19 @@ export function InfiniteCanvas({
     panelX.set(-9999);
   }, [panelX]);
 
-  focusExitRef.current = handleDeselect;
-
-  // Sync focusState synchronously before browser paint (useLayoutEffect fires before
-  // rAF) so Three.js always reads the correct value on the very next frame.
+  // Sync focusState + focusExitRef synchronously before browser paint
+  // (useLayoutEffect fires before rAF) so Three.js always reads the correct
+  // value on the very next frame.
   useLayoutEffect(() => {
     focusState.isActive = selected !== null;
-  }, [selected]);
+    focusExitRef.current = handleDeselect;
+  }, [selected, handleDeselect, focusExitRef]);
 
-  // Deselect panel when navigating away from /play
+  // Deselect panel when navigating away from /play. handleDeselect calls
+  // setSelected, but this reacts to the `active` transition itself — not a
+  // value derivable during render.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!active) handleDeselect();
   }, [active, handleDeselect]);
 

@@ -215,11 +215,11 @@ function MeshBody({
   const selAnim  = useRef(1);
   const intro    = useRef({ version: -1, opacity: 0, scaleBoost: 0.72, done: false });
   const outro    = useRef({ version: -1, opacity: 1, scaleBoost: 1.0, done: true });
-  const staggerMs      = useRef(Math.random() * INTRO_STAGGER_MAX).current;
+  const [staggerMs]     = useState(() => Math.random() * INTRO_STAGGER_MAX);
   // Outro stagger is a scaled-down version of intro stagger (same relative order)
   const outroStaggerMs = staggerMs * (OUTRO_STAGGER_MAX / INTRO_STAGGER_MAX);
   // Légère inclinaison initiale (rendu organique) — se résorbe avec l'opacity.
-  const introRot       = useRef((Math.random() - 0.5) * 0.16).current; // ±~4.6°
+  const [introRot]     = useState(() => (Math.random() - 0.5) * 0.16); // ±~4.6°
   // Repli quand un AUTRE item est focus (scale ↓ + fade, sans rotation)
   const dimAnim        = useRef(0);
   const [hovered, setHovered] = useState(false);
@@ -371,6 +371,9 @@ function PlaceholderMesh({
 function ImageMesh({ url, ...rest }: SharedProps & { url: string }) {
   const texture = useTexture(url);
   useEffect(() => {
+    // Three.js texture is a mutable GPU-backed object — this is the standard
+    // R3F/drei pattern for configuring it post-load, not React state.
+    // eslint-disable-next-line react-hooks/immutability
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
   }, [texture]);

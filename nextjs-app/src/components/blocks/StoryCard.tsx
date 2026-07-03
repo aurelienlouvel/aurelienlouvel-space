@@ -280,6 +280,12 @@ function MapboxBackground({
   onPinPosition?: (pos: { x: number; y: number }) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Kept fresh every render so the map-init effect below can stay scoped to
+  // [lat, lon] (an inline onPinPosition from the parent must not re-init the map).
+  const onPinPositionRef = useRef(onPinPosition);
+  useEffect(() => {
+    onPinPositionRef.current = onPinPosition;
+  });
 
   useEffect(() => {
     if (!ref.current || !MAPBOX_IS_PUBLIC) return;
@@ -310,7 +316,7 @@ function MapboxBackground({
         stripChrome();
         if (!map || cancelled) return;
         const point = map.project([lon, lat]);
-        onPinPosition?.({ x: point.x, y: point.y });
+        onPinPositionRef.current?.({ x: point.x, y: point.y });
       });
     });
 
@@ -819,13 +825,10 @@ function ValorantCard({
   slide: Extract<StorySlide, { type: "valorant" }>;
 }) {
   const [data, setData] = useState<MatchData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!slide.trackerUrl);
 
   useEffect(() => {
-    if (!slide.trackerUrl) {
-      setLoading(false);
-      return;
-    }
+    if (!slide.trackerUrl) return;
     fetchValorantMatch(slide.trackerUrl, slide.region)
       .then(setData)
       .finally(() => setLoading(false));
