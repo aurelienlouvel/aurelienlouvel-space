@@ -1,5 +1,5 @@
 import { ViewTransition, Suspense } from "react";
-import { formatDateTime } from "@/lib/date-utils";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { client } from "@/sanity/client";
 import {
   profileQuery,
@@ -18,6 +18,7 @@ import {
   getAppleMusicData,
   getLatestCommit,
   getGitHubContributions,
+  getLetterboxdEntry,
   getMapData,
   getStravaActivity,
 } from "@/lib/info-fetchers";
@@ -108,6 +109,18 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
               trackerUrl: story.trackerUrl,
               region: story.region,
             };
+          case "storyLetterboxd": {
+            const entry = await getLetterboxdEntry(story.username);
+            return {
+              type: "letterboxd",
+              filmTitle: entry?.filmTitle ?? null,
+              filmYear: entry?.filmYear ?? null,
+              date: entry?.watchedDate ? formatDate(entry.watchedDate) : null,
+              rating: entry?.rating ?? null,
+              posterUrl: entry?.posterUrl ?? null,
+              filmUrl: entry?.filmUrl ?? null,
+            };
+          }
           default:
             return null;
         }

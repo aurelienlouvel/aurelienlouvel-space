@@ -1,4 +1,5 @@
 import { formatDateTime } from "@/lib/date-utils";
+import { XMLParser } from "fast-xml-parser";
 
 type StatsHuntersActivity = {
   name: string;
@@ -276,6 +277,56 @@ export async function getAppleMusicData(url: string | null) {
       artistName: track.artistName ?? null,
       previewUrl: track.previewUrl ?? null,
     };
+  } catch {
+    return null;
+  }
+}
+
+const letterboxdParser = new XMLParser();
+
+function extractLetterboxdPoster(descriptionHtml: string): string | null {
+  const match = descriptionHtml.match(/<img[^>]+src="([^"]+)"/);
+  return match?.[1] ?? null;
+}
+
+export async function getLetterboxdEntry(username: string | null) {
+  if (!username) return null;
+  try {
+    const res = await fetch(
+      `https://letterboxd.com/${encodeURIComponent(username)}/rss/`,
+      { next: { revalidate: 3600 } },
+    );
+    if (!res.ok) return null;
+
+    const xml = await res.text();
+    const feed = letterboxdParser.parse(xml) as Record<string, unknown>;
+    const channel = (feed.rss as Record<string, unknown> | undefined)
+      ?.channel as Record<string, unknown> | undefined;
+    const rawItems = channel?.item;
+    const items = (
+      Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : []
+    ) as Array<Record<string, unknown>>;
+
+    const entry = items.find((item) => item["letterboxd:filmTitle"]);
+    if (!entry) return null;
+
+    const filmTitle = String(entry["letterboxd:filmTitle"]);
+    const filmYear =
+      entry["letterboxd:filmYear"] != null
+        ? String(entry["letterboxd:filmYear"])
+        : null;
+    const watchedDate =
+      entry["letterboxd:watchedDate"] != null
+        ? String(entry["letterboxd:watchedDate"])
+        : null;
+    const rating =
+      entry["letterboxd:memberRating"] != null
+        ? Number(entry["letterboxd:memberRating"])
+        : null;
+    const posterUrl = extractLetterboxdPoster(String(entry.description ?? ""));
+    const filmUrl = entry.link != null ? String(entry.link) : null;
+
+    return { filmTitle, filmYear, watchedDate, rating, posterUrl, filmUrl };
   } catch {
     return null;
   }

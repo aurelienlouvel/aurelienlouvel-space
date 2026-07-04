@@ -117,11 +117,11 @@ export const profileType = defineType({
         {
           type: 'object',
           name: 'storyStrava',
-          title: 'Activity',
+          title: 'Strava',
           preview: {
             select: {subtitle: 'shareUrl'},
             prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Activity', subtitle}
+              return {title: 'Strava', subtitle}
             },
           },
           fields: [
@@ -174,6 +174,26 @@ export const profileType = defineType({
             defineField({
               name: 'username',
               title: 'GitHub username',
+              type: 'string',
+              validation: (Rule) => Rule.required(),
+            }),
+          ],
+        },
+        {
+          type: 'object',
+          name: 'storyLetterboxd',
+          title: 'Letterboxd',
+          preview: {
+            select: {subtitle: 'username'},
+            prepare({subtitle}: {subtitle?: string}) {
+              return {title: 'Letterboxd', subtitle}
+            },
+          },
+          fields: [
+            defineField({
+              name: 'username',
+              title: 'Letterboxd username',
+              description: 'Sans @ — ex: "aurelien"',
               type: 'string',
               validation: (Rule) => Rule.required(),
             }),

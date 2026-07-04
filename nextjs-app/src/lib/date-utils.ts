@@ -32,6 +32,16 @@ export function formatDateTime(isoStr: string): string {
   });
 }
 
+// For date-only strings (e.g. "2024-03-15") — parses as local time so it
+// never shifts a day off in negative-UTC-offset timezones like new Date() would.
+export function formatDate(dateStr: string): string {
+  return parseDate(dateStr).toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export function calcDuration(start: string, end: string | null): string {
   const startDate = parseDate(start);
   const endDate = end ? parseDate(end) : new Date();

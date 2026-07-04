@@ -16,6 +16,7 @@ import {
   CloudIcon,
   CloudLittleRainIcon,
   FavouriteIcon,
+  FilmIcon,
   GithubIcon,
   GitCommitIcon,
   GameController03Icon,
@@ -25,6 +26,8 @@ import {
   RainIcon,
   Route01Icon,
   SnowIcon,
+  StarHalfIcon,
+  StarIcon,
   StopWatchIcon,
   Sun01Icon,
   SunCloud01Icon,
@@ -84,6 +87,15 @@ export type StorySlide =
       type: "valorant";
       trackerUrl: string | null;
       region: string | null;
+    }
+  | {
+      type: "letterboxd";
+      filmTitle: string | null;
+      filmYear: string | null;
+      date: string | null;
+      rating: number | null;
+      posterUrl: string | null;
+      filmUrl: string | null;
     };
 
 // GitHub contribution levels (dark theme greens)
@@ -515,6 +527,87 @@ function MusicCard({
   );
 }
 
+// ─── Letterboxd card ───────────────────────────────────────────────────────
+
+function StarRating({ rating }: { rating: number | null }) {
+  if (rating == null) return null;
+
+  return (
+    <div className="mt-2 flex gap-0.5 text-amber-400">
+      {Array.from({ length: 5 }, (_, i) => {
+        const filled = rating >= i + 1;
+        const half = !filled && rating >= i + 0.5;
+        return (
+          <HugeiconsIcon
+            key={i}
+            icon={half ? StarHalfIcon : StarIcon}
+            size={13}
+            strokeWidth={1.8}
+            className={filled || half ? "opacity-100" : "opacity-25"}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function LetterboxdCard({
+  slide,
+}: {
+  slide: Extract<StorySlide, { type: "letterboxd" }>;
+}) {
+  if (!slide.filmTitle) {
+    return <PlaceholderSlide icon={FilmIcon} label="Letterboxd" />;
+  }
+
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-stone-900">
+      {slide.posterUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={slide.posterUrl}
+          alt=""
+          className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
+        />
+      )}
+      <div className="absolute inset-0 bg-black/50" />
+
+      <div className="relative flex h-full flex-col text-white">
+        <div className="flex items-center gap-1.5 p-4">
+          <HugeiconsIcon icon={FilmIcon} size={16} strokeWidth={2} />
+          <span className="text-xs font-medium uppercase tracking-wide text-white/80">
+            Letterboxd
+          </span>
+        </div>
+
+        <div className="mt-auto p-6">
+          {slide.posterUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={slide.posterUrl}
+              alt={slide.filmTitle}
+              className="mb-3 aspect-[2/3] h-24 rounded-lg object-cover shadow-lg"
+            />
+          )}
+          <p className="text-base font-semibold leading-tight">
+            {slide.filmTitle}
+            {slide.filmYear && (
+              <span className="font-normal text-white/60">
+                {" "}
+                ({slide.filmYear})
+              </span>
+            )}
+          </p>
+          {slide.date && (
+            <p className="mt-0.5 text-sm text-white/70">{slide.date}</p>
+          )}
+          <StarRating rating={slide.rating} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Slide content dispatcher ──────────────────────────────────────────────────
 
 export function SlideContent({
@@ -608,7 +701,7 @@ export function SlideContent({
           <div className="relative flex items-center gap-1.5 p-4">
             <HugeiconsIcon icon={WorkoutRunIcon} size={16} strokeWidth={2} />
             <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-              Activity
+              Strava
             </span>
           </div>
 
@@ -760,6 +853,9 @@ export function SlideContent({
 
     case "valorant":
       return <ValorantCard slide={slide} />;
+
+    case "letterboxd":
+      return <LetterboxdCard slide={slide} />;
   }
 }
 

@@ -322,6 +322,11 @@ export type ProfileStory =
       _type: "storyValorant";
       trackerUrl: string | null;
       region: string | null;
+    }
+  | {
+      _key: string;
+      _type: "storyLetterboxd";
+      username: string | null;
     };
 
 export type Profile = {
