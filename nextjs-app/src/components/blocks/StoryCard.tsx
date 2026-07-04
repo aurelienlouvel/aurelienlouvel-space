@@ -464,7 +464,7 @@ function MusicCard({
             <img
               src={slide.artworkUrl}
               alt={slide.trackName}
-              className="mb-3 h-14 w-14 rounded-xl shadow-lg"
+              className="mb-3 h-16 w-16 rounded-xl shadow-lg"
             />
           )}
           <p className="text-base font-semibold leading-tight">
@@ -533,7 +533,7 @@ function StarRating({ rating }: { rating: number | null }) {
   if (rating == null) return null;
 
   return (
-    <div className="mt-2 flex gap-0.5 text-amber-400">
+    <div className="mt-2 flex gap-0.5">
       {Array.from({ length: 5 }, (_, i) => {
         const filled = rating >= i + 1;
         const half = !filled && rating >= i + 0.5;
@@ -541,9 +541,10 @@ function StarRating({ rating }: { rating: number | null }) {
           <HugeiconsIcon
             key={i}
             icon={half ? StarHalfIcon : StarIcon}
-            size={13}
+            size={14}
             strokeWidth={1.8}
-            className={filled || half ? "opacity-100" : "opacity-25"}
+            fill={filled || half ? "currentColor" : "none"}
+            className={filled || half ? "text-amber-400" : "text-white/40"}
           />
         );
       })}
@@ -586,7 +587,7 @@ function LetterboxdCard({
             <img
               src={slide.posterUrl}
               alt={slide.filmTitle}
-              className="mb-3 aspect-[2/3] h-24 rounded-lg object-cover shadow-lg"
+              className="mb-3 aspect-[2/3] h-28 rounded-xl object-cover shadow-lg"
             />
           )}
           <p className="text-base font-semibold leading-tight">
