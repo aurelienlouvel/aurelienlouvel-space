@@ -66,6 +66,11 @@ export type Params = {
   // ── Background dots (live — uniform update in useFrame) ──────────────────────
   gridCell: number; // world-space dot grid cell size
   dotRadius: number; // dot radius in world units
+  // ── Ripple (live — uniform update in useFrame) ───────────────────────────────
+  rippleSpeed: number; // ring expansion speed, world units/s
+  rippleDuration: number; // ring lifetime, seconds
+  ripplePixel: number; // pixel-art quantization size, world units
+  rippleWidth: number; // ring thickness, world units
 };
 
 const DEFAULT_PARAMS: Params = {
@@ -91,6 +96,10 @@ const DEFAULT_PARAMS: Params = {
   gapPanel: 80,
   gridCell: 64,
   dotRadius: 2.0,
+  rippleSpeed: 120,
+  rippleDuration: 0.18,
+  ripplePixel: 4,
+  rippleWidth: 3,
 };
 
 // ─── Responsive layout ─────────────────────────────────────────────────────────
@@ -394,11 +403,28 @@ function buildTile(
   return { items, positions, TILE_W, TILE_H, doodles };
 }
 
-// ─── Background dots ──────────────────────────────────────────────────────────
+// ─── Camera / ripple ref shapes ────────────────────────────────────────────────
+//  Written every frame by GridBackground (camera state) and by the Canvas's
+//  native onPointerDown handler (ripple), read by GridBackground's useFrame —
+//  same "signal from outside the R3F tree via a ref" idiom as selectTargetRef.
+type CameraState = {
+  zoom: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+type RippleState = { x: number; y: number; startTime: number };
+
+// ─── Background dots + click ripple ───────────────────────────────────────────
 function GridBackground({
   paramsRef,
+  cameraStateRef,
+  rippleRef,
 }: {
   paramsRef: React.MutableRefObject<Params>;
+  cameraStateRef: React.MutableRefObject<CameraState>;
+  rippleRef: React.MutableRefObject<RippleState | null>;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const { camera, size } = useThree();
@@ -411,6 +437,12 @@ function GridBackground({
         uniforms: {
           uGridSize: { value: DEFAULT_PARAMS.gridCell },
           uDotRadius: { value: DEFAULT_PARAMS.dotRadius },
+          uRippleOrigin: { value: new THREE.Vector2(0, 0) },
+          uRippleTime: { value: -1 },
+          uRipplePixel: { value: DEFAULT_PARAMS.ripplePixel },
+          uRippleSpeed: { value: DEFAULT_PARAMS.rippleSpeed },
+          uRippleWidth: { value: DEFAULT_PARAMS.rippleWidth },
+          uRippleDuration: { value: DEFAULT_PARAMS.rippleDuration },
         },
         vertexShader: `
       varying vec2 vWorldPos;
@@ -423,13 +455,32 @@ function GridBackground({
         fragmentShader: `
       uniform float uGridSize;
       uniform float uDotRadius;
+      uniform vec2 uRippleOrigin;
+      uniform float uRippleTime;
+      uniform float uRipplePixel;
+      uniform float uRippleSpeed;
+      uniform float uRippleWidth;
+      uniform float uRippleDuration;
       varying vec2 vWorldPos;
       void main() {
         vec2 cell = mod(vWorldPos + uGridSize * 0.5, uGridSize) - uGridSize * 0.5;
         float dist = length(cell);
         float alpha = 1.0 - smoothstep(uDotRadius - 0.5, uDotRadius + 0.5, dist);
-        if (alpha < 0.01) discard;
-        gl_FragColor = vec4(0.87, 0.86, 0.85, alpha);
+
+        // Pixel-art ripple: quantize world position into blocks BEFORE the
+        // distance calc, so the ring expands in chunky steps, not a smooth circle.
+        vec2 blocky = floor(vWorldPos / uRipplePixel) * uRipplePixel;
+        float d = length(blocky - uRippleOrigin);
+        float ring = smoothstep(uRippleWidth, 0.0, abs(d - uRippleTime * uRippleSpeed));
+        float fade = clamp(1.0 - uRippleTime / uRippleDuration, 0.0, 1.0);
+        float rippleAlpha = uRippleTime >= 0.0 ? ring * fade : 0.0;
+
+        float finalAlpha = max(alpha, rippleAlpha);
+        if (finalAlpha < 0.01) discard;
+        vec3 dotColor = vec3(0.87, 0.86, 0.85);
+        vec3 rippleColor = vec3(0.11, 0.098, 0.09);
+        vec3 color = mix(dotColor, rippleColor, rippleAlpha);
+        gl_FragColor = vec4(color, finalAlpha);
       }
     `,
       }),
@@ -447,10 +498,30 @@ function GridBackground({
     const cam = camera as THREE.OrthographicCamera;
     material.uniforms.uGridSize.value = q.gridCell;
     material.uniforms.uDotRadius.value = q.dotRadius;
+    material.uniforms.uRipplePixel.value = q.ripplePixel;
+    material.uniforms.uRippleSpeed.value = q.rippleSpeed;
+    material.uniforms.uRippleWidth.value = q.rippleWidth;
+    material.uniforms.uRippleDuration.value = q.rippleDuration;
+
+    const ripple = rippleRef.current;
+    if (ripple) {
+      material.uniforms.uRippleOrigin.value.set(ripple.x, ripple.y);
+      material.uniforms.uRippleTime.value =
+        performance.now() / 1000 - ripple.startTime;
+    } else {
+      material.uniforms.uRippleTime.value = -1;
+    }
+
     const visW = size.width / cam.zoom;
     const visH = size.height / cam.zoom;
     meshRef.current.position.set(cam.position.x, cam.position.y, -10);
     meshRef.current.scale.set(visW * 4, visH * 4, 1);
+
+    cameraStateRef.current.zoom = cam.zoom;
+    cameraStateRef.current.x = cam.position.x;
+    cameraStateRef.current.y = cam.position.y;
+    cameraStateRef.current.width = size.width;
+    cameraStateRef.current.height = size.height;
   });
   /* eslint-enable react-hooks/immutability */
 
@@ -808,6 +879,8 @@ function InfiniteTiles({
   panelX,
   panelY,
   paramsRef,
+  cameraStateRef,
+  rippleRef,
   panDeltaRef,
   active,
   running,
@@ -834,6 +907,8 @@ function InfiniteTiles({
   panelX: MotionValue<number>;
   panelY: MotionValue<number>;
   paramsRef: React.MutableRefObject<Params>;
+  cameraStateRef: React.MutableRefObject<CameraState>;
+  rippleRef: React.MutableRefObject<RippleState | null>;
   panDeltaRef: React.MutableRefObject<{ x: number; y: number }>;
   active: boolean;
   running: boolean;
@@ -880,7 +955,11 @@ function InfiniteTiles({
 
   return (
     <>
-      <GridBackground paramsRef={paramsRef} />
+      <GridBackground
+        paramsRef={paramsRef}
+        cameraStateRef={cameraStateRef}
+        rippleRef={rippleRef}
+      />
       <CameraController
         selectTarget={selectTarget}
         zoomTarget={zoomTarget}
@@ -1158,6 +1237,33 @@ function DebugPane({
         max: 6.0,
         step: 0.1,
       });
+
+      // ── Ripple ──────────────────────────────────────────────────────────────
+      const ripple = pane.addFolder({ title: "Ripple", expanded: false });
+      ripple.addBinding(q, "rippleSpeed", {
+        label: "speed",
+        min: 30,
+        max: 300,
+        step: 10,
+      });
+      ripple.addBinding(q, "rippleDuration", {
+        label: "duration (s)",
+        min: 0.05,
+        max: 0.3,
+        step: 0.01,
+      });
+      ripple.addBinding(q, "ripplePixel", {
+        label: "pixel size",
+        min: 2,
+        max: 10,
+        step: 1,
+      });
+      ripple.addBinding(q, "rippleWidth", {
+        label: "ring width",
+        min: 2,
+        max: 10,
+        step: 1,
+      });
     });
 
     return () => {
@@ -1257,6 +1363,15 @@ export function InfiniteCanvas({
   const zoomTargetRef = useRef<number>(0.5);
   const focusExitRef = useRef<(() => void) | null>(null);
   const panDeltaRef = useRef({ x: 0, y: 0 });
+  const cameraStateRef = useRef<CameraState>({
+    zoom: 0.5,
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
+  const rippleRef = useRef<RippleState | null>(null);
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
 
   const panelX = useMotionValue(-9999);
   const panelY = useMotionValue(0);
@@ -1411,6 +1526,26 @@ export function InfiniteCanvas({
     panelX.set(-9999);
   }, [panelX]);
 
+  // Native DOM handler on the Canvas itself (not an R3F mesh handler) so it
+  // fires on every click — including on cards, whose meshes stopPropagation
+  // their own onClick/onPointerOver — to trigger the ripple regardless of
+  // what was clicked.
+  const handleCanvasPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const cam = cameraStateRef.current;
+      const rect = canvasWrapperRef.current?.getBoundingClientRect();
+      if (!rect || cam.width === 0 || cam.height === 0) return;
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+      const ndcX = (offsetX / cam.width) * 2 - 1;
+      const ndcY = -((offsetY / cam.height) * 2 - 1);
+      const worldX = cam.x + (ndcX * cam.width) / (2 * cam.zoom);
+      const worldY = cam.y + (ndcY * cam.height) / (2 * cam.zoom);
+      rippleRef.current = { x: worldX, y: worldY, startTime: performance.now() / 1000 };
+    },
+    [],
+  );
+
   // Sync focusState + focusExitRef synchronously before browser paint
   // (useLayoutEffect fires before rAF) so Three.js always reads the correct
   // value on the very next frame.
@@ -1485,7 +1620,10 @@ export function InfiniteCanvas({
       <LoadingBar loading={loading && active} />
 
       {/* Canvas — always visible, dezoom 0.5→1 on mount */}
-      <div style={{ position: "absolute", inset: 0, touchAction: "none" }}>
+      <div
+        ref={canvasWrapperRef}
+        style={{ position: "absolute", inset: 0, touchAction: "none" }}
+      >
         <Canvas
           orthographic
           camera={{ zoom: 0.5, position: [0, 0, 100], near: 0.1, far: 10000 }}
@@ -1497,6 +1635,7 @@ export function InfiniteCanvas({
           frameloop={running ? "always" : "never"}
           onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
           onPointerMissed={handleDeselect}
+          onPointerDown={handleCanvasPointerDown}
         >
           <InfiniteTiles
             tile={tile}
@@ -1513,6 +1652,8 @@ export function InfiniteCanvas({
             panelY={panelY}
             paramsRef={paramsRef}
             panDeltaRef={panDeltaRef}
+            cameraStateRef={cameraStateRef}
+            rippleRef={rippleRef}
             active={active}
             running={running}
             introKey={introKey}
