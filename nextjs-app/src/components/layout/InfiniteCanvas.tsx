@@ -71,6 +71,9 @@ export type Params = {
   rippleDuration: number; // ring lifetime, seconds
   ripplePixel: number; // pixel-art quantization size, world units
   rippleWidth: number; // ring thickness, world units
+  // ── Vignette (live, but mirrored into React state for CSS) ──────────────────
+  vignetteRadius: number; // 0–1, fraction of screen before the fade starts
+  vignetteStrength: number; // 0–1, opacity of the white edge
 };
 
 const DEFAULT_PARAMS: Params = {
@@ -100,6 +103,8 @@ const DEFAULT_PARAMS: Params = {
   rippleDuration: 0.18,
   ripplePixel: 4,
   rippleWidth: 3,
+  vignetteRadius: 0.6,
+  vignetteStrength: 0.9,
 };
 
 // ─── Responsive layout ─────────────────────────────────────────────────────────
@@ -1030,9 +1035,11 @@ const IS_DEV = process.env.NODE_ENV !== "production";
 function DebugPane({
   paramsRef,
   onLayoutChange,
+  onVignetteChange,
 }: {
   paramsRef: React.MutableRefObject<Params>;
   onLayoutChange: () => void;
+  onVignetteChange: (v: { radius: number; strength: number }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1238,7 +1245,7 @@ function DebugPane({
         step: 0.1,
       });
 
-      // ── Ripple ──────────────────────────────────────────────────────────────
+      // ── Ripple (live — no rebuild, read every frame in GridBackground) ──────
       const ripple = pane.addFolder({ title: "Ripple", expanded: false });
       ripple.addBinding(q, "rippleSpeed", {
         label: "speed",
@@ -1264,6 +1271,35 @@ function DebugPane({
         max: 10,
         step: 1,
       });
+
+      // ── Vignette (live, mirrored into React state for the CSS overlay) ──────
+      const vignette = pane.addFolder({ title: "Vignette", expanded: false });
+      vignette
+        .addBinding(q, "vignetteRadius", {
+          label: "radius",
+          min: 0,
+          max: 1,
+          step: 0.02,
+        })
+        .on("change", () =>
+          onVignetteChange({
+            radius: q.vignetteRadius,
+            strength: q.vignetteStrength,
+          }),
+        );
+      vignette
+        .addBinding(q, "vignetteStrength", {
+          label: "strength",
+          min: 0,
+          max: 1,
+          step: 0.02,
+        })
+        .on("change", () =>
+          onVignetteChange({
+            radius: q.vignetteRadius,
+            strength: q.vignetteStrength,
+          }),
+        );
     });
 
     return () => {
@@ -1355,6 +1391,17 @@ export function InfiniteCanvas({
   const isMobileRef = useRef(false);
 
   const paramsRef = useRef<Params>({ ...DEFAULT_PARAMS });
+  // Only "live" param mirrored into React state — the vignette is a plain CSS
+  // overlay outside the R3F tree, so (unlike gridCell/dotRadius etc., read
+  // straight from paramsRef in a useFrame) it needs a real re-render to update.
+  // paramsRef.current is seeded synchronously just above — safe to read once
+  // for initial state.
+  /* eslint-disable react-hooks/refs */
+  const [vignette, setVignette] = useState({
+    radius: paramsRef.current.vignetteRadius,
+    strength: paramsRef.current.vignetteStrength,
+  });
+  /* eslint-enable react-hooks/refs */
   const selectTargetRef = useRef<{ x: number; y: number } | null>(null);
   const selectedWorldPosRef = useRef<[number, number] | null>(null);
   const selectedHalfWRef = useRef<number>(CARD_W / 2);
@@ -1662,6 +1709,17 @@ export function InfiniteCanvas({
         </Canvas>
       </div>
 
+      {/* White vignette — plain CSS overlay, blends into the page's own white
+          behind the transparent-cleared canvas (see GridBackground alpha:true) */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          background: `radial-gradient(ellipse at center, transparent ${vignette.radius * 100}%, rgba(255,255,255,${vignette.strength}) 100%)`,
+        }}
+      />
+
       {/* Info panel — tracks selected card via motion values */}
       <AnimatePresence>
         {selected && (
@@ -1691,7 +1749,11 @@ export function InfiniteCanvas({
       </AnimatePresence>
 
       {/* Tweakpane debug — dev only, dynamic import → not bundled in prod */}
-      <DebugPane paramsRef={paramsRef} onLayoutChange={handleLayoutChange} />
+      <DebugPane
+        paramsRef={paramsRef}
+        onLayoutChange={handleLayoutChange}
+        onVignetteChange={setVignette}
+      />
     </div>
   );
 }
