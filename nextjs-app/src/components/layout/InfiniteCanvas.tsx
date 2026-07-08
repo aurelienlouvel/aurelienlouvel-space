@@ -46,6 +46,7 @@ type Params = {
   colStagger: number; // random vertical offset per column (px)
   jitterX: number; // ±px random horizontal nudge per item
   jitterY: number; // ±px random vertical nudge per item
+  colRhythm: number; // 0–1 : golden-angle column-width oscillation (destructures the grid)
   minPerTile: number; // min slot count per tile
   scaleMin: number; // smallest card scale
   scaleMax: number; // largest  card scale
@@ -65,11 +66,12 @@ type Params = {
 
 const DEFAULT_PARAMS: Params = {
   cols: 4,
-  gapX: 280,
-  gapY: 150, // masonry : écart vertical CONSTANT entre cards (sur hauteurs réelles)
+  gapX: 380,
+  gapY: 220, // masonry : écart vertical CONSTANT entre cards (sur hauteurs réelles)
   colStagger: 200,
   jitterX: 30,
   jitterY: 90, // variation verticale ORGANIQUE en plus (toujours ≥ 0)
+  colRhythm: 0.5,
   minPerTile: 40,
   scaleMin: 0.8,
   scaleMax: 1.15,
@@ -90,8 +92,8 @@ const DEFAULT_PARAMS: Params = {
 const MOBILE_BREAKPOINT = 768;
 const MOBILE_LAYOUT: Partial<Params> = {
   cols: 1,
-  gapX: 180,
-  gapY: 140,
+  gapX: 210,
+  gapY: 165,
   colStagger: 0,
   jitterX: 20,
   jitterY: 70,
@@ -105,6 +107,7 @@ const LAYOUT_KEYS = [
   "colStagger",
   "jitterX",
   "jitterY",
+  "colRhythm",
   "scaleMin",
   "scaleMax",
 ] as const;
@@ -202,6 +205,7 @@ function buildTile(
     colStagger: COL_STAGGER,
     jitterX: JITTER_X,
     jitterY: JITTER_Y,
+    colRhythm: COL_RHYTHM,
     minPerTile: MIN_PER_TILE,
     scaleMin,
     scaleMax,
@@ -214,7 +218,17 @@ function buildTile(
   const n = Math.max(MIN_PER_TILE, artifacts.length);
   const rows = Math.ceil(n / COLS);
 
-  const TILE_W = COLS * (CARD_W + GAP_X);
+  // Golden-angle column rhythm — de-uniforms column width so the grid stops
+  // reading as a repeating lattice. Bounded to [0.65, 1.35]x GAP_X at
+  // colRhythm=1, always well above JITTER_X → never overlaps (see plan).
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+  const colGapMul = (c: number) =>
+    1 + COL_RHYTHM * 0.35 * Math.sin(c * GOLDEN_ANGLE);
+  const colX = [0];
+  for (let c = 1; c <= COLS; c++) {
+    colX[c] = colX[c - 1] + CARD_W + GAP_X * colGapMul(c - 1);
+  }
+  const TILE_W = colX[COLS];
 
   const stagger = Array.from(
     { length: COLS },
@@ -225,7 +239,7 @@ function buildTile(
     const col = i % COLS;
     const row = Math.floor(i / COLS);
     return {
-      x: col * (CARD_W + GAP_X) + (seededRand(i * 7 + 1) - 0.5) * JITTER_X * 2,
+      x: colX[col] + (seededRand(i * 7 + 1) - 0.5) * JITTER_X * 2,
       y:
         row * (CARD_H + GAP_Y) +
         stagger[col] +
@@ -985,6 +999,14 @@ function DebugPane({
           min: 0,
           max: 250,
           step: 5,
+        })
+        .on("change", onLayoutChange);
+      layout
+        .addBinding(q, "colRhythm", {
+          label: "col rhythm",
+          min: 0,
+          max: 1,
+          step: 0.05,
         })
         .on("change", onLayoutChange);
 
