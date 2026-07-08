@@ -345,6 +345,30 @@ export type Profile = {
   }> | null;
 };
 
+// ─── Decorations (Play canvas doodles) ────────────────────────────────────────
+
+export const decorationsQuery = defineQuery(`
+  *[_type == "decorations"][0] {
+    "doodles": doodles[] {
+      _key,
+      "url": asset->url + "?w=256&q=85&auto=format",
+      "width": asset->metadata.dimensions.width,
+      "height": asset->metadata.dimensions.height
+    }
+  }
+`);
+
+export type CustomDoodleImage = {
+  _key: string;
+  url: string | null;
+  width: number | null;
+  height: number | null;
+};
+
+export type Decorations = {
+  doodles: CustomDoodleImage[] | null;
+};
+
 export const experiencesQuery = defineQuery(`
   *[_type == "experience"] | order(orderRank) {
     _id,

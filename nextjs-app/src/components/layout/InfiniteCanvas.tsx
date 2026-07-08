@@ -29,6 +29,7 @@ import {
 } from "@/lib/artifact-utils";
 import { easeOutExpo, easeZoom } from "@/lib/easings";
 import { ArtifactInfo } from "@/components/blocks/ArtifactInfo";
+import { buildDoodles, DoodleField } from "./DoodleField";
 
 // ─── Tunable params ────────────────────────────────────────────────────────────
 //
@@ -48,6 +49,10 @@ type Params = {
   minPerTile: number; // min slot count per tile
   scaleMin: number; // smallest card scale
   scaleMax: number; // largest  card scale
+  doodleDensity: number; // scattered doodles per card slot (rebuild)
+  doodleSize: number; // base doodle size, world units (rebuild)
+  doodleOpacity: number; // base doodle opacity (rebuild)
+  doodleSpacing: number; // grid-cell spacing multiplier for doodles (rebuild)
   // ── Camera (live — no rebuild) ───────────────────────────────────────────────
   camOffsetX: number; // camera shifts right on focus (card left, panel fits right)
   focusVCenter: number; // vertical position of focused item (0=top · 0.5=center · 1=bottom)
@@ -68,6 +73,10 @@ const DEFAULT_PARAMS: Params = {
   minPerTile: 40,
   scaleMin: 0.8,
   scaleMax: 1.15,
+  doodleDensity: 0.35,
+  doodleSize: 30,
+  doodleOpacity: 0.24,
+  doodleSpacing: 1.3,
   camOffsetX: 220,
   focusVCenter: 0.5,
   gapPanel: 80,
@@ -181,7 +190,11 @@ function cardScale(i: number, scaleMin: number, scaleMax: number): number {
 //      Repeats until clean or max iterations reached (handles the cases
 //      where both seam slots were unassigned when the other was processed).
 //
-function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
+function buildTile(
+  artifacts: ArtifactCanvasItem[],
+  p: Params,
+  customDoodles: { url: string; aspect: number }[],
+) {
   const {
     cols: COLS,
     gapX: GAP_X,
@@ -192,6 +205,10 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
     minPerTile: MIN_PER_TILE,
     scaleMin,
     scaleMax,
+    doodleDensity,
+    doodleSize,
+    doodleOpacity,
+    doodleSpacing,
   } = p;
 
   const n = Math.max(MIN_PER_TILE, artifacts.length);
@@ -343,7 +360,17 @@ function buildTile(artifacts: ArtifactCanvasItem[], p: Params) {
     cardH: slotH[i],
   }));
 
-  return { items, positions, TILE_W, TILE_H };
+  const doodles = buildDoodles(
+    TILE_W,
+    TILE_H,
+    doodleDensity,
+    doodleSize,
+    doodleOpacity,
+    doodleSpacing,
+    customDoodles,
+  );
+
+  return { items, positions, TILE_W, TILE_H, doodles };
 }
 
 // ─── Background dots ──────────────────────────────────────────────────────────
@@ -793,7 +820,7 @@ function InfiniteTiles({
   isMobile: boolean;
 }) {
   const { camera } = useThree();
-  const { TILE_W, TILE_H, items, positions } = tile;
+  const { TILE_W, TILE_H, items, positions, doodles } = tile;
 
   const groupRefs = useRef<(THREE.Group | null)[]>(Array(9).fill(null));
   const prevTile = useRef({ x: 0, y: 0 });
@@ -862,6 +889,7 @@ function InfiniteTiles({
             }}
             position={[dx * TILE_W, dy * TILE_H, 0]}
           >
+            <DoodleField doodles={doodles} />
             {items.map(({ item, key, scale, cardH }, i) => (
               <Suspense key={key} fallback={null}>
                 <ArtifactMesh
@@ -1006,6 +1034,41 @@ function DebugPane({
         })
         .on("change", onLayoutChange);
 
+      // ── Decorations ───────────────────────────────────────────────────────────
+      const doodles = pane.addFolder({ title: "Decorations", expanded: false });
+      doodles
+        .addBinding(q, "doodleDensity", {
+          label: "density",
+          min: 0,
+          max: 1,
+          step: 0.05,
+        })
+        .on("change", onLayoutChange);
+      doodles
+        .addBinding(q, "doodleSize", {
+          label: "size",
+          min: 10,
+          max: 60,
+          step: 2,
+        })
+        .on("change", onLayoutChange);
+      doodles
+        .addBinding(q, "doodleOpacity", {
+          label: "opacity",
+          min: 0,
+          max: 0.6,
+          step: 0.02,
+        })
+        .on("change", onLayoutChange);
+      doodles
+        .addBinding(q, "doodleSpacing", {
+          label: "spacing",
+          min: 1.3,
+          max: 4,
+          step: 0.1,
+        })
+        .on("change", onLayoutChange);
+
       // ── Camera ──────────────────────────────────────────────────────────────
       const cam = pane.addFolder({ title: "Camera", expanded: false });
       cam.addBinding(q, "camOffsetX", {
@@ -1106,10 +1169,12 @@ const _videoCache = new Map<string, THREE.VideoTexture>();
 // ─── Main component ────────────────────────────────────────────────────────────
 export function InfiniteCanvas({
   artifacts,
+  customDoodles,
   active = true,
   running = active,
 }: {
   artifacts: ArtifactCanvasItem[];
+  customDoodles: { url: string; aspect: number }[];
   active?: boolean;
   running?: boolean; // keeps frameloop alive during outro even when active=false
 }) {
@@ -1169,9 +1234,9 @@ export function InfiniteCanvas({
   // is the deliberate reactive trigger to recompute this memo off that ref.
   const tile = useMemo(
     // eslint-disable-next-line react-hooks/refs
-    () => buildTile(artifacts, paramsRef.current),
+    () => buildTile(artifacts, paramsRef.current, customDoodles),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [artifacts, tileVersion],
+    [artifacts, tileVersion, customDoodles],
   );
 
   // ── Video textures — backed by module-level cache so videos survive remounts ──

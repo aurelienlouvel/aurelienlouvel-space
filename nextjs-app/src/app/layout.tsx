@@ -11,6 +11,8 @@ import { client } from "@/sanity/client";
 import {
   artifactsCanvasQuery,
   type ArtifactCanvasItem,
+  decorationsQuery,
+  type Decorations,
 } from "@/sanity/queries";
 
 const neueMontreal = localFont({
@@ -31,13 +33,27 @@ const getCachedArtifacts = unstable_cache(
   { revalidate: 300 },
 );
 
+const getCachedDecorations = unstable_cache(
+  async (): Promise<Decorations | null> =>
+    client.fetch<Decorations | null>(decorationsQuery),
+  ["play-decorations"],
+  { revalidate: 300 },
+);
+
 export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const artifacts = await getCachedArtifacts().catch(
-    () => [] as ArtifactCanvasItem[],
+  const [artifacts, decorations] = await Promise.all([
+    getCachedArtifacts().catch(() => [] as ArtifactCanvasItem[]),
+    getCachedDecorations().catch(() => null),
+  ]);
+
+  const customDoodles = (decorations?.doodles ?? []).flatMap((d) =>
+    d.url
+      ? [{ url: d.url, aspect: d.width && d.height ? d.height / d.width : 1 }]
+      : [],
   );
 
   return (
@@ -45,7 +61,7 @@ export default async function RootLayout({
       <body className="min-h-dvh bg-white text-foreground">
         <BodyTheme />
         <ActionBarProvider>
-          <PlayCanvas artifacts={artifacts} />
+          <PlayCanvas artifacts={artifacts} customDoodles={customDoodles} />
           <ScrollInit />
           {children}
           <ActionBar />

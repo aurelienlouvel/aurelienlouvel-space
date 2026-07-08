@@ -30,7 +30,13 @@ let _everMounted = false;
  * - Entrée /play (revisites) : fade-in après ENTER_DELAY.
  * - Sortie /play : outro des cards + crossfade opacity → 0, puis masqué.
  */
-export function PlayCanvas({ artifacts }: { artifacts: ArtifactCanvasItem[] }) {
+export function PlayCanvas({
+  artifacts,
+  customDoodles,
+}: {
+  artifacts: ArtifactCanvasItem[];
+  customDoodles: { url: string; aspect: number }[];
+}) {
   const pathname = usePathname();
   const isPlay   = pathname === "/play";
 
@@ -114,7 +120,12 @@ export function PlayCanvas({ artifacts }: { artifacts: ArtifactCanvasItem[] }) {
         zIndex:        visible ? 0         : -50,
       }}
     >
-      <InfiniteCanvas artifacts={artifacts} active={active} running={running} />
+      <InfiniteCanvas
+        artifacts={artifacts}
+        customDoodles={customDoodles}
+        active={active}
+        running={running}
+      />
     </div>
   );
 }
