@@ -10,7 +10,7 @@ export function ArtifactInfo({ artifact }: { artifact: ArtifactCanvasItem }) {
     : null;
 
   return (
-    <div className="w-64 flex flex-col gap-2">
+    <div className="w-64 flex flex-col gap-2 rounded-3xl border border-border/60 bg-white p-4 shadow-md backdrop-blur-2xl">
       <h3 className="leading-snug font-mono">{artifact.title}</h3>
 
       {dateLabel && (
