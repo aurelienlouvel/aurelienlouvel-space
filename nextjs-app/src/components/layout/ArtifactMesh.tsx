@@ -161,8 +161,8 @@ function CornerBrackets({
     if (justHovered && !isSelected) offAnim.current = OFF_START;
     prevHovered.current = hovered;
 
-    // ── Opacity: 0 idle, 0.75 hover, 1 selected ─────────────────────────────────
-    const opTarget = isSelected ? 1.0 : hovered ? 0.75 : 0;
+    // ── Opacity: 0 idle, 0.75 hover, 0 selected (hidden once focused) ───────────
+    const opTarget = isSelected ? 0 : hovered ? 0.75 : 0;
     opAnim.current += (opTarget - opAnim.current) * 0.14;
     if (opAnim.current < 0.005) opAnim.current = 0;
     if (opAnim.current > 0.995) opAnim.current = 1;

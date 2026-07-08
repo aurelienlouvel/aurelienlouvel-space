@@ -57,10 +57,11 @@ export type Params = {
   // ── Camera (live — no rebuild) ───────────────────────────────────────────────
   camOffsetX: number; // camera shifts right on focus (card left, panel fits right)
   focusVCenter: number; // vertical position of focused item (0=top · 0.5=center · 1=bottom)
+  focusZoomIntensity: number; // 0–1, scales how much the focus box zooms in
   // ── Card decoration (live — read every frame, never animated by selection) ───
   rotMax: number; // max card tilt, degrees
   tapeRotMax: number; // max tape-strip tilt, degrees
-  bracketRadius: number; // corner-bracket bend radius, world units
+  bracketRadius: number; // corner-bracket bend rounding, world units
   // ── Info panel (live) ────────────────────────────────────────────────────────
   gapPanel: number; // px gap between card right edge and info panel
   // ── Background dots (live — uniform update in useFrame) ──────────────────────
@@ -93,6 +94,7 @@ const DEFAULT_PARAMS: Params = {
   doodleSpacing: 1.3,
   camOffsetX: 220,
   focusVCenter: 0.5,
+  focusZoomIntensity: 0.75,
   rotMax: 2, // ±~2°
   tapeRotMax: 8.6, // ±~8.6°
   bracketRadius: 16,
@@ -164,10 +166,11 @@ const FOCUS_MAX_ZOOM = 3.8;
 //  Boîte cible : on PRIORISE la hauteur (h) → toutes les cards focus tendent vers
 //  la même hauteur. wMax n'est qu'un garde-fou (généreux) pour que les cards très
 //  larges (paysage) ne débordent pas — elles apparaissent donc plus grosses.
-function focusBox(vw: number, vh: number, mobile: boolean) {
-  return mobile
+function focusBox(vw: number, vh: number, mobile: boolean, intensity: number) {
+  const box = mobile
     ? { h: vh * 0.52, wMax: vw * 0.94 }
     : { h: vh * 0.82, wMax: Math.min(vw * 0.56, 820) };
+  return { h: box.h * intensity, wMax: box.wMax }; // wMax is just a landscape cap, stays fixed
 }
 function computeFocusZoom(
   worldW: number,
@@ -175,8 +178,9 @@ function computeFocusZoom(
   vw: number,
   vh: number,
   mobile: boolean,
+  intensity: number,
 ) {
-  const { h, wMax } = focusBox(vw, vh, mobile);
+  const { h, wMax } = focusBox(vw, vh, mobile, intensity);
   const z = Math.min(h / worldH, wMax / worldW); // hauteur prioritaire, largeur = cap
   return Math.max(FOCUS_MIN_ZOOM, Math.min(FOCUS_MAX_ZOOM, z));
 }
@@ -1268,6 +1272,12 @@ function DebugPane({
         max: 0.9,
         step: 0.01,
       });
+      cam.addBinding(q, "focusZoomIntensity", {
+        label: "focus zoom",
+        min: 0.3,
+        max: 1.0,
+        step: 0.05,
+      });
 
       // ── Info panel ──────────────────────────────────────────────────────────
       const panel = pane.addFolder({ title: "Info panel", expanded: false });
@@ -1616,32 +1626,36 @@ export function InfiniteCanvas({
   }, [active, loading]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  const handleDeselect = useCallback(() => {
-    if (_dragMoved) return;
-    setSelected(null);
-    selectedWorldPosRef.current = null;
-    zoomTargetRef.current = 1.0;
-    panelX.set(-9999);
-  }, [panelX]);
+  const triggerRippleAt = useCallback((clientX: number, clientY: number) => {
+    const cam = cameraStateRef.current;
+    const rect = canvasWrapperRef.current?.getBoundingClientRect();
+    if (!rect || cam.width === 0 || cam.height === 0) return;
+    const offsetX = clientX - rect.left;
+    const offsetY = clientY - rect.top;
+    const ndcX = (offsetX / cam.width) * 2 - 1;
+    const ndcY = -((offsetY / cam.height) * 2 - 1);
+    const worldX = cam.x + (ndcX * cam.width) / (2 * cam.zoom);
+    const worldY = cam.y + (ndcY * cam.height) / (2 * cam.zoom);
+    rippleRef.current = {
+      x: worldX,
+      y: worldY,
+      startTime: performance.now() / 1000,
+    };
+  }, []);
 
-  // Native DOM handler on the Canvas itself (not an R3F mesh handler) so it
-  // fires on every click — including on cards, whose meshes stopPropagation
-  // their own onClick/onPointerOver — to trigger the ripple regardless of
-  // what was clicked.
-  const handleCanvasPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      const cam = cameraStateRef.current;
-      const rect = canvasWrapperRef.current?.getBoundingClientRect();
-      if (!rect || cam.width === 0 || cam.height === 0) return;
-      const offsetX = e.clientX - rect.left;
-      const offsetY = e.clientY - rect.top;
-      const ndcX = (offsetX / cam.width) * 2 - 1;
-      const ndcY = -((offsetY / cam.height) * 2 - 1);
-      const worldX = cam.x + (ndcX * cam.width) / (2 * cam.zoom);
-      const worldY = cam.y + (ndcY * cam.height) / (2 * cam.zoom);
-      rippleRef.current = { x: worldX, y: worldY, startTime: performance.now() / 1000 };
+  // onPointerMissed is R3F-specific: it fires only when a click's raycast hits
+  // no scene object, so it naturally distinguishes "clicked empty canvas"
+  // (ripple + deselect) from "clicked a card" (focus, no ripple).
+  const handleDeselect = useCallback(
+    (e?: MouseEvent) => {
+      if (_dragMoved) return;
+      setSelected(null);
+      selectedWorldPosRef.current = null;
+      zoomTargetRef.current = 1.0;
+      panelX.set(-9999);
+      if (e) triggerRippleAt(e.clientX, e.clientY);
     },
-    [],
+    [panelX, triggerRippleAt],
   );
 
   // Sync focusState + focusExitRef synchronously before browser paint
@@ -1683,6 +1697,7 @@ export function InfiniteCanvas({
         vw,
         vh,
         mobile,
+        q.focusZoomIntensity,
       );
 
       // Cadrage caméra : card en haut (mobile, panel dessous) ou décalée à
@@ -1733,7 +1748,6 @@ export function InfiniteCanvas({
           frameloop={running ? "always" : "never"}
           onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
           onPointerMissed={handleDeselect}
-          onPointerDown={handleCanvasPointerDown}
         >
           <InfiniteTiles
             tile={tile}
