@@ -132,8 +132,26 @@ const LAYOUT_KEYS = [
   "scaleMin",
   "scaleMax",
 ] as const;
+
+// ─── Saved param overrides (localStorage) ──────────────────────────────────────
+//  "save as default" in the debug pane persists the tuned Params here — read
+//  once at module load so both the initial paramsRef and every later
+//  applyResponsiveLayout() call (breakpoint crossings) honour it.
+const PARAMS_STORAGE_KEY = "ore-play-params";
+let _savedParamOverrides: Partial<Params> = {};
+if (typeof window !== "undefined") {
+  try {
+    const raw = window.localStorage.getItem(PARAMS_STORAGE_KEY);
+    if (raw) _savedParamOverrides = JSON.parse(raw);
+  } catch {
+    _savedParamOverrides = {};
+  }
+}
+
 function applyResponsiveLayout(p: Params, mobile: boolean) {
-  const src = mobile ? { ...DEFAULT_PARAMS, ...MOBILE_LAYOUT } : DEFAULT_PARAMS;
+  const src = mobile
+    ? { ...DEFAULT_PARAMS, ...MOBILE_LAYOUT, ..._savedParamOverrides }
+    : { ...DEFAULT_PARAMS, ..._savedParamOverrides };
   for (const k of LAYOUT_KEYS) p[k] = src[k];
 }
 
@@ -1060,6 +1078,36 @@ function DebugPane({
 
       const q = paramsRef.current;
 
+      // ── Save / reset ─────────────────────────────────────────────────────────
+      pane.addButton({ title: "💾 Save as default" }).on("click", () => {
+        _savedParamOverrides = { ...paramsRef.current };
+        try {
+          window.localStorage.setItem(
+            PARAMS_STORAGE_KEY,
+            JSON.stringify(_savedParamOverrides),
+          );
+        } catch { /* best-effort */ }
+      });
+      pane.addButton({ title: "↺ Reset to defaults" }).on("click", () => {
+        _savedParamOverrides = {};
+        try {
+          window.localStorage.removeItem(PARAMS_STORAGE_KEY);
+        } catch { /* best-effort */ }
+        Object.assign(paramsRef.current, DEFAULT_PARAMS);
+        const mobile = window.matchMedia(
+          `(max-width: ${MOBILE_BREAKPOINT}px)`,
+        ).matches;
+        applyResponsiveLayout(paramsRef.current, mobile);
+        pane.refresh();
+        onLayoutChange();
+        // Vignette is mirrored into React state (see InfiniteCanvas) — a bulk
+        // Object.assign above doesn't fire the binding's own "change" handler.
+        onVignetteChange({
+          radius: DEFAULT_PARAMS.vignetteRadius,
+          strength: DEFAULT_PARAMS.vignetteStrength,
+        });
+      });
+
       // ── Layout ──────────────────────────────────────────────────────────────
       const layout = pane.addFolder({ title: "Layout", expanded: true });
       layout
@@ -1390,12 +1438,15 @@ export function InfiniteCanvas({
   const [isMobile, setIsMobile] = useState(false);
   const isMobileRef = useRef(false);
 
-  const paramsRef = useRef<Params>({ ...DEFAULT_PARAMS });
+  const paramsRef = useRef<Params>({
+    ...DEFAULT_PARAMS,
+    ..._savedParamOverrides,
+  });
   // Only "live" param mirrored into React state — the vignette is a plain CSS
   // overlay outside the R3F tree, so (unlike gridCell/dotRadius etc., read
   // straight from paramsRef in a useFrame) it needs a real re-render to update.
-  // paramsRef.current is seeded synchronously just above — safe to read once
-  // for initial state.
+  // paramsRef.current is seeded synchronously just above (DEFAULT_PARAMS +
+  // saved overrides) before this runs — safe to read once for initial state.
   /* eslint-disable react-hooks/refs */
   const [vignette, setVignette] = useState({
     radius: paramsRef.current.vignetteRadius,
