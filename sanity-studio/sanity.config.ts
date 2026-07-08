@@ -17,6 +17,7 @@ import {
   EducationNavIcon,
   VolunteerNavIcon,
   AwardNavIcon,
+  DecorationsNavIcon,
 } from './schemaTypes/components/navIcons'
 
 export default defineConfig({
@@ -37,6 +38,15 @@ export default defineConfig({
               .icon(ProfileNavIcon)
               .child(
                 S.document().schemaType('profile').documentId('profile').title('Profile'),
+              ),
+            S.listItem()
+              .title('Decorations')
+              .icon(DecorationsNavIcon)
+              .child(
+                S.document()
+                  .schemaType('decorations')
+                  .documentId('decorations')
+                  .title('Decorations'),
               ),
             orderableDocumentListDeskItem({
               type: 'project',

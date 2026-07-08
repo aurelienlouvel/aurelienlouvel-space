@@ -13,6 +13,7 @@ import {
   GraduationScrollIcon,
   FavouriteIcon,
   Award01Icon,
+  PaintBrush01Icon,
 } from '@hugeicons/core-free-icons'
 
 export const ProjectNavIcon = () => (
@@ -53,4 +54,7 @@ export const VolunteerNavIcon = () => (
 )
 export const AwardNavIcon = () => (
   <HugeiconsIcon icon={Award01Icon} size={17} color="currentColor" />
+)
+export const DecorationsNavIcon = () => (
+  <HugeiconsIcon icon={PaintBrush01Icon} size={17} color="currentColor" />
 )
