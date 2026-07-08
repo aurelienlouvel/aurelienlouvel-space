@@ -58,6 +58,8 @@ export type Params = {
   camOffsetX: number; // camera shifts right on focus (card left, panel fits right)
   focusVCenter: number; // vertical position of focused item (0=top · 0.5=center · 1=bottom)
   // ── Card decoration (live — read every frame, never animated by selection) ───
+  rotMax: number; // max card tilt, degrees
+  tapeRotMax: number; // max tape-strip tilt, degrees
   bracketRadius: number; // corner-bracket bend radius, world units
   // ── Info panel (live) ────────────────────────────────────────────────────────
   gapPanel: number; // px gap between card right edge and info panel
@@ -83,6 +85,8 @@ const DEFAULT_PARAMS: Params = {
   doodleSpacing: 1.3,
   camOffsetX: 220,
   focusVCenter: 0.5,
+  rotMax: 2, // ±~2°
+  tapeRotMax: 8.6, // ±~8.6°
   bracketRadius: 16,
   gapPanel: 80,
   gridCell: 64,
@@ -1063,6 +1067,21 @@ function DebugPane({
         label: "bracket round",
         min: 8,
         max: 32,
+        step: 1,
+      });
+
+      // ── Rotation (live — no rebuild, never affected by selection) ───────────
+      const rotation = pane.addFolder({ title: "Rotation", expanded: false });
+      rotation.addBinding(q, "rotMax", {
+        label: "card tilt (°)",
+        min: 0,
+        max: 15,
+        step: 0.5,
+      });
+      rotation.addBinding(q, "tapeRotMax", {
+        label: "tape tilt (°)",
+        min: 0,
+        max: 30,
         step: 1,
       });
 

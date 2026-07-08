@@ -194,6 +194,44 @@ function CornerBrackets({
   );
 }
 
+// ─── Tape strip ───────────────────────────────────────────────────────────────
+//  Small translucent strip straddling the top edge — corkboard/scrapbook accent.
+//  Lives inside the same group as the card mesh so it tilts rigidly with it.
+const TAPE_W = 46;
+const TAPE_H = 18;
+
+function TapeStrip({
+  side,
+  seed,
+  cardW,
+  cardH,
+  paramsRef,
+}: {
+  side:      -1 | 1;
+  seed:      number;
+  cardW:     number;
+  cardH:     number;
+  paramsRef: React.MutableRefObject<Params>;
+}) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const x = side * cardW * 0.24;
+  const y = cardH / 2; // straddles the top edge — half on the card, half above it
+
+  // Angle lu en live depuis les params (slider debug) — fixe, jamais animé.
+  useFrame(() => {
+    if (!meshRef.current) return;
+    const maxRad = (paramsRef.current.tapeRotMax * Math.PI) / 180;
+    meshRef.current.rotation.z = seed * 2 * maxRad;
+  });
+
+  return (
+    <mesh ref={meshRef} position={[x, y, 0.02]}>
+      <planeGeometry args={[TAPE_W, TAPE_H]} />
+      <meshBasicMaterial color="#f4ede0" transparent opacity={0.55} depthWrite={false} />
+    </mesh>
+  );
+}
+
 // ─── Shared props ─────────────────────────────────────────────────────────────
 type SharedProps = {
   worldPos:   [number, number];
@@ -213,6 +251,9 @@ const INTRO_STAGGER_MAX = 240; // more spread → visible wave effect
 //  fondu d'opacité (pas de rotation), et deviennent non-cliquables.
 const DIM_LERP  = 0.12; // vitesse du repli (lerp/frame)
 const DIM_SCALE = 0.22; // réduction d'échelle au repli (→ 78 %)
+
+// Léger grossissement au survol (non cumulatif avec la sélection)
+const HOVER_SCALE = 1.03;
 
 // Raycast on/off : une card repliée ne doit pas intercepter le clic (le clic
 // la traverse → onPointerMissed → désélection).
@@ -237,8 +278,10 @@ function MeshBody({
   const [staggerMs]     = useState(() => Math.random() * INTRO_STAGGER_MAX);
   // Outro stagger is a scaled-down version of intro stagger (same relative order)
   const outroStaggerMs = staggerMs * (OUTRO_STAGGER_MAX / INTRO_STAGGER_MAX);
-  // Légère inclinaison initiale (rendu organique) — se résorbe avec l'opacity.
-  const [introRot]     = useState(() => (Math.random() - 0.5) * 0.16); // ±~4.6°
+  // Inclinaison permanente façon "épinglée au mur" — fixe, ne bouge jamais (même en zoom/sélection)
+  const [rotSeed]  = useState(() => Math.random() - 0.5); // ratio stable ∈ [-0.5, 0.5]
+  const [tapeSide] = useState<-1 | 1>(() => (Math.random() < 0.5 ? -1 : 1));
+  const [tapeSeed] = useState(() => Math.random() - 0.5);
   // Repli quand un AUTRE item est focus (scale ↓ + fade, sans rotation)
   const dimAnim        = useRef(0);
   const [hovered, setHovered] = useState(false);
@@ -278,8 +321,8 @@ function MeshBody({
 
     const mat = meshRef.current?.material as THREE.MeshBasicMaterial | undefined;
 
-    // ── Selection spring ─────────────────────────────────────────────────────
-    const selTarget = isSelected ? 1.04 : 1;
+    // ── Selection spring (hover gives the same slight bump when not selected) ──
+    const selTarget = isSelected ? 1.04 : hovered ? HOVER_SCALE : 1;
     selAnim.current += (selTarget - selAnim.current) * 0.12;
 
     // ── Focus dim : les autres cards se replient quand un item est focus ──────
@@ -296,8 +339,12 @@ function MeshBody({
     if (mat) mat.opacity = finalOpacity;
 
     meshRef.current?.scale.setScalar(selAnim.current * scaleBoost * (1 - DIM_SCALE * dim));
+    // Tilt fixe, lu en live depuis les params (slider debug) — ne bouge jamais, même en zoom/sélection
+    if (groupRef.current) {
+      const maxRad = (paramsRef.current.rotMax * Math.PI) / 180;
+      groupRef.current.rotation.z = rotSeed * 2 * maxRad;
+    }
     if (meshRef.current) {
-      meshRef.current.rotation.z = introRot * (1 - opacity);
       meshRef.current.visible    = finalOpacity > 0.001;
       // repliée → non-cliquable (le clic traverse et désélectionne)
       meshRef.current.raycast    = dimmed ? NOOP_RAYCAST : DEFAULT_RAYCAST;
@@ -308,8 +355,8 @@ function MeshBody({
     <group ref={groupRef} position={[worldPos[0], worldPos[1], 0]}>
       <mesh
         ref={meshRef}
-        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); }}
-        onPointerOut={() => setHovered(false)}
+        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); document.body.style.cursor = "pointer"; }}
+        onPointerOut={() => { setHovered(false); document.body.style.cursor = "auto"; }}
         onClick={(e) => {
           e.stopPropagation();
           const wp = new THREE.Vector3();
@@ -326,6 +373,7 @@ function MeshBody({
         />
       </mesh>
       <CornerBrackets hovered={hovered} isSelected={isSelected} cardW={w} cardH={h} paramsRef={paramsRef} />
+      <TapeStrip side={tapeSide} seed={tapeSeed} cardW={w} cardH={h} paramsRef={paramsRef} />
     </group>
   );
 }
@@ -338,7 +386,12 @@ function PlaceholderMesh({
   const meshRef  = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
   // Repli quand un autre item est focus (scale ↓ + fade, cohérent avec MeshBody)
-  const dimAnim = useRef(0);
+  const dimAnim   = useRef(0);
+  const hoverAnim = useRef(1);
+  // Tilt fixe façon "épinglée au mur" — ne bouge jamais (même en zoom/sélection)
+  const [rotSeed]  = useState(() => Math.random() - 0.5);
+  const [tapeSide] = useState<-1 | 1>(() => (Math.random() < 0.5 ? -1 : 1));
+  const [tapeSeed] = useState(() => Math.random() - 0.5);
 
   const w = CARD_W * cardScale;
   const h = cardH  * cardScale;
@@ -354,7 +407,16 @@ function PlaceholderMesh({
     const dim = dimAnim.current;
     const mat = meshRef.current?.material as THREE.MeshBasicMaterial | undefined;
     if (mat) mat.opacity = 1 - (1 - DIM_OPACITY) * dim;
-    meshRef.current?.scale.setScalar(1 - DIM_SCALE * dim);
+
+    // ── Hover spring (même léger bump que MeshBody) ────────────────────────────
+    const hoverTarget = hovered ? HOVER_SCALE : 1;
+    hoverAnim.current += (hoverTarget - hoverAnim.current) * 0.12;
+
+    meshRef.current?.scale.setScalar(hoverAnim.current * (1 - DIM_SCALE * dim));
+    if (groupRef.current) {
+      const maxRad = (paramsRef.current.rotMax * Math.PI) / 180;
+      groupRef.current.rotation.z = rotSeed * 2 * maxRad;
+    }
     if (meshRef.current) {
       meshRef.current.visible = 1 - dim > 0.001;
       meshRef.current.raycast = dimmed ? NOOP_RAYCAST : DEFAULT_RAYCAST;
@@ -365,8 +427,8 @@ function PlaceholderMesh({
     <group ref={groupRef} position={[worldPos[0], worldPos[1], 0]}>
       <mesh
         ref={meshRef}
-        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); }}
-        onPointerOut={() => setHovered(false)}
+        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); document.body.style.cursor = "pointer"; }}
+        onPointerOut={() => { setHovered(false); document.body.style.cursor = "auto"; }}
         onClick={(e) => {
           e.stopPropagation();
           const wp = new THREE.Vector3();
@@ -382,6 +444,7 @@ function PlaceholderMesh({
         />
       </mesh>
       <CornerBrackets hovered={hovered} isSelected={isSelected} cardW={w} cardH={h} paramsRef={paramsRef} />
+      <TapeStrip side={tapeSide} seed={tapeSeed} cardW={w} cardH={h} paramsRef={paramsRef} />
     </group>
   );
 }
