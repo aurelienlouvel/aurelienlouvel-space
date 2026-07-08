@@ -8,6 +8,7 @@ import type { ArtifactCanvasItem } from "@/sanity/queries";
 import { buildImageUrl } from "@/lib/sanity-image";
 import { CARD_W, CARD_H, getArtifactImageUrl, introState, outroState, OUTRO_DURATION, OUTRO_STAGGER_MAX, focusState, DIM_OPACITY } from "@/lib/artifact-utils";
 import { easeOutExpo, easeOutBack } from "@/lib/easings";
+import type { Params } from "./InfiniteCanvas";
 
 export { CARD_W, CARD_H, getArtifactImageUrl };
 
@@ -78,9 +79,9 @@ const OFF_MAX = OFF_START;
 // Cache keyed by "cw_ch" string to handle different card proportions
 const _bracketCache = new Map<string, THREE.Texture>();
 
-function getBracketTexture(cw: number, ch: number): THREE.Texture | null {
+function getBracketTexture(cw: number, ch: number, radius: number): THREE.Texture | null {
   if (typeof document === "undefined") return null;
-  const key = `${Math.round(cw)}_${Math.round(ch)}`;
+  const key = `${Math.round(cw)}_${Math.round(ch)}_${radius}`;
   if (_bracketCache.has(key)) return _bracketCache.get(key)!;
 
   const canvas = document.createElement("canvas");
@@ -93,22 +94,24 @@ function getBracketTexture(cw: number, ch: number): THREE.Texture | null {
   ctx.fillRect(0, 0, cw, ch);
   ctx.strokeStyle = "#ffffff"; // opaque in alphaMap
   ctx.lineWidth   = TH;
-  ctx.lineJoin    = "miter";   // sharp 90° corner at the L bend
   ctx.lineCap     = "square";  // clean arm ends
 
   // Inset half-stroke so lines stay fully within canvas bounds
   const o = TH / 2;
 
-  // Four straight L-brackets — minimal, crisp, tool-UI style
-  ctx.beginPath(); ctx.moveTo(ARM, o);     ctx.lineTo(o,      o);      ctx.lineTo(o,      ARM);     ctx.stroke(); // TL
-  ctx.beginPath(); ctx.moveTo(cw-ARM, o);  ctx.lineTo(cw-o,   o);      ctx.lineTo(cw-o,   ARM);     ctx.stroke(); // TR
-  ctx.beginPath(); ctx.moveTo(ARM, ch-o);  ctx.lineTo(o,      ch-o);   ctx.lineTo(o,      ch-ARM);  ctx.stroke(); // BL
-  ctx.beginPath(); ctx.moveTo(cw-ARM, ch-o); ctx.lineTo(cw-o, ch-o);   ctx.lineTo(cw-o,   ch-ARM);  ctx.stroke(); // BR
+  // Four L-brackets with a softly rounded bend — minimal, tool-UI style
+  ctx.beginPath(); ctx.moveTo(ARM, o);       ctx.arcTo(o,    o,    o,    ARM,    radius); ctx.lineTo(o,    ARM);    ctx.stroke(); // TL
+  ctx.beginPath(); ctx.moveTo(cw-ARM, o);    ctx.arcTo(cw-o, o,    cw-o, ARM,    radius); ctx.lineTo(cw-o, ARM);    ctx.stroke(); // TR
+  ctx.beginPath(); ctx.moveTo(ARM, ch-o);    ctx.arcTo(o,    ch-o, o,    ch-ARM, radius); ctx.lineTo(o,    ch-ARM); ctx.stroke(); // BL
+  ctx.beginPath(); ctx.moveTo(cw-ARM, ch-o); ctx.arcTo(cw-o, ch-o, cw-o, ch-ARM, radius); ctx.lineTo(cw-o, ch-ARM); ctx.stroke(); // BR
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.minFilter       = THREE.LinearFilter;
+  // Mesh is routinely shown minified (scaled down from the max-gap bake size
+  // toward OFF_NEAR/OFF_FOCUS, further shrunk at low camera zoom) — mipmaps
+  // keep the curved stroke crisp instead of shimmering/blurring at a distance.
+  tex.minFilter       = THREE.LinearMipmapLinearFilter;
   tex.magFilter       = THREE.LinearFilter;
-  tex.generateMipmaps = false;
+  tex.generateMipmaps = true;
   _bracketCache.set(key, tex);
   return tex;
 }
@@ -118,25 +121,39 @@ function CornerBrackets({
   isSelected,
   cardW,
   cardH,
+  paramsRef,
 }: {
   hovered:    boolean;
   isSelected: boolean;
   cardW:      number;
   cardH:      number;
+  paramsRef:  React.MutableRefObject<Params>;
 }) {
   const meshRef     = useRef<THREE.Mesh>(null);
   const opAnim      = useRef(0);
   const offAnim     = useRef(OFF_NEAR);
   const prevHovered = useRef(false);
+  const lastRadius  = useRef(16);
 
   // Canvas sized for the maximum distance so we never need to rebuild
   const fullW = cardW + 2 * OFF_MAX;
   const fullH = cardH + 2 * OFF_MAX;
-  const tex   = getBracketTexture(fullW, fullH);
+  const tex   = getBracketTexture(fullW, fullH, 16);
 
   useFrame(() => {
     if (!meshRef.current) return;
     const mat = meshRef.current.material as THREE.MeshBasicMaterial;
+
+    // ── Live radius swap: debug-pane slider takes effect without remount ────────
+    const radius = paramsRef.current.bracketRadius;
+    if (radius !== lastRadius.current) {
+      lastRadius.current = radius;
+      const newTex = getBracketTexture(fullW, fullH, radius);
+      if (newTex) {
+        mat.alphaMap = newTex;
+        mat.needsUpdate = true;
+      }
+    }
 
     // ── Hover entry: jump to OFF_START so the approaching animation is visible ──
     // Pas de "ré-approche" des brackets si la card est déjà sélectionnée
@@ -184,6 +201,7 @@ type SharedProps = {
   onSelect:   (point: [number, number]) => void;
   cardScale?: number;
   cardH?:     number;
+  paramsRef:  React.MutableRefObject<Params>;
 };
 
 // ─── Intro animation config ───────────────────────────────────────────────────
@@ -209,6 +227,7 @@ function MeshBody({
   onSelect,
   cardScale = 1,
   cardH = CARD_H,
+  paramsRef,
 }: SharedProps & { texture: THREE.Texture }) {
   const meshRef  = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
@@ -306,14 +325,14 @@ function MeshBody({
           alphaMap={getRoundedAlpha(CARD_W, cardH) ?? undefined}
         />
       </mesh>
-      <CornerBrackets hovered={hovered} isSelected={isSelected} cardW={w} cardH={h} />
+      <CornerBrackets hovered={hovered} isSelected={isSelected} cardW={w} cardH={h} paramsRef={paramsRef} />
     </group>
   );
 }
 
 // ─── Placeholder (no media) ───────────────────────────────────────────────────
 function PlaceholderMesh({
-  worldPos, isSelected, onSelect, cardScale = 1, cardH = CARD_H,
+  worldPos, isSelected, onSelect, cardScale = 1, cardH = CARD_H, paramsRef,
 }: SharedProps) {
   const groupRef = useRef<THREE.Group>(null);
   const meshRef  = useRef<THREE.Mesh>(null);
@@ -362,7 +381,7 @@ function PlaceholderMesh({
           alphaMap={getRoundedAlpha(CARD_W, cardH) ?? undefined}
         />
       </mesh>
-      <CornerBrackets hovered={hovered} isSelected={isSelected} cardW={w} cardH={h} />
+      <CornerBrackets hovered={hovered} isSelected={isSelected} cardW={w} cardH={h} paramsRef={paramsRef} />
     </group>
   );
 }

@@ -38,7 +38,7 @@ import { buildDoodles, DoodleField } from "./DoodleField";
 //  Layout params (cols / gaps / jitter / scale) call onLayoutChange() → tileVersion++
 //  → buildTile recomputes.  Camera / visual params are read every frame from the ref.
 //
-type Params = {
+export type Params = {
   // ── Tile layout (change → tile rebuild) ─────────────────────────────────────
   cols: number; // grid columns
   gapX: number; // extra px between cols  (cell_w = CARD_W + gapX)
@@ -57,6 +57,8 @@ type Params = {
   // ── Camera (live — no rebuild) ───────────────────────────────────────────────
   camOffsetX: number; // camera shifts right on focus (card left, panel fits right)
   focusVCenter: number; // vertical position of focused item (0=top · 0.5=center · 1=bottom)
+  // ── Card decoration (live — read every frame, never animated by selection) ───
+  bracketRadius: number; // corner-bracket bend radius, world units
   // ── Info panel (live) ────────────────────────────────────────────────────────
   gapPanel: number; // px gap between card right edge and info panel
   // ── Background dots (live — uniform update in useFrame) ──────────────────────
@@ -81,6 +83,7 @@ const DEFAULT_PARAMS: Params = {
   doodleSpacing: 1.3,
   camOffsetX: 220,
   focusVCenter: 0.5,
+  bracketRadius: 16,
   gapPanel: 80,
   gridCell: 64,
   dotRadius: 2.0,
@@ -927,6 +930,7 @@ function InfiniteTiles({
                     )
                   }
                   videoTexture={videoTextures.get(item._id)}
+                  paramsRef={paramsRef}
                 />
               </Suspense>
             ))}
@@ -1055,6 +1059,12 @@ function DebugPane({
           step: 0.05,
         })
         .on("change", onLayoutChange);
+      cards.addBinding(q, "bracketRadius", {
+        label: "bracket round",
+        min: 8,
+        max: 32,
+        step: 1,
+      });
 
       // ── Decorations ───────────────────────────────────────────────────────────
       const doodles = pane.addFolder({ title: "Decorations", expanded: false });
