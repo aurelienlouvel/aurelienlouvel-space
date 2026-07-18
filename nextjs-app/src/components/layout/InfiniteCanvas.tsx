@@ -94,7 +94,7 @@ const DEFAULT_PARAMS: Params = {
   doodleSpacing: 1.3,
   camOffsetX: 220,
   focusVCenter: 0.5,
-  focusZoomIntensity: 0.75,
+  focusZoomIntensity: 0.55,
   rotMax: 2, // ±~2°
   tapeRotMax: 8.6, // ±~8.6°
   bracketRadius: 16,
@@ -569,7 +569,7 @@ function GridBackground({
 //
 // Arrivée /play : onde des dots + vague des cards + dézoom démarrent EN MÊME TEMPS.
 const INTRO_ZOOM_DURATION = 1050; // ms — dézoom caméra 0.5→1
-const FOCUS_DURATION = 750; // ms — focus snap
+const FOCUS_DURATION = 500; // ms — focus snap
 // Panel appears once media is nearly stable (Framer Motion delay, not a timer)
 const PANEL_DELAY_S = (FOCUS_DURATION * 0.75) / 1000; // seconds for Framer Motion
 
@@ -647,7 +647,10 @@ function CameraController({
 
     const onDown = (e: PointerEvent) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      if (inFocus.current) return;
+      if (inFocus.current) {
+        focusExitRef.current?.();
+        inFocus.current = false;
+      }
       dragActive = true;
       startX = lastX = e.clientX;
       startY = lastY = e.clientY;
@@ -813,7 +816,7 @@ function CameraController({
       // Idle: zoom lerp for exit-focus, then inertia + wheel/drag pan
       const zDiff = zoomTarget.current - cam.zoom;
       if (Math.abs(zDiff) > 0.001) {
-        cam.zoom += zDiff * 0.16;
+        cam.zoom += zDiff * 0.22;
         cam.updateProjectionMatrix();
       } else if (cam.zoom !== zoomTarget.current) {
         cam.zoom = zoomTarget.current;
@@ -1054,6 +1057,164 @@ function InfiniteTiles({
 // ─── Debug pane (dev only) ────────────────────────────────────────────────────
 const IS_DEV = process.env.NODE_ENV !== "production";
 
+function useDebugHashVisibility(): boolean {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const checkHash = () => setVisible(window.location.hash === "#debug");
+    checkHash();
+    window.addEventListener("hashchange", checkHash);
+    return () => window.removeEventListener("hashchange", checkHash);
+  }, []);
+
+  return visible;
+}
+
+function ImportSettingsModal({
+  isOpen,
+  onClose,
+  currentParams,
+  onApply,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  currentParams: Params;
+  onApply: (params: Partial<Params>) => void;
+}) {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [imported, setImported] = useState<Partial<Params> | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const parseAndPreview = (text: string) => {
+    try {
+      const parsed = JSON.parse(text);
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        !parsed.params ||
+        typeof parsed.params !== "object"
+      ) {
+        setError(
+          "Invalid format. Expected: { version: 1, timestamp: ..., params: {...} }",
+        );
+        setImported(null);
+        setSelected(new Set());
+        return;
+      }
+      const params = parsed.params as Partial<Params>;
+      setImported(params);
+      setSelected(new Set(Object.keys(params)));
+      setError(null);
+    } catch {
+      setError("Invalid JSON");
+      setImported(null);
+      setSelected(new Set());
+    }
+  };
+
+  const handleImport = () => {
+    if (!imported) return;
+    const toApply: Partial<Params> = {};
+    for (const key of selected) {
+      if (key in imported) {
+        toApply[key as keyof Params] = imported[key as keyof Params];
+      }
+    }
+    onApply(toApply);
+    onClose();
+    setInput("");
+    setImported(null);
+    setSelected(new Set());
+  };
+
+  const currentParamsDisplay = useMemo(() => {
+    const result: Record<string, string> = {};
+    if (imported) {
+      for (const key of Object.keys(imported)) {
+        const val = currentParams[key as keyof Params];
+        result[key] = val?.toString() || "–";
+      }
+    }
+    return result;
+  }, [imported, currentParams]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[210] bg-black/30 flex items-center justify-center">
+      <div className="bg-white rounded-lg p-6 shadow-lg max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-semibold mb-4">Import Settings</h2>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-2">Paste JSON:</label>
+          <textarea
+            value={input}
+            onChange={(e) => parseAndPreview(e.target.value)}
+            placeholder='{ "version": 1, "timestamp": "...", "params": {...} }'
+            className="w-full h-32 p-2 border border-gray-300 rounded font-mono text-xs"
+          />
+        </div>
+
+        {error && <div className="text-red-600 text-sm mb-4">{error}</div>}
+
+        {imported && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">
+              Select settings to import:
+            </label>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {Object.entries(imported).map(([key, value]) => (
+                <label key={key} className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(key)}
+                    onChange={(e) => {
+                      const newSelected = new Set(selected);
+                      if (e.target.checked) {
+                        newSelected.add(key);
+                      } else {
+                        newSelected.delete(key);
+                      }
+                      setSelected(newSelected);
+                    }}
+                    className="mt-0.5"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono text-xs font-medium">{key}</div>
+                    <div className="text-xs text-gray-600">
+                      current: {currentParamsDisplay[key]}
+                    </div>
+                    <div className="text-xs text-blue-600">
+                      imported: {value?.toString() || "–"}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 text-sm font-medium rounded border border-gray-300 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={!imported || selected.size === 0}
+            className="flex-1 px-4 py-2 text-sm font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Import ({selected.size})
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DebugPane({
   paramsRef,
   onLayoutChange,
@@ -1064,9 +1225,48 @@ function DebugPane({
   onVignetteChange: (v: { radius: number; strength: number }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const debugVisible = useDebugHashVisibility();
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [currentParamsSnapshot, setCurrentParamsSnapshot] = useState<Params>(
+    {} as Params,
+  );
+
+  useLayoutEffect(() => {
+    setCurrentParamsSnapshot({ ...paramsRef.current });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleExport = async () => {
+    const data = {
+      version: 1,
+      timestamp: new Date().toISOString(),
+      params: paramsRef.current,
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    } catch {
+      alert("Failed to copy to clipboard");
+    }
+  };
+
+  const handleImport = (newParams: Partial<Params>) => {
+    Object.assign(paramsRef.current, newParams);
+    _savedParamOverrides = { ...paramsRef.current };
+    try {
+      window.localStorage.setItem(
+        PARAMS_STORAGE_KEY,
+        JSON.stringify(_savedParamOverrides),
+      );
+    } catch { /* best-effort */ }
+    onLayoutChange();
+    onVignetteChange({
+      radius: paramsRef.current.vignetteRadius,
+      strength: paramsRef.current.vignetteStrength,
+    });
+  };
 
   useEffect(() => {
-    if (!IS_DEV || !containerRef.current) return;
+    if (!IS_DEV || !containerRef.current || !debugVisible) return;
 
     let disposed = false;
     let disposeFn: (() => void) | null = null;
@@ -1110,6 +1310,13 @@ function DebugPane({
           radius: DEFAULT_PARAMS.vignetteRadius,
           strength: DEFAULT_PARAMS.vignetteStrength,
         });
+      });
+
+      // ── Settings (export/import) ───────────────────────────────────────────────
+      const settings = pane.addFolder({ title: "Settings", expanded: false });
+      settings.addButton({ title: "📋 Export" }).on("click", handleExport);
+      settings.addButton({ title: "📥 Import" }).on("click", () => {
+        setImportModalOpen(true);
       });
 
       // ── Layout ──────────────────────────────────────────────────────────────
@@ -1365,14 +1572,24 @@ function DebugPane({
       disposeFn?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [debugVisible]);
 
   if (!IS_DEV) return null;
   return (
-    <div
-      ref={containerRef}
-      className="fixed top-4 left-4 z-[200] pointer-events-auto"
-    />
+    <>
+      <div
+        ref={containerRef}
+        className={`fixed top-4 left-4 z-[200] pointer-events-auto ${
+          !debugVisible ? "hidden" : ""
+        }`}
+      />
+      <ImportSettingsModal
+        isOpen={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        currentParams={currentParamsSnapshot}
+        onApply={handleImport}
+      />
+    </>
   );
 }
 
