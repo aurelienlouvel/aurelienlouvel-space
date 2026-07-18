@@ -20,6 +20,14 @@ const NAV_LINKS = [
   { href: "/info", label: "info" },
 ] as const;
 
+const NAV_PILL_LAYOUT_ID = "action-bar-nav-pill";
+const NAV_PILL_TRANSITION = {
+  type: "spring",
+  stiffness: 200,
+  damping: 26,
+  mass: 1,
+} as const;
+
 const sep = (
   <span className="mx-3 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
 );
@@ -143,9 +151,9 @@ export function ActionBar() {
                       key={href}
                       href={href}
                       className={cn(
-                        "flex h-11 items-center rounded-xl px-3 text-base transition-colors",
+                        "relative flex h-11 items-center rounded-xl px-3 text-base transition-colors",
                         isActive
-                          ? "bg-zinc-50 text-zinc-950 "
+                          ? "text-zinc-950"
                           : "text-zinc-600 hover:text-zinc-950",
                       )}
                       style={
@@ -157,7 +165,14 @@ export function ActionBar() {
                           : undefined
                       }
                     >
-                      {label}
+                      {isActive && (
+                        <motion.div
+                          layoutId={NAV_PILL_LAYOUT_ID}
+                          className="absolute inset-0 rounded-xl bg-zinc-50"
+                          transition={NAV_PILL_TRANSITION}
+                        />
+                      )}
+                      <span className="relative z-10">{label}</span>
                     </Link>
                   );
                 })}
