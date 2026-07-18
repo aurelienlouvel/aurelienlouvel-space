@@ -176,6 +176,18 @@ export type ContentSection = {
   blocks: Block[] | null;
 };
 
+export type Mate = {
+  _key: string;
+  person: {
+    _id: string;
+    firstName: string;
+    lastName: string;
+    avatarUrl: string | null;
+    linkedinUrl: string | null;
+  };
+  roles: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
+};
+
 export type ProjectDetail = {
   _id: string;
   title: string;
@@ -186,17 +198,7 @@ export type ProjectDetail = {
   endDate: string | null;
   tags: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
   roles: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
-  mates: Array<{
-    _key: string;
-    person: {
-      _id: string;
-      firstName: string;
-      lastName: string;
-      avatarUrl: string | null;
-      linkedinUrl: string | null;
-    };
-    roles: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
-  }> | null;
+  mates: Mate[] | null;
   redirectUrl: string | null;
   content: ContentSection[] | null;
 };
@@ -221,10 +223,17 @@ export const artifactsCanvasQuery = defineQuery(`
       "imageHeight": image.asset->metadata.dimensions.height,
       "imageHotspot": image.hotspot,
       "imageCrop": image.crop,
+      "paletteDominant": image.asset->metadata.palette.dominant.background,
       "videoFileUrl": file.asset->url,
       "videoUrl": url
     },
+    "galleryCount": count(gallery),
     "tags": tags[]->{ _id, name, color, icon },
+    "mates": contributors[defined(person)] {
+      _key,
+      "person": person->{ _id, firstName, lastName, "avatarUrl": avatar.asset->url + "?w=72&q=80&auto=format", linkedinUrl },
+      "roles": roles[]->{ _id, name, color, icon }
+    },
     startDate,
     endDate
   }
@@ -238,6 +247,7 @@ export type ArtifactFirstMedia = {
   imageHeight: number | null;
   imageHotspot: { x: number; y: number; width: number; height: number } | null;
   imageCrop: { top: number; bottom: number; left: number; right: number } | null;
+  paletteDominant: string | null;
   videoFileUrl: string | null;
   videoUrl: string | null;
 };
@@ -248,7 +258,9 @@ export type ArtifactCanvasItem = {
   slug: string;
   description: string | null;
   firstMedia: ArtifactFirstMedia | null;
+  galleryCount: number;
   tags: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
+  mates: Mate[] | null;
   startDate: string | null;
   endDate: string | null;
 };

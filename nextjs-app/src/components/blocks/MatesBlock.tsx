@@ -4,9 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/Avatar";
 import { Icon } from "@/components/primitives/Icon";
-import type { ProjectDetail } from "@/sanity/queries";
-
-type Mate = NonNullable<ProjectDetail["mates"]>[number];
+import type { Mate } from "@/sanity/queries";
 
 const SPRING = {
   type: "spring",
