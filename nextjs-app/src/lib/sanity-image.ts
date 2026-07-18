@@ -1,10 +1,10 @@
-import imageUrlBuilder from "@sanity/image-url";
+import { createImageUrlBuilder } from "@sanity/image-url";
 import { projectId, dataset } from "@/sanity/env";
 
 type Hotspot = { x: number; y: number; width: number; height: number };
 type Crop = { top: number; bottom: number; left: number; right: number };
 
-const builder = imageUrlBuilder({ projectId, dataset });
+const builder = createImageUrlBuilder({ projectId, dataset });
 
 /**
  * Retourne l'URL optimisée via le CDN Sanity :
