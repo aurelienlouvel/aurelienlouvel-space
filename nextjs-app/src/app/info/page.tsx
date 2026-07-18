@@ -16,6 +16,7 @@ import {
 } from "@/sanity/queries";
 import {
   getAppleMusicData,
+  getBggEntry,
   getLatestCommit,
   getGitHubContributions,
   getLetterboxdEntry,
@@ -119,6 +120,17 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
               rating: entry?.rating ?? null,
               posterUrl: entry?.posterUrl ?? null,
               filmUrl: entry?.filmUrl ?? null,
+            };
+          }
+          case "storyBgg": {
+            const entry = await getBggEntry(story.username);
+            return {
+              type: "bgg",
+              gameName: entry?.gameName ?? null,
+              yearPublished: entry?.yearPublished ?? null,
+              rating: entry?.rating ?? null,
+              imageUrl: entry?.imageUrl ?? null,
+              gameUrl: entry?.gameUrl ?? null,
             };
           }
           default:

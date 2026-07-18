@@ -15,6 +15,7 @@ import {
   CloudBigRainIcon,
   CloudIcon,
   CloudLittleRainIcon,
+  DiceIcon,
   FavouriteIcon,
   FilmIcon,
   GithubIcon,
@@ -96,6 +97,14 @@ export type StorySlide =
       rating: number | null;
       posterUrl: string | null;
       filmUrl: string | null;
+    }
+  | {
+      type: "bgg";
+      gameName: string | null;
+      yearPublished: string | null;
+      rating: number | null;
+      imageUrl: string | null;
+      gameUrl: string | null;
     };
 
 // GitHub contribution levels (dark theme greens)
@@ -609,6 +618,65 @@ function LetterboxdCard({
   );
 }
 
+// ─── BoardGameGeek card ─────────────────────────────────────────────────────
+
+function BggCard({
+  slide,
+}: {
+  slide: Extract<StorySlide, { type: "bgg" }>;
+}) {
+  if (!slide.gameName) {
+    return <PlaceholderSlide icon={DiceIcon} label="BoardGameGeek" />;
+  }
+
+  // BGG ratings are 0–10 — rescale to the shared 5-star component.
+  const rating = slide.rating != null ? slide.rating / 2 : null;
+
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-stone-900">
+      {slide.imageUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={slide.imageUrl}
+          alt=""
+          className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
+        />
+      )}
+      <div className="absolute inset-0 bg-black/50" />
+
+      <div className="relative flex h-full flex-col text-white">
+        <div className="flex items-center gap-1.5 p-4">
+          <HugeiconsIcon icon={DiceIcon} size={16} strokeWidth={2} />
+          <span className="text-xs font-medium uppercase tracking-wide text-white/80">
+            BoardGameGeek
+          </span>
+        </div>
+
+        <div className="mt-auto p-6">
+          {slide.imageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={slide.imageUrl}
+              alt={slide.gameName}
+              className="mb-3 aspect-square h-28 rounded-xl object-cover shadow-lg"
+            />
+          )}
+          <p className="text-base font-semibold leading-tight">
+            {slide.gameName}
+            {slide.yearPublished && (
+              <span className="font-normal text-white/60">
+                {" "}
+                ({slide.yearPublished})
+              </span>
+            )}
+          </p>
+          <StarRating rating={rating} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Slide content dispatcher ──────────────────────────────────────────────────
 
 export function SlideContent({
@@ -857,6 +925,9 @@ export function SlideContent({
 
     case "letterboxd":
       return <LetterboxdCard slide={slide} />;
+
+    case "bgg":
+      return <BggCard slide={slide} />;
   }
 }
 

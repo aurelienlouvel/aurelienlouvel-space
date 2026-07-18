@@ -339,6 +339,11 @@ export type ProfileStory =
       _key: string;
       _type: "storyLetterboxd";
       username: string | null;
+    }
+  | {
+      _key: string;
+      _type: "storyBgg";
+      username: string | null;
     };
 
 export type Profile = {

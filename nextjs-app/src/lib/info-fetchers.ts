@@ -331,3 +331,76 @@ export async function getLetterboxdEntry(username: string | null) {
     return null;
   }
 }
+
+const bggParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+});
+
+type BggCollectionItem = {
+  "@_objectid"?: string;
+  name?: string | { "#text"?: string };
+  yearpublished?: string | number;
+  image?: string;
+  thumbnail?: string;
+  stats?: { rating?: { "@_value"?: string } };
+};
+
+// BGG's XML API requires a registered app token as of Oct 2025 — see
+// boardgamegeek.com/applications. Without BGG_API_TOKEN set, degrade to null
+// (same fallback behaviour as an unset Mapbox token elsewhere in this app).
+export async function getBggEntry(username: string | null) {
+  if (!username) return null;
+  const token = process.env.BGG_API_TOKEN;
+  if (!token) return null;
+  try {
+    const res = await fetch(
+      `https://boardgamegeek.com/xmlapi2/collection?username=${encodeURIComponent(username)}&stats=1&own=1&excludesubtype=boardgameexpansion`,
+      {
+        next: { revalidate: 3600 },
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    if (!res.ok) return null;
+
+    const xml = await res.text();
+    // Collection generation is queued on first request — body is a
+    // <message> instead of <items> while it's processing.
+    if (xml.includes("<message>")) return null;
+
+    const data = bggParser.parse(xml) as Record<string, unknown>;
+    const items = data.items as Record<string, unknown> | undefined;
+    const rawItems = items?.item;
+    const list = (
+      Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : []
+    ) as BggCollectionItem[];
+    if (list.length === 0) return null;
+
+    // Prefer games the user has actually rated, matching the Letterboxd
+    // card's "member rating" — fall back to the full collection if none are.
+    const rated = list.filter((item) => {
+      const value = item.stats?.rating?.["@_value"];
+      return value != null && value !== "N/A";
+    });
+    const pool = rated.length > 0 ? rated : list;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+
+    const rawName =
+      typeof pick.name === "string" ? pick.name : pick.name?.["#text"];
+    const gameName = rawName != null ? String(rawName) : null;
+    const yearPublished =
+      pick.yearpublished != null ? String(pick.yearpublished) : null;
+    const ratingRaw = pick.stats?.rating?.["@_value"];
+    const rating =
+      ratingRaw != null && ratingRaw !== "N/A" ? Number(ratingRaw) : null;
+    const imageUrl = pick.image ?? pick.thumbnail ?? null;
+    const objectId = pick["@_objectid"];
+    const gameUrl = objectId
+      ? `https://boardgamegeek.com/boardgame/${objectId}`
+      : null;
+
+    return { gameName, yearPublished, rating, imageUrl, gameUrl };
+  } catch {
+    return null;
+  }
+}
