@@ -201,6 +201,25 @@ export const profileType = defineType({
         },
         {
           type: 'object',
+          name: 'storyBgg',
+          title: 'BoardGameGeek',
+          preview: {
+            select: {subtitle: 'username'},
+            prepare({subtitle}: {subtitle?: string}) {
+              return {title: 'BoardGameGeek', subtitle}
+            },
+          },
+          fields: [
+            defineField({
+              name: 'username',
+              title: 'BoardGameGeek username',
+              type: 'string',
+              validation: (Rule) => Rule.required(),
+            }),
+          ],
+        },
+        {
+          type: 'object',
           name: 'storyValorant',
           title: 'Valorant',
           preview: {
