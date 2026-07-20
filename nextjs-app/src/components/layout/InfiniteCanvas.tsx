@@ -899,6 +899,7 @@ function InfiniteTiles({
   tile,
   videoTextures,
   selected,
+  mediaIndex,
   onSelect,
   selectTarget,
   zoomTarget,
@@ -920,6 +921,7 @@ function InfiniteTiles({
   tile: ReturnType<typeof buildTile>;
   videoTextures: Map<string, THREE.VideoTexture>;
   selected: SelectedInstance;
+  mediaIndex: number;
   onSelect: (
     item: ArtifactCanvasItem,
     point: [number, number],
@@ -1032,6 +1034,13 @@ function InfiniteTiles({
                   }
                   cardScale={scale}
                   cardH={cardH}
+                  mediaIndex={
+                    selected !== null &&
+                    selected.groupIdx === k &&
+                    selected.itemIdx === i
+                      ? mediaIndex
+                      : 0
+                  }
                   onSelect={(point) =>
                     onSelect(
                       item,
@@ -1650,6 +1659,7 @@ export function InfiniteCanvas({
   const firstMount = useRef(!_hasVisited);
 
   const [selected, setSelected] = useState<SelectedInstance>(null);
+  const [mediaIndex, setMediaIndex] = useState(0);
   // firstMount.current is written once above and never reassigned — safe to
   // read synchronously here to seed the initial loading state.
   // eslint-disable-next-line react-hooks/refs
@@ -1924,6 +1934,7 @@ export function InfiniteCanvas({
       const targetY = point[1] - ((0.5 - vFrac) * vh) / z;
 
       setSelected({ artifact: item, groupIdx, itemIdx });
+      setMediaIndex(0);
       selectTargetRef.current = { x: targetX, y: targetY };
       selectedWorldPosRef.current = point;
       selectedHalfWRef.current = halfW;
@@ -1970,6 +1981,7 @@ export function InfiniteCanvas({
             tile={tile}
             videoTextures={videoTextures}
             selected={selected}
+            mediaIndex={mediaIndex}
             onSelect={handleSelect}
             selectTarget={selectTargetRef}
             zoomTarget={zoomTargetRef}
@@ -2024,7 +2036,11 @@ export function InfiniteCanvas({
             }}
           >
             <div className="pointer-events-auto">
-              <ArtifactInfo artifact={selected.artifact} />
+              <ArtifactInfo
+                artifact={selected.artifact}
+                mediaIndex={mediaIndex}
+                onMediaChange={setMediaIndex}
+              />
             </div>
           </motion.div>
         )}

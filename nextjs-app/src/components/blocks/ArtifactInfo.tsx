@@ -1,13 +1,21 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { UserMultipleIcon } from "@hugeicons/core-free-icons";
+import { UserMultipleIcon, ChevronLeft, ChevronRight } from "@hugeicons/core-free-icons";
 import type { ArtifactCanvasItem } from "@/sanity/queries";
 import { Tag } from "@/components/primitives/Tag";
 import { MatesBlock } from "@/components/blocks/MatesBlock";
 import { formatMonth } from "@/lib/date-utils";
 
-export function ArtifactInfo({ artifact }: { artifact: ArtifactCanvasItem }) {
+export function ArtifactInfo({
+  artifact,
+  mediaIndex = 0,
+  onMediaChange,
+}: {
+  artifact: ArtifactCanvasItem;
+  mediaIndex?: number;
+  onMediaChange?: (index: number) => void;
+}) {
   const dateLabel = artifact.startDate
     ? `${formatMonth(artifact.startDate)}${artifact.endDate ? ` → ${formatMonth(artifact.endDate)}` : " → now"}`
     : null;
@@ -81,6 +89,34 @@ export function ArtifactInfo({ artifact }: { artifact: ArtifactCanvasItem }) {
               mates
             </div>
             <MatesBlock mates={artifact.mates} />
+          </div>
+        )}
+
+        {hasStack && (
+          <div className="mt-3 flex items-center justify-center gap-2 text-stone-400">
+            <button
+              onClick={() => {
+                const prev = (mediaIndex - 1 + artifact.galleryCount) % artifact.galleryCount;
+                onMediaChange?.(prev);
+              }}
+              className="p-1 hover:text-stone-600 transition-colors"
+              aria-label="Previous media"
+            >
+              <HugeiconsIcon icon={ChevronLeft} size={16} strokeWidth={2} />
+            </button>
+            <span className="text-xs font-mono">
+              {mediaIndex + 1} / {artifact.galleryCount}
+            </span>
+            <button
+              onClick={() => {
+                const next = (mediaIndex + 1) % artifact.galleryCount;
+                onMediaChange?.(next);
+              }}
+              className="p-1 hover:text-stone-600 transition-colors"
+              aria-label="Next media"
+            >
+              <HugeiconsIcon icon={ChevronRight} size={16} strokeWidth={2} />
+            </button>
           </div>
         )}
       </div>

@@ -467,13 +467,15 @@ export function ArtifactMesh({
   artifact,
   videoTexture,
   cardH,
+  mediaIndex = 0,
   ...rest
 }: SharedProps & {
   artifact:      ArtifactCanvasItem;
   videoTexture?: THREE.VideoTexture;
   cardH?:        number;
+  mediaIndex?:   number;
 }) {
-  const m = artifact.firstMedia;
+  const m = (artifact.gallery?.[mediaIndex] ?? artifact.firstMedia) || null;
 
   if (m?._type === "galleryVideo") {
     if (videoTexture) return <MeshBody texture={videoTexture} cardH={cardH} {...rest} />;

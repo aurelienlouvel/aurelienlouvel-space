@@ -227,6 +227,18 @@ export const artifactsCanvasQuery = defineQuery(`
       "videoFileUrl": file.asset->url,
       "videoUrl": url
     },
+    "gallery": gallery[] {
+      _type,
+      "imageUrl": image.asset->url,
+      "imageRef": image.asset._ref,
+      "imageWidth": image.asset->metadata.dimensions.width,
+      "imageHeight": image.asset->metadata.dimensions.height,
+      "imageHotspot": image.hotspot,
+      "imageCrop": image.crop,
+      "paletteDominant": image.asset->metadata.palette.dominant.background,
+      "videoFileUrl": file.asset->url,
+      "videoUrl": url
+    },
     "galleryCount": count(gallery),
     "tags": tags[]->{ _id, name, color, icon },
     "mates": contributors[defined(person)] {
@@ -258,6 +270,7 @@ export type ArtifactCanvasItem = {
   slug: string;
   description: string | null;
   firstMedia: ArtifactFirstMedia | null;
+  gallery: ArtifactFirstMedia[] | null;
   galleryCount: number;
   tags: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
   mates: Mate[] | null;
