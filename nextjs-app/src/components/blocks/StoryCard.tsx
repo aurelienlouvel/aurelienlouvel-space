@@ -15,7 +15,7 @@ import {
   CloudBigRainIcon,
   CloudIcon,
   CloudLittleRainIcon,
-  DiceIcon,
+  Cards02Icon,
   FavouriteIcon,
   FilmIcon,
   GithubIcon,
@@ -584,7 +584,7 @@ function LetterboxdCard({
   slide: Extract<StorySlide, { type: "letterboxd" }>;
 }) {
   if (!slide.filmTitle) {
-    return <PlaceholderSlide icon={FilmIcon} label="Letterboxd" />;
+    return <PlaceholderSlide icon={FilmIcon} label="Movies" />;
   }
 
   return (
@@ -603,7 +603,7 @@ function LetterboxdCard({
         <div className="flex items-center gap-1.5 p-4">
           <HugeiconsIcon icon={FilmIcon} size={16} strokeWidth={2} />
           <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-            Letterboxd
+            Movies
           </span>
         </div>
 
@@ -643,7 +643,7 @@ function BggCard({
   slide: Extract<StorySlide, { type: "bgg" }>;
 }) {
   if (!slide.gameName) {
-    return <PlaceholderSlide icon={DiceIcon} label="BoardGameGeek" />;
+    return <PlaceholderSlide icon={Cards02Icon} label="Board Games" />;
   }
 
   // BGG ratings are 0–10 — rescale to the shared 5-star component.
@@ -663,9 +663,9 @@ function BggCard({
 
       <div className="relative flex h-full flex-col text-white">
         <div className="flex items-center gap-1.5 p-4">
-          <HugeiconsIcon icon={DiceIcon} size={16} strokeWidth={2} />
+          <HugeiconsIcon icon={Cards02Icon} size={16} strokeWidth={2} />
           <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-            BoardGameGeek
+            Board Games
           </span>
         </div>
 
@@ -675,7 +675,7 @@ function BggCard({
             <img
               src={slide.imageUrl}
               alt={slide.gameName}
-              className="mb-3 aspect-square h-28 rounded-xl object-cover shadow-lg"
+              className="mb-3 max-h-28 w-auto max-w-full rounded-xl object-contain shadow-lg"
             />
           )}
           <p className="text-base font-semibold leading-tight">
@@ -787,7 +787,7 @@ export function SlideContent({
           <div className="relative flex items-center gap-1.5 p-4">
             <HugeiconsIcon icon={WorkoutRunIcon} size={16} strokeWidth={2} />
             <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-              Strava
+              Activity
             </span>
           </div>
 
@@ -865,7 +865,7 @@ export function SlideContent({
 
     case "github": {
       if (!slide.repo && !slide.contributions)
-        return <PlaceholderSlide icon={GithubIcon} label="GitHub" />;
+        return <PlaceholderSlide icon={GithubIcon} label="Code" />;
 
       // Chunk into columns of 5 weekdays (Mon–Fri, filtered in fetcher)
       const weeks: Array<Array<{ level: number }>> = [];
