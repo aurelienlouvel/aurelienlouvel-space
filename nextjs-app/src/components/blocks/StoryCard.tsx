@@ -27,7 +27,6 @@ import {
   RainIcon,
   Route01Icon,
   SnowIcon,
-  StarHalfIcon,
   StarIcon,
   StopWatchIcon,
   Sun01Icon,
@@ -547,14 +546,32 @@ function StarRating({ rating }: { rating: number | null }) {
         const filled = rating >= i + 1;
         const half = !filled && rating >= i + 0.5;
         return (
-          <HugeiconsIcon
-            key={i}
-            icon={half ? StarHalfIcon : StarIcon}
-            size={14}
-            strokeWidth={1.8}
-            fill={filled || half ? "currentColor" : "none"}
-            className={filled || half ? "text-amber-400" : "text-white/40"}
-          />
+          <div key={i} className="relative size-3.5 shrink-0">
+            <HugeiconsIcon
+              icon={StarIcon}
+              size={14}
+              strokeWidth={1.8}
+              className="absolute inset-0 text-white/40"
+            />
+            {/* Clip a second, filled star to a width instead of using the
+                library's half-star glyph — its right lobe is an open path,
+                so filling it directly paints a stray second blob rather
+                than staying empty. */}
+            {(filled || half) && (
+              <div
+                className="absolute inset-0 overflow-hidden"
+                style={{ width: filled ? "100%" : "50%" }}
+              >
+                <HugeiconsIcon
+                  icon={StarIcon}
+                  size={14}
+                  strokeWidth={1.8}
+                  fill="currentColor"
+                  className="text-amber-400"
+                />
+              </div>
+            )}
+          </div>
         );
       })}
     </div>
