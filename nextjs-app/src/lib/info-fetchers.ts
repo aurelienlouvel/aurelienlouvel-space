@@ -337,6 +337,12 @@ const bggParser = new XMLParser({
   attributeNamePrefix: "@_",
 });
 
+type BggTopItem = {
+  "@_rank"?: string;
+  "@_id"?: string;
+  "@_name"?: string;
+};
+
 type BggCollectionItem = {
   "@_objectid"?: string;
   name?: string | { "#text"?: string };
@@ -346,58 +352,111 @@ type BggCollectionItem = {
   stats?: { rating?: { "@_value"?: string } };
 };
 
+// In-process cache for the user's full collection XML, keyed by username.
+// The collection endpoint queues a fresh export the first time it's asked
+// for a given user (body is a <message> instead of <items> while it's
+// processing), so this is fetched — and retried — once per hour, shared
+// across every random top-10 pick, rather than re-risking that queue on
+// every single pick's own id filter.
+const bggCollectionCache = new Map<string, { xml: string; expires: number }>();
+
+async function fetchBggCollection(username: string, token: string) {
+  const cached = bggCollectionCache.get(username);
+  if (cached && cached.expires > Date.now()) return cached.xml;
+
+  const url = `https://boardgamegeek.com/xmlapi2/collection?username=${encodeURIComponent(username)}&stats=1&excludesubtype=boardgameexpansion`;
+  // `cache: "no-store"` is deliberate: a 200 response carrying the "still
+  // processing" message is otherwise indistinguishable from a real one to
+  // Next's fetch cache, which would then keep replaying that stale body
+  // for the rest of the revalidate window. Retry once after a short delay
+  // instead — this endpoint is consistently ready well within it.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const xml = await res.text();
+    if (!xml.includes("<message>")) {
+      bggCollectionCache.set(username, { xml, expires: Date.now() + 3_600_000 });
+      return xml;
+    }
+    if (attempt === 0) await new Promise((r) => setTimeout(r, 2000));
+  }
+  return null;
+}
+
 // BGG's XML API requires a registered app token as of Oct 2025 — see
 // boardgamegeek.com/applications. Without BGG_API_TOKEN set, degrade to null
 // (same fallback behaviour as an unset Mapbox token elsewhere in this app).
+//
+// Picks a random game from the user's curated "Top 10" list (a native BGG
+// profile feature — boardgamegeek.com/user/<name> — not their full owned
+// collection), then cross-references it against their rated collection for
+// its personal rating/cover/year (favourites aren't necessarily marked
+// "owned", so this intentionally doesn't filter on own=1).
 export async function getBggEntry(username: string | null) {
   if (!username) return null;
   const token = process.env.BGG_API_TOKEN;
   if (!token) return null;
   try {
-    const res = await fetch(
-      `https://boardgamegeek.com/xmlapi2/collection?username=${encodeURIComponent(username)}&stats=1&own=1&excludesubtype=boardgameexpansion`,
+    const topRes = await fetch(
+      `https://boardgamegeek.com/xmlapi2/user?name=${encodeURIComponent(username)}&top=1`,
       {
         next: { revalidate: 3600 },
         headers: { Authorization: `Bearer ${token}` },
       },
     );
-    if (!res.ok) return null;
+    if (!topRes.ok) return null;
 
-    const xml = await res.text();
-    // Collection generation is queued on first request — body is a
-    // <message> instead of <items> while it's processing.
-    if (xml.includes("<message>")) return null;
+    const topXml = await topRes.text();
+    const topData = bggParser.parse(topXml) as Record<string, unknown>;
+    const user = topData.user as Record<string, unknown> | undefined;
+    const top = user?.top as Record<string, unknown> | undefined;
+    const rawTop = top?.item;
+    const topList = (
+      Array.isArray(rawTop) ? rawTop : rawTop ? [rawTop] : []
+    ) as BggTopItem[];
+    if (topList.length === 0) return null;
 
-    const data = bggParser.parse(xml) as Record<string, unknown>;
-    const items = data.items as Record<string, unknown> | undefined;
+    const pick = topList[Math.floor(Math.random() * topList.length)];
+    const id = pick["@_id"];
+    const fallbackName =
+      pick["@_name"] != null ? String(pick["@_name"]) : null;
+    const gameUrl = id ? `https://boardgamegeek.com/boardgame/${id}` : null;
+    // Best-effort enrichment — if the collection lookup fails, is still
+    // queued, or simply doesn't contain this game, still surface the
+    // top-list pick by name rather than discarding it.
+    const fallback = {
+      gameName: fallbackName,
+      yearPublished: null,
+      rating: null,
+      imageUrl: null,
+      gameUrl,
+    };
+    if (!id) return fallback;
+
+    const collXml = await fetchBggCollection(username, token);
+    if (!collXml) return fallback;
+
+    const collData = bggParser.parse(collXml) as Record<string, unknown>;
+    const items = collData.items as Record<string, unknown> | undefined;
     const rawItems = items?.item;
     const list = (
       Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : []
     ) as BggCollectionItem[];
-    if (list.length === 0) return null;
-
-    // Prefer games the user has actually rated, matching the Letterboxd
-    // card's "member rating" — fall back to the full collection if none are.
-    const rated = list.filter((item) => {
-      const value = item.stats?.rating?.["@_value"];
-      return value != null && value !== "N/A";
-    });
-    const pool = rated.length > 0 ? rated : list;
-    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const item = list.find((i) => i["@_objectid"] === id);
+    if (!item) return fallback;
 
     const rawName =
-      typeof pick.name === "string" ? pick.name : pick.name?.["#text"];
-    const gameName = rawName != null ? String(rawName) : null;
+      typeof item.name === "string" ? item.name : item.name?.["#text"];
+    const gameName = rawName != null ? String(rawName) : fallbackName;
     const yearPublished =
-      pick.yearpublished != null ? String(pick.yearpublished) : null;
-    const ratingRaw = pick.stats?.rating?.["@_value"];
+      item.yearpublished != null ? String(item.yearpublished) : null;
+    const ratingRaw = item.stats?.rating?.["@_value"];
     const rating =
       ratingRaw != null && ratingRaw !== "N/A" ? Number(ratingRaw) : null;
-    const imageUrl = pick.image ?? pick.thumbnail ?? null;
-    const objectId = pick["@_objectid"];
-    const gameUrl = objectId
-      ? `https://boardgamegeek.com/boardgame/${objectId}`
-      : null;
+    const imageUrl = item.image ?? item.thumbnail ?? null;
 
     return { gameName, yearPublished, rating, imageUrl, gameUrl };
   } catch {
