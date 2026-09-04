@@ -126,6 +126,24 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Brand color — full Tailwind-style 50-950 scale generated from #33C8FF
+   (anchored at main-500), shaped after Tailwind's own cyan/sky ramps since
+   #33C8FF's hue sits almost exactly between them. Gives bg-main-500,
+   text-main-300, border-main-700, etc. like any built-in Tailwind color. */
+@theme {
+    --color-main-50: oklch(97.9747% 0.01369 222.5914);
+    --color-main-100: oklch(96.0938% 0.02982 223.7023);
+    --color-main-200: oklch(92.8857% 0.05939 220.7531);
+    --color-main-300: oklch(88.3381% 0.10453 221.1977);
+    --color-main-400: oklch(82.745% 0.14051 224.3683);
+    --color-main-500: oklch(78.1031% 0.14154 228.6493);
+    --color-main-600: oklch(65.9335% 0.12964 234.0218);
+    --color-main-700: oklch(55.2335% 0.10929 235.0489);
+    --color-main-800: oklch(47.7159% 0.0893 234.312);
+    --color-main-900: oklch(41.4213% 0.07322 235.5843);
+    --color-main-950: oklch(29.6532% 0.05533 237.8739);
+}
+
 :root {
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.145 0 0);
