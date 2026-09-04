@@ -124,7 +124,10 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
         className="absolute inset-0 overflow-hidden rounded-3xl shadow-md"
         style={{ zIndex: 10 }}
       >
-        <SlideContent slide={slides[(step + 1) % total]} />
+        <SlideContent
+          slide={slides[(step + 1) % total]}
+          round={Math.floor((step + 1) / total)}
+        />
       </motion.div>
 
       {/* Front — spring enter (bouncy settle), fast exit */}
@@ -149,6 +152,7 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
         >
           <SlideContent
             slide={slides[step % total]}
+            round={Math.floor(step / total)}
             onMusicPlaying={setMusicPaused}
           />
           <CountdownRing progress={progress} />

@@ -300,7 +300,10 @@ export const profileQuery = defineQuery(`
       address,
       label,
       trackerUrl,
-      region
+      region,
+      icon,
+      value,
+      tagline
     },
     "tools": tools[]->{ _id, name, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format", url, referral }
   }
@@ -357,6 +360,15 @@ export type ProfileStory =
       _key: string;
       _type: "storyBgg";
       username: string | null;
+    }
+  | {
+      _key: string;
+      _type: "storyFact";
+      icon: string | null;
+      label: string | null;
+      value: string | null;
+      imageUrl: string | null;
+      tagline: string | null;
     };
 
 export type Profile = {

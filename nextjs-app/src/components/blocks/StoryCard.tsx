@@ -9,6 +9,7 @@ import {
 } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Icon } from "@/components/primitives/Icon";
 import {
   Bicycle01Icon,
   CloudAngledRainZapIcon,
@@ -22,6 +23,7 @@ import {
   GitCommitIcon,
   GameController03Icon,
   Image02Icon,
+  InformationCircleIcon,
   MapPinpoint01Icon,
   MusicNote01Icon,
   RainIcon,
@@ -48,22 +50,36 @@ export type StorySlide =
   | { type: "video"; videoUrl: string | null; caption: string | null }
   | {
       type: "music";
-      url: string | null;
-      artworkUrl: string | null;
-      trackName: string | null;
-      artistName: string | null;
-      previewUrl: string | null;
+      variants: {
+        url: string;
+        artworkUrl: string | null;
+        trackName: string | null;
+        artistName: string | null;
+        previewUrl: string | null;
+      }[];
+    }
+  | {
+      type: "fact";
+      icon: string | null;
+      label: string | null;
+      value: string | null;
+      imageUrl: string | null;
+      tagline: string | null;
     }
   | {
       type: "strava";
-      activityName: string | null;
-      activityType: string | null;
-      speedKmh: number | null;
-      distanceKm: number | null;
-      durationMin: number | null;
-      bpm: number | null;
-      elevationM: number | null;
-      date: string | null;
+      variants: {
+        activityName: string | null;
+        activityType: string | null;
+        speedKmh: number | null;
+        distanceKm: number | null;
+        durationMin: number | null;
+        bpm: number | null;
+        elevationM: number | null;
+        date: string | null;
+        path: { lat: number; lng: number }[];
+        city: string | null;
+      }[];
     }
   | {
       type: "github";
@@ -90,20 +106,24 @@ export type StorySlide =
     }
   | {
       type: "letterboxd";
-      filmTitle: string | null;
-      filmYear: string | null;
-      date: string | null;
-      rating: number | null;
-      posterUrl: string | null;
-      filmUrl: string | null;
+      variants: {
+        filmTitle: string | null;
+        filmYear: string | null;
+        date: string | null;
+        rating: number | null;
+        posterUrl: string | null;
+        filmUrl: string | null;
+      }[];
     }
   | {
       type: "bgg";
-      gameName: string | null;
-      yearPublished: string | null;
-      rating: number | null;
-      imageUrl: string | null;
-      gameUrl: string | null;
+      variants: {
+        gameName: string | null;
+        yearPublished: string | null;
+        rating: number | null;
+        imageUrl: string | null;
+        gameUrl: string | null;
+      }[];
     };
 
 // GitHub contribution levels (dark theme greens)
@@ -364,18 +384,29 @@ function MapboxBackground({
 
 function MusicCard({
   slide,
+  round,
   onPlayingChange,
 }: {
   slide: Extract<StorySlide, { type: "music" }>;
+  round?: number;
   onPlayingChange?: (playing: boolean) => void;
 }) {
   const [playing, setPlaying] = useState(false);
   const [audioProgress, setAudioProgress] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // 3 random tracks were picked once server-side; each full loop through the
+  // story stack ("round") shows the next one, cycling back to the first once
+  // all have been shown.
+  const variant =
+    slide.variants.length > 0
+      ? slide.variants[(round ?? 0) % slide.variants.length]
+      : null;
+  const previewUrl = variant?.previewUrl ?? null;
+
   useEffect(() => {
-    if (!slide.previewUrl) return;
-    const audio = new Audio(slide.previewUrl);
+    if (!previewUrl) return;
+    const audio = new Audio(previewUrl);
     audio.volume = 0.08;
     audioRef.current = audio;
     const onTimeUpdate = () => {
@@ -396,11 +427,14 @@ function MusicCard({
     });
     return () => {
       audio.pause();
+      // The track can change (round advancing) without this card ever
+      // unmounting — reset playback state too, not just the audio element.
+      setPlaying(false);
       setAudioProgress(0);
       onPlayingChange?.(false);
       audio.removeEventListener("timeupdate", onTimeUpdate);
     };
-  }, [slide.previewUrl, onPlayingChange]);
+  }, [previewUrl, onPlayingChange]);
 
   const toggle = useCallback(
     (e: React.MouseEvent) => {
@@ -424,7 +458,7 @@ function MusicCard({
   );
 
   // Fallback when no track data yet
-  if (!slide.trackName) {
+  if (!variant?.trackName) {
     return (
       <CardShell
         bg="bg-gradient-to-br from-rose-500 to-fuchsia-600"
@@ -445,10 +479,10 @@ function MusicCard({
   return (
     <div className="relative h-full w-full overflow-hidden bg-white/90">
       {/* Blurred album art background */}
-      {slide.artworkUrl && (
+      {variant.artworkUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={slide.artworkUrl}
+          src={variant.artworkUrl}
           alt=""
           className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
         />
@@ -467,20 +501,20 @@ function MusicCard({
 
         {/* Bottom section */}
         <div className="mt-auto p-6">
-          {slide.artworkUrl && (
+          {variant.artworkUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={slide.artworkUrl}
-              alt={slide.trackName}
+              src={variant.artworkUrl}
+              alt={variant.trackName}
               className="mb-3 h-16 w-16 rounded-xl shadow-lg"
             />
           )}
           <p className="text-base font-semibold leading-tight">
-            {slide.trackName}
+            {variant.trackName}
           </p>
-          <p className="mt-0.5 text-sm text-white/70">{slide.artistName}</p>
+          <p className="mt-0.5 text-sm text-white/70">{variant.artistName}</p>
 
-          {slide.previewUrl && (
+          {variant.previewUrl && (
             <button
               type="button"
               onClick={toggle}
@@ -580,19 +614,28 @@ function StarRating({ rating }: { rating: number | null }) {
 
 function LetterboxdCard({
   slide,
+  round,
 }: {
   slide: Extract<StorySlide, { type: "letterboxd" }>;
+  round?: number;
 }) {
-  if (!slide.filmTitle) {
+  // Last 3 watched films were picked once server-side; each full loop
+  // through the story stack ("round") shows the next one.
+  const variant =
+    slide.variants.length > 0
+      ? slide.variants[(round ?? 0) % slide.variants.length]
+      : null;
+
+  if (!variant?.filmTitle) {
     return <PlaceholderSlide icon={FilmIcon} label="Movies" />;
   }
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-stone-900">
-      {slide.posterUrl && (
+      {variant.posterUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={slide.posterUrl}
+          src={variant.posterUrl}
           alt=""
           className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
         />
@@ -608,27 +651,27 @@ function LetterboxdCard({
         </div>
 
         <div className="mt-auto p-6">
-          {slide.posterUrl && (
+          {variant.posterUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={slide.posterUrl}
-              alt={slide.filmTitle}
+              src={variant.posterUrl}
+              alt={variant.filmTitle}
               className="mb-3 aspect-[2/3] h-28 rounded-xl object-cover shadow-lg"
             />
           )}
           <p className="text-base font-semibold leading-tight">
-            {slide.filmTitle}
-            {slide.filmYear && (
+            {variant.filmTitle}
+            {variant.filmYear && (
               <span className="font-normal text-white/60">
                 {" "}
-                ({slide.filmYear})
+                ({variant.filmYear})
               </span>
             )}
           </p>
-          {slide.date && (
-            <p className="mt-0.5 text-sm text-white/70">{slide.date}</p>
+          {variant.date && (
+            <p className="mt-0.5 text-sm text-white/70">{variant.date}</p>
           )}
-          <StarRating rating={slide.rating} />
+          <StarRating rating={variant.rating} />
         </div>
       </div>
     </div>
@@ -639,22 +682,31 @@ function LetterboxdCard({
 
 function BggCard({
   slide,
+  round,
 }: {
   slide: Extract<StorySlide, { type: "bgg" }>;
+  round?: number;
 }) {
-  if (!slide.gameName) {
+  // 3 random Top-10 picks were made once server-side; each full loop through
+  // the story stack ("round") shows the next one.
+  const variant =
+    slide.variants.length > 0
+      ? slide.variants[(round ?? 0) % slide.variants.length]
+      : null;
+
+  if (!variant?.gameName) {
     return <PlaceholderSlide icon={Cards02Icon} label="Board Games" />;
   }
 
   // BGG ratings are 0–10 — rescale to the shared 5-star component.
-  const rating = slide.rating != null ? slide.rating / 2 : null;
+  const rating = variant.rating != null ? variant.rating / 2 : null;
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-stone-900">
-      {slide.imageUrl && (
+      {variant.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={slide.imageUrl}
+          src={variant.imageUrl}
           alt=""
           className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
         />
@@ -670,20 +722,20 @@ function BggCard({
         </div>
 
         <div className="mt-auto p-6">
-          {slide.imageUrl && (
+          {variant.imageUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={slide.imageUrl}
-              alt={slide.gameName}
+              src={variant.imageUrl}
+              alt={variant.gameName}
               className="mb-3 max-h-28 w-auto max-w-full rounded-xl object-contain shadow-lg"
             />
           )}
           <p className="text-base font-semibold leading-tight">
-            {slide.gameName}
-            {slide.yearPublished && (
+            {variant.gameName}
+            {variant.yearPublished && (
               <span className="font-normal text-white/60">
                 {" "}
-                ({slide.yearPublished})
+                ({variant.yearPublished})
               </span>
             )}
           </p>
@@ -694,13 +746,303 @@ function BggCard({
   );
 }
 
+// ─── Fact card ──────────────────────────────────────────────────────────────
+
+function FactCard({
+  slide,
+}: {
+  slide: Extract<StorySlide, { type: "fact" }>;
+}) {
+  if (!slide.value) {
+    return <PlaceholderSlide icon={InformationCircleIcon} label="Fact" />;
+  }
+
+  const topBar = (
+    <>
+      {slide.icon && <Icon name={slide.icon} size={18} strokeWidth={2} />}
+      <span className="text-xs font-medium uppercase tracking-wide text-white/80">
+        {slide.label ?? "Fact"}
+      </span>
+    </>
+  );
+
+  // Illustration-forward layout — full-bleed image with the value as a
+  // caption, e.g. the morning-drink card.
+  if (slide.imageUrl) {
+    return (
+      <div className="relative h-full w-full overflow-hidden bg-stone-900">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={slide.imageUrl}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/45 to-transparent" />
+
+        <div className="relative flex h-full flex-col text-white">
+          <div className="flex items-center gap-1.5 p-4 drop-shadow">
+            {topBar}
+          </div>
+          <div className="mt-auto bg-gradient-to-t from-black/70 to-transparent px-6 pt-16 pb-6">
+            <span className="text-xl font-semibold leading-tight drop-shadow">
+              {slide.value}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Typographic layout — big "wordmark" value + small tagline underneath,
+  // à la type-foundry specimen pages, e.g. the favorite-font card.
+  if (slide.tagline) {
+    return (
+      <CardShell bg="bg-gradient-to-br from-stone-700 to-stone-900" top={topBar}>
+        <span className="block text-4xl font-bold leading-[1.05] tracking-tight">
+          {slide.value}
+        </span>
+        <span className="mt-2 block text-sm text-white/55">
+          {slide.tagline}
+        </span>
+      </CardShell>
+    );
+  }
+
+  // Default — compact icon + label + value
+  return (
+    <CardShell bg="bg-gradient-to-br from-stone-700 to-stone-900" top={topBar}>
+      <span className="text-xl font-semibold leading-tight">
+        {slide.value}
+      </span>
+    </CardShell>
+  );
+}
+
+// ─── Strava card ────────────────────────────────────────────────────────────
+
+// Catmull-Rom → cubic Bezier, so the line curves smoothly through each GPS
+// point instead of connecting them with sharp straight-line segments.
+function smoothPathD(points: { x: number; y: number }[]): string {
+  if (points.length < 2) return "";
+  if (points.length === 2) {
+    return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  }
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i === 0 ? 0 : i - 1];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2 < points.length ? i + 2 : i + 1];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+  return d;
+}
+
+// Equirectangular local projection (x = lng·cos(avgLat), y = -lat) — accurate
+// enough for a route spanning a few km, and keeps the real aspect ratio
+// instead of stretching a north-south run into a square. North is up.
+// Absolute scale doesn't matter: the SVG viewBox normalizes it and
+// `vector-effect="non-scaling-stroke"` keeps the line width independent of
+// how much that normalization stretches the coordinate system.
+function projectPath(path: { lat: number; lng: number }[]): {
+  points: { x: number; y: number }[];
+  w: number;
+  h: number;
+} {
+  const avgLat = path.reduce((sum, p) => sum + p.lat, 0) / path.length;
+  const cosLat = Math.cos((avgLat * Math.PI) / 180);
+  const projected = path.map((p) => ({ x: p.lng * cosLat, y: -p.lat }));
+  const xs = projected.map((p) => p.x);
+  const ys = projected.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const w = Math.max(...xs) - minX;
+  const h = Math.max(...ys) - minY;
+  return {
+    points: projected.map((p) => ({ x: p.x - minX, y: p.y - minY })),
+    w,
+    h,
+  };
+}
+
+// Renders the activity's real GPS route — decoded and simplified from
+// StatsHunters' polyline endpoint server-side (see getStravaActivities) —
+// as a simplified line backdrop. `vectorEffect="non-scaling-stroke"` keeps
+// the line the same pixel width regardless of the route's real-world
+// extent, so a short local loop and a long point-to-point ride both get a
+// clean, consistently-weighted line instead of it scaling into a thick blob
+// for small routes.
+function RoutePath({ path }: { path: { lat: number; lng: number }[] }) {
+  if (path.length < 2) return null;
+  const { points, w, h } = projectPath(path);
+  const pad = Math.max(w, h) * 0.08 || 0.0002;
+
+  return (
+    <svg
+      viewBox={`${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}`}
+      preserveAspectRatio="xMidYMid meet"
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      style={{
+        maskImage:
+          "linear-gradient(to bottom, black 0%, black 38%, transparent 65%)",
+        WebkitMaskImage:
+          "linear-gradient(to bottom, black 0%, black 38%, transparent 65%)",
+      }}
+      aria-hidden="true"
+    >
+      <path
+        d={smoothPathD(points)}
+        fill="none"
+        stroke="rgba(255,255,255,0.6)"
+        strokeWidth={3}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
+function StravaCard({
+  slide,
+  round,
+}: {
+  slide: Extract<StorySlide, { type: "strava" }>;
+  round?: number;
+}) {
+  // Last 3 activities were picked once server-side; each full loop through
+  // the story stack ("round") shows the next one.
+  const variant =
+    slide.variants.length > 0
+      ? slide.variants[(round ?? 0) % slide.variants.length]
+      : null;
+
+  const pace =
+    variant?.speedKmh && variant.speedKmh > 0
+      ? formatPace(variant.speedKmh)
+      : null;
+  const actTypeIcon = getActivityIcon(variant?.activityType ?? null);
+
+  return (
+    <div
+      className="relative flex h-full w-full flex-col overflow-hidden text-white"
+      style={{
+        background: `
+          radial-gradient(ellipse at 88% 8%, rgba(251,146,60,0.60) 0%, transparent 55%),
+          radial-gradient(ellipse at 12% 92%, rgba(249,115,22,0.34) 0%, transparent 50%),
+          radial-gradient(ellipse at 52% 48%, rgba(254,215,170,0.18) 0%, transparent 48%),
+          linear-gradient(150deg, #c2410c 0%, #ea580c 30%, #9a3412 66%, #5a1e0a 100%)
+        `,
+      }}
+    >
+      {/* Route backdrop: simplified line traced from the real GPS path */}
+      {variant?.path && <RoutePath path={variant.path} />}
+
+      {/* Grain overlay for texture */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)' opacity='0.11'/%3E%3C/svg%3E")`,
+          backgroundRepeat: "repeat",
+          mixBlendMode: "overlay",
+        }}
+      />
+
+      {/* Top bar: label only */}
+      <div className="relative flex items-center gap-1.5 p-4">
+        <HugeiconsIcon icon={WorkoutRunIcon} size={16} strokeWidth={2} />
+        <span className="text-xs font-medium uppercase tracking-wide text-white/80">
+          Activity
+        </span>
+      </div>
+
+      {/* Bottom content */}
+      <div className="relative mt-auto p-6">
+        <div className="mt-2 flex flex-col gap-4">
+          <div className="flex items-center gap-1.5">
+            <HugeiconsIcon
+              icon={Route01Icon}
+              size={15}
+              strokeWidth={2}
+              className="text-white/60"
+            />
+            <p className="text-2xl font-bold leading-none">
+              {variant?.distanceKm != null
+                ? `${variant.distanceKm.toFixed(1)} km`
+                : "—"}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <HugeiconsIcon
+              icon={StopWatchIcon}
+              size={15}
+              strokeWidth={2}
+              className="text-white/60"
+            />
+            <p className="text-2xl font-bold leading-none">
+              {formatDuration(variant?.durationMin ?? null)}
+            </p>
+          </div>
+        </div>
+
+        {(pace ?? variant?.bpm) && (
+          <div className="mt-4 flex gap-4 text-white/60">
+            {pace && (
+              <div className="flex items-center gap-1 text-[12px]">
+                <HugeiconsIcon icon={ZapIcon} size={12} strokeWidth={2} />
+                <span className="font-semibold">{pace}</span>
+              </div>
+            )}
+            {variant?.bpm != null && (
+              <div className="flex items-center gap-1 text-[12px]">
+                <HugeiconsIcon icon={FavouriteIcon} size={12} strokeWidth={2} />
+                <span className="font-semibold">{variant.bpm}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Activity name + date */}
+        <div className="mt-4 border-t border-white/10 pt-4">
+          <div className="flex items-center gap-1.5">
+            <HugeiconsIcon
+              icon={actTypeIcon}
+              size={16}
+              strokeWidth={2}
+              className="shrink-0 text-white/60"
+            />
+            <p className="text-md font-bold leading-tight">
+              {variant?.activityName ?? "Latest activity"}
+            </p>
+          </div>
+          {(variant?.date ?? variant?.city) && (
+            <p className="mt-0.5 text-xs text-white/60">
+              {variant?.date}
+              {variant?.date && variant?.city && (
+                <span className="px-1 text-white/40">·</span>
+              )}
+              {variant?.city}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Slide content dispatcher ──────────────────────────────────────────────────
 
 export function SlideContent({
   slide,
+  round,
   onMusicPlaying,
 }: {
   slide: StorySlide;
+  round?: number;
   onMusicPlaying?: (playing: boolean) => void;
 }) {
   switch (slide.type) {
@@ -749,119 +1091,18 @@ export function SlideContent({
       );
 
     case "music":
-      return <MusicCard slide={slide} onPlayingChange={onMusicPlaying} />;
+      return (
+        <MusicCard slide={slide} round={round} onPlayingChange={onMusicPlaying} />
+      );
+
+    case "fact":
+      return <FactCard slide={slide} />;
 
     case "location":
       return <LocationCard slide={slide} />;
 
-    case "strava": {
-      const pace =
-        slide.speedKmh && slide.speedKmh > 0
-          ? formatPace(slide.speedKmh)
-          : null;
-      const actTypeIcon = getActivityIcon(slide.activityType);
-
-      return (
-        <div
-          className="relative flex h-full w-full flex-col overflow-hidden text-white"
-          style={{
-            background: `
-              radial-gradient(ellipse at 88% 8%, rgba(251,146,60,0.60) 0%, transparent 55%),
-              radial-gradient(ellipse at 12% 92%, rgba(249,115,22,0.34) 0%, transparent 50%),
-              radial-gradient(ellipse at 52% 48%, rgba(254,215,170,0.18) 0%, transparent 48%),
-              linear-gradient(150deg, #c2410c 0%, #ea580c 30%, #9a3412 66%, #5a1e0a 100%)
-            `,
-          }}
-        >
-          {/* Grain overlay for texture */}
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)' opacity='0.11'/%3E%3C/svg%3E")`,
-              backgroundRepeat: "repeat",
-              mixBlendMode: "overlay",
-            }}
-          />
-
-          {/* Top bar: label only */}
-          <div className="relative flex items-center gap-1.5 p-4">
-            <HugeiconsIcon icon={WorkoutRunIcon} size={16} strokeWidth={2} />
-            <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-              Activity
-            </span>
-          </div>
-
-          {/* Bottom content */}
-          <div className="relative mt-auto p-6">
-            <div className="mt-2 flex flex-col gap-4">
-              <div className="flex items-center gap-1.5">
-                <HugeiconsIcon
-                  icon={Route01Icon}
-                  size={15}
-                  strokeWidth={2}
-                  className="text-white/60"
-                />
-                <p className="text-2xl font-bold leading-none">
-                  {slide.distanceKm != null
-                    ? `${slide.distanceKm.toFixed(1)} km`
-                    : "—"}
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <HugeiconsIcon
-                  icon={StopWatchIcon}
-                  size={15}
-                  strokeWidth={2}
-                  className="text-white/60"
-                />
-                <p className="text-2xl font-bold leading-none">
-                  {formatDuration(slide.durationMin)}
-                </p>
-              </div>
-            </div>
-
-            {(pace ?? slide.bpm) && (
-              <div className="mt-4 flex gap-4 text-white/60">
-                {pace && (
-                  <div className="flex items-center gap-1 text-[12px]">
-                    <HugeiconsIcon icon={ZapIcon} size={12} strokeWidth={2} />
-                    <span className="font-semibold">{pace}</span>
-                  </div>
-                )}
-                {slide.bpm != null && (
-                  <div className="flex items-center gap-1 text-[12px]">
-                    <HugeiconsIcon
-                      icon={FavouriteIcon}
-                      size={12}
-                      strokeWidth={2}
-                    />
-                    <span className="font-semibold">{slide.bpm}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 3. Activity name + date */}
-            <div className="mt-4 border-t border-white/10 pt-4">
-              <div className="flex items-center gap-1.5">
-                <HugeiconsIcon
-                  icon={actTypeIcon}
-                  size={16}
-                  strokeWidth={2}
-                  className="shrink-0 text-white/60"
-                />
-                <p className="text-md font-bold leading-tight">
-                  {slide.activityName ?? "Latest activity"}
-                </p>
-              </div>
-              {slide.date && (
-                <p className="mt-0.5 text-xs text-white/60">{slide.date}</p>
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    }
+    case "strava":
+      return <StravaCard slide={slide} round={round} />;
 
     case "github": {
       if (!slide.repo && !slide.contributions)
@@ -941,10 +1182,10 @@ export function SlideContent({
       return <ValorantCard slide={slide} />;
 
     case "letterboxd":
-      return <LetterboxdCard slide={slide} />;
+      return <LetterboxdCard slide={slide} round={round} />;
 
     case "bgg":
-      return <BggCard slide={slide} />;
+      return <BggCard slide={slide} round={round} />;
   }
 }
 

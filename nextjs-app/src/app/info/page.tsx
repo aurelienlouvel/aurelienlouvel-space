@@ -15,13 +15,13 @@ import {
   type AwardItem,
 } from "@/sanity/queries";
 import {
-  getAppleMusicData,
-  getBggEntry,
+  getAppleMusicPlaylistTracks,
+  getBggEntries,
   getLatestCommit,
   getGitHubContributions,
-  getLetterboxdEntry,
+  getLetterboxdEntries,
   getMapData,
-  getStravaActivity,
+  getStravaActivities,
 } from "@/lib/info-fetchers";
 import { PageShell } from "@/components/layout/PageShell";
 import { TimelineRow } from "@/components/blocks/TimelineRow";
@@ -51,28 +51,25 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
               caption: story.caption,
             };
           case "storyAppleMusic": {
-            const music = await getAppleMusicData(story.url);
-            return {
-              type: "music",
-              url: story.url,
-              artworkUrl: music?.artworkUrl ?? null,
-              trackName: music?.trackName ?? null,
-              artistName: music?.artistName ?? null,
-              previewUrl: music?.previewUrl ?? null,
-            };
+            const variants = await getAppleMusicPlaylistTracks(story.url);
+            return { type: "music", variants };
           }
           case "storyStrava": {
-            const activity = await getStravaActivity(story.shareUrl);
+            const activities = await getStravaActivities(story.shareUrl);
             return {
               type: "strava",
-              activityName: activity?.activityName ?? null,
-              activityType: activity?.activityType ?? null,
-              speedKmh: activity?.speedKmh ?? null,
-              distanceKm: activity?.distanceKm ?? null,
-              durationMin: activity?.durationMin ?? null,
-              bpm: activity?.bpm ?? null,
-              elevationM: activity?.elevationM ?? null,
-              date: activity?.date ? formatDateTime(activity.date) : null,
+              variants: activities.map((activity) => ({
+                activityName: activity.activityName ?? null,
+                activityType: activity.activityType ?? null,
+                speedKmh: activity.speedKmh ?? null,
+                distanceKm: activity.distanceKm ?? null,
+                durationMin: activity.durationMin ?? null,
+                bpm: activity.bpm ?? null,
+                elevationM: activity.elevationM ?? null,
+                date: activity.date ? formatDateTime(activity.date) : null,
+                path: activity.path ?? [],
+                city: activity.city ?? null,
+              })),
             };
           }
           case "storyAppleMaps": {
@@ -111,28 +108,41 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
               region: story.region,
             };
           case "storyLetterboxd": {
-            const entry = await getLetterboxdEntry(story.username);
+            const entries = await getLetterboxdEntries(story.username);
             return {
               type: "letterboxd",
-              filmTitle: entry?.filmTitle ?? null,
-              filmYear: entry?.filmYear ?? null,
-              date: entry?.watchedDate ? formatDate(entry.watchedDate) : null,
-              rating: entry?.rating ?? null,
-              posterUrl: entry?.posterUrl ?? null,
-              filmUrl: entry?.filmUrl ?? null,
+              variants: entries.map((entry) => ({
+                filmTitle: entry.filmTitle ?? null,
+                filmYear: entry.filmYear ?? null,
+                date: entry.watchedDate ? formatDate(entry.watchedDate) : null,
+                rating: entry.rating ?? null,
+                posterUrl: entry.posterUrl ?? null,
+                filmUrl: entry.filmUrl ?? null,
+              })),
             };
           }
           case "storyBgg": {
-            const entry = await getBggEntry(story.username);
+            const entries = await getBggEntries(story.username);
             return {
               type: "bgg",
-              gameName: entry?.gameName ?? null,
-              yearPublished: entry?.yearPublished ?? null,
-              rating: entry?.rating ?? null,
-              imageUrl: entry?.imageUrl ?? null,
-              gameUrl: entry?.gameUrl ?? null,
+              variants: entries.map((entry) => ({
+                gameName: entry.gameName ?? null,
+                yearPublished: entry.yearPublished ?? null,
+                rating: entry.rating ?? null,
+                imageUrl: entry.imageUrl ?? null,
+                gameUrl: entry.gameUrl ?? null,
+              })),
             };
           }
+          case "storyFact":
+            return {
+              type: "fact",
+              icon: story.icon,
+              label: story.label,
+              value: story.value,
+              imageUrl: story.imageUrl,
+              tagline: story.tagline,
+            };
           default:
             return null;
         }
