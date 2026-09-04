@@ -8,8 +8,6 @@ export const decorationsType = defineType({
     defineField({
       name: 'doodles',
       title: 'Doodles personnalisés',
-      description:
-        'Images éparpillées en fond du canvas /play, en plus des formes procédurales existantes',
       type: 'array',
       of: [
         defineArrayMember({

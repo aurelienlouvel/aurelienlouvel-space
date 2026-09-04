@@ -28,7 +28,6 @@ export const toolType = defineType({
     defineField({
       name: 'referral',
       title: 'Referral',
-      description: 'Referral tools are grouped to the right of the row.',
       type: 'boolean',
       initialValue: false,
     }),

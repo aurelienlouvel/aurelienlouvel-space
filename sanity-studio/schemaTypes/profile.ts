@@ -1,8 +1,28 @@
 import {createElement} from 'react'
 import {defineField, defineType} from 'sanity'
 import {HugeiconsIcon} from '@hugeicons/react'
+import type {IconSvgElement} from '@hugeicons/react'
+import {
+  Image02Icon,
+  Video01Icon,
+  MusicNote01Icon,
+  WorkoutRunIcon,
+  MapPinpoint01Icon,
+  GithubIcon,
+  FilmIcon,
+  Cards02Icon,
+  GameController03Icon,
+  InformationCircleIcon,
+} from '@hugeicons/core-free-icons'
 import {IconInput} from './components/IconInput'
 import {hugeIconMap} from './lib/hugeIcons'
+
+// Fixed glyph per story type (shown in the "add item" menu + as list-row
+// fallback media) — distinct from the `icon` data field on storyFact, which
+// lets the editor pick any HugeIcon per entry.
+function storyTypeIcon(icon: IconSvgElement) {
+  return () => createElement(HugeiconsIcon, {icon, size: 16})
+}
 
 export const profileType = defineType({
   name: 'profile',
@@ -56,6 +76,7 @@ export const profileType = defineType({
           type: 'object',
           name: 'storyPhoto',
           title: 'Photo',
+          icon: storyTypeIcon(Image02Icon),
           preview: {
             select: {media: 'image', title: 'caption'},
             prepare({media, title}: {media?: unknown; title?: string}) {
@@ -78,6 +99,7 @@ export const profileType = defineType({
           type: 'object',
           name: 'storyVideo',
           title: 'Video',
+          icon: storyTypeIcon(Video01Icon),
           preview: {
             select: {caption: 'caption'},
             prepare({caption}: {caption?: string}) {
@@ -103,6 +125,7 @@ export const profileType = defineType({
           type: 'object',
           name: 'storyAppleMusic',
           title: 'Music',
+          icon: storyTypeIcon(MusicNote01Icon),
           preview: {
             select: {subtitle: 'url'},
             prepare({subtitle}: {subtitle?: string}) {
@@ -113,8 +136,6 @@ export const profileType = defineType({
             defineField({
               name: 'url',
               title: 'Apple Music playlist link',
-              description:
-                'Full playlist URL (e.g. https://music.apple.com/fr/playlist/name/pl.xxxxx) — 3 random tracks are picked from it and rotated across story loops',
               type: 'url',
               validation: (Rule) => Rule.required(),
             }),
@@ -123,18 +144,18 @@ export const profileType = defineType({
         {
           type: 'object',
           name: 'storyStrava',
-          title: 'Strava',
+          title: 'Activity',
+          icon: storyTypeIcon(WorkoutRunIcon),
           preview: {
             select: {subtitle: 'shareUrl'},
             prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Strava', subtitle}
+              return {title: 'Activity', subtitle}
             },
           },
           fields: [
             defineField({
               name: 'shareUrl',
               title: 'StatsHunters share link',
-              description: 'Paste your full StatsHunters share URL (e.g. https://www.statshunters.com/share/b97a7df6d0f9)',
               type: 'url',
               validation: (Rule) => Rule.required(),
             }),
@@ -144,6 +165,7 @@ export const profileType = defineType({
           type: 'object',
           name: 'storyAppleMaps',
           title: 'Location',
+          icon: storyTypeIcon(MapPinpoint01Icon),
           preview: {
             select: {subtitle: 'address', label: 'label'},
             prepare({subtitle, label}: {subtitle?: string; label?: string}) {
@@ -154,14 +176,12 @@ export const profileType = defineType({
             defineField({
               name: 'address',
               title: 'Address',
-              description: 'Street address or city name (e.g. "9 rue Courat, 75020 Paris")',
               type: 'string',
               validation: (Rule) => Rule.required(),
             }),
             defineField({
               name: 'label',
               title: 'Display label (optional)',
-              description: 'Override the label shown on the card (default: "City, Country")',
               type: 'string',
             }),
           ],
@@ -169,11 +189,12 @@ export const profileType = defineType({
         {
           type: 'object',
           name: 'storyGithub',
-          title: 'GitHub',
+          title: 'Code',
+          icon: storyTypeIcon(GithubIcon),
           preview: {
             select: {subtitle: 'username'},
             prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'GitHub', subtitle}
+              return {title: 'Code', subtitle}
             },
           },
           fields: [
@@ -188,18 +209,18 @@ export const profileType = defineType({
         {
           type: 'object',
           name: 'storyLetterboxd',
-          title: 'Letterboxd',
+          title: 'Movies',
+          icon: storyTypeIcon(FilmIcon),
           preview: {
             select: {subtitle: 'username'},
             prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Letterboxd', subtitle}
+              return {title: 'Movies', subtitle}
             },
           },
           fields: [
             defineField({
               name: 'username',
               title: 'Letterboxd username',
-              description: 'Sans @ — ex: "aurelien"',
               type: 'string',
               validation: (Rule) => Rule.required(),
             }),
@@ -208,11 +229,12 @@ export const profileType = defineType({
         {
           type: 'object',
           name: 'storyBgg',
-          title: 'BoardGameGeek',
+          title: 'Board Games',
+          icon: storyTypeIcon(Cards02Icon),
           preview: {
             select: {subtitle: 'username'},
             prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'BoardGameGeek', subtitle}
+              return {title: 'Board Games', subtitle}
             },
           },
           fields: [
@@ -227,18 +249,18 @@ export const profileType = defineType({
         {
           type: 'object',
           name: 'storyValorant',
-          title: 'Valorant',
+          title: 'Gaming',
+          icon: storyTypeIcon(GameController03Icon),
           preview: {
             select: {subtitle: 'trackerUrl'},
             prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Valorant', subtitle}
+              return {title: 'Gaming', subtitle}
             },
           },
           fields: [
             defineField({
               name: 'trackerUrl',
               title: 'Tracker.gg profile URL',
-              description: 'e.g. https://tracker.gg/valorant/profile/riot/oré%23369/overview',
               type: 'url',
               validation: (Rule) => Rule.required(),
             }),
@@ -263,7 +285,7 @@ export const profileType = defineType({
           type: 'object',
           name: 'storyFact',
           title: 'Fact',
-          description: 'A small personal trivia card, e.g. "Morning drink → Café latte"',
+          icon: storyTypeIcon(InformationCircleIcon),
           preview: {
             select: {label: 'label', value: 'value', icon: 'icon', media: 'image'},
             prepare({
@@ -299,28 +321,23 @@ export const profileType = defineType({
             defineField({
               name: 'label',
               title: 'Label',
-              description: 'e.g. "Morning drink"',
               type: 'string',
               validation: (Rule) => Rule.required(),
             }),
             defineField({
               name: 'value',
               title: 'Value',
-              description: 'e.g. "Café latte"',
               type: 'string',
               validation: (Rule) => Rule.required(),
             }),
             defineField({
               name: 'tagline',
               title: 'Tagline (optional)',
-              description:
-                'Short sentence shown under a large value, type-specimen style — e.g. for a font: "A grotesque sans-serif with a Swiss soul"',
               type: 'string',
             }),
             defineField({
               name: 'image',
               title: 'Illustration (optional)',
-              description: 'Shown full-bleed on the card instead of the icon/value layout — e.g. a photo for the morning drink',
               type: 'image',
               options: {hotspot: true},
             }),

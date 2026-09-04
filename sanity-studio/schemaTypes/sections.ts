@@ -139,7 +139,6 @@ export const blockMedia = defineType({
               name: 'videoUrl',
               title: 'External URL',
               type: 'url',
-              description: 'YouTube, Vimeo, lien externe',
               hidden: ({parent}) => (parent as {mediaType?: string})?.mediaType !== 'video',
             }),
             defineField({
