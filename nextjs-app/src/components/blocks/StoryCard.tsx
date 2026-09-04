@@ -64,7 +64,7 @@ export type StorySlide =
       label: string | null;
       value: string | null;
       imageUrl: string | null;
-      imageColor: string | null;
+      imageColors: (string | null)[];
       tagline: string | null;
     }
   | {
@@ -752,6 +752,22 @@ function BggCard({
 
 // ─── Fact card ──────────────────────────────────────────────────────────────
 
+// Builds a diagonal gradient from the image's palette swatches (dominant +
+// vibrant + dark-vibrant), each mixed toward stone-900 first so every stop
+// stays dark enough for white text regardless of how saturated/light the
+// raw swatch is — same contrast guarantee as the old single-color wash.
+function factGradientBg(colors: (string | null)[]): string {
+  const mixed = colors
+    .filter((c): c is string => !!c)
+    .map((c) => `color-mix(in srgb, ${c} 40%, var(--color-stone-900))`);
+  if (mixed.length === 0) return "var(--color-stone-800)";
+  if (mixed.length === 1) return mixed[0];
+  const stops = mixed
+    .map((c, i) => `${c} ${Math.round((i / (mixed.length - 1)) * 100)}%`)
+    .join(", ");
+  return `linear-gradient(135deg, ${stops})`;
+}
+
 function FactCard({
   slide,
 }: {
@@ -776,13 +792,11 @@ function FactCard({
   // morning-drink card. Dark bg + white text matches every other card in
   // the stack; the tint is what still ties each fact card to its photo.
   if (slide.imageUrl) {
-    const darkBg = slide.imageColor
-      ? `color-mix(in srgb, ${slide.imageColor} 40%, var(--color-stone-900))`
-      : "var(--color-stone-800)";
+    const bg = factGradientBg(slide.imageColors);
     return (
       <div
         className="relative flex h-full w-full flex-col overflow-hidden text-white"
-        style={{ backgroundColor: darkBg }}
+        style={{ background: bg }}
       >
         <div className="flex items-center gap-1.5 p-4">{topBar}</div>
 

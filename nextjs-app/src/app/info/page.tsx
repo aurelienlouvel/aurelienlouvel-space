@@ -141,7 +141,11 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
               label: story.label,
               value: story.value,
               imageUrl: story.imageUrl,
-              imageColor: story.paletteDominant,
+              imageColors: [
+                story.paletteDominant,
+                story.paletteVibrant,
+                story.paletteDarkVibrant,
+              ],
               tagline: story.tagline,
             };
           default:

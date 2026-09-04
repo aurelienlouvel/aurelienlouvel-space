@@ -290,8 +290,24 @@ export const profileQuery = defineQuery(`
     "stories": stories[] {
       _key,
       _type,
-      "imageUrl": image.asset->url + "?w=900&q=85&auto=format",
+      // GIFs lose their animation the moment any transform param hits
+      // Sanity's image pipeline, so serve those untouched (original file)
+      // and only resize/reformat everything else.
+      "imageUrl": select(
+        image.asset->extension == "gif" => image.asset->url,
+        image.asset->url + "?w=900&q=85&auto=format"
+      ),
       "paletteDominant": image.asset->metadata.palette.dominant.background,
+      "paletteVibrant": coalesce(
+        image.asset->metadata.palette.vibrant.background,
+        image.asset->metadata.palette.lightVibrant.background,
+        image.asset->metadata.palette.muted.background
+      ),
+      "paletteDarkVibrant": coalesce(
+        image.asset->metadata.palette.darkVibrant.background,
+        image.asset->metadata.palette.darkMuted.background,
+        image.asset->metadata.palette.dominant.background
+      ),
       alt,
       caption,
       "videoFileUrl": file.asset->url,
@@ -370,6 +386,8 @@ export type ProfileStory =
       value: string | null;
       imageUrl: string | null;
       paletteDominant: string | null;
+      paletteVibrant: string | null;
+      paletteDarkVibrant: string | null;
       tagline: string | null;
     };
 
