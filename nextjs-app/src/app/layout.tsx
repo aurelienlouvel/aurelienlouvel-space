@@ -59,12 +59,17 @@ export default async function RootLayout({
   return (
     <html lang="en" className={`${neueMontreal.variable} antialiased`}>
       {/* Supplementary animated favicon — file-convention icons (favicon.ico,
-          icon.png, apple-icon.png) don't support .webp, so this is added
-          manually. React hoists it into <head> alongside them. Firefox is
-          the only browser that actually animates tab favicons; Chrome/Safari/
-          Edge just render the first frame, which is fine since it's a purely
-          additive enhancement. */}
-      <link rel="icon" type="image/webp" href="/favicon.webp" />
+          icon.png, apple-icon.png) don't support animation, so this is added
+          manually. React hoists it into <head> alongside them. GIF (not
+          webp — browsers don't treat webp as a valid favicon format at all,
+          even statically) animates in Firefox always, and in Chrome/Edge
+          while the tab is active; Safari shows the first frame only. */}
+      <link
+        rel="icon"
+        type="image/gif"
+        href="/favicon.gif"
+        sizes="512x512"
+      />
       <body className="min-h-dvh bg-white text-foreground">
         <BodyTheme />
         <ActionBarProvider>
