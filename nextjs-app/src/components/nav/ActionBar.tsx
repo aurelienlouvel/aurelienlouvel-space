@@ -213,7 +213,7 @@ export function ActionBar() {
 
                   <motion.button
                     onClick={handleCopy}
-                    className="flex h-10 items-center gap-1.5 rounded-xl bg-sky-50 px-3 text-base font-medium text-sky-500 cursor-pointer"
+                    className="flex h-10 items-center gap-1.5 rounded-xl bg-main-50 px-3 text-base font-medium text-main-500 cursor-pointer"
                     whileHover={{ scale: 0.95, rotate: -1.5 }}
                     whileTap={{ scale: 0.87, rotate: -2 }}
                     transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -264,7 +264,7 @@ export function ActionBar() {
                     href={projectData.redirectUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-sky-50 px-3 text-base font-medium text-sky-500"
+                    className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-main-50 px-3 text-base font-medium text-main-500"
                     whileHover={{ scale: 0.95, rotate: -1.5 }}
                     whileTap={{ scale: 0.87, rotate: -2 }}
                     transition={{ type: "spring", stiffness: 400, damping: 17 }}
