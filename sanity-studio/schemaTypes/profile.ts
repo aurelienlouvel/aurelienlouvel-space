@@ -1,4 +1,8 @@
+import {createElement} from 'react'
 import {defineField, defineType} from 'sanity'
+import {HugeiconsIcon} from '@hugeicons/react'
+import {IconInput} from './components/IconInput'
+import {hugeIconMap} from './lib/hugeIcons'
 
 export const profileType = defineType({
   name: 'profile',
@@ -108,7 +112,9 @@ export const profileType = defineType({
           fields: [
             defineField({
               name: 'url',
-              title: 'Apple Music link',
+              title: 'Apple Music playlist link',
+              description:
+                'Full playlist URL (e.g. https://music.apple.com/fr/playlist/name/pl.xxxxx) — 3 random tracks are picked from it and rotated across story loops',
               type: 'url',
               validation: (Rule) => Rule.required(),
             }),
@@ -250,6 +256,73 @@ export const profileType = defineType({
                 layout: 'radio',
               },
               initialValue: 'eu',
+            }),
+          ],
+        },
+        {
+          type: 'object',
+          name: 'storyFact',
+          title: 'Fact',
+          description: 'A small personal trivia card, e.g. "Morning drink → Café latte"',
+          preview: {
+            select: {label: 'label', value: 'value', icon: 'icon', media: 'image'},
+            prepare({
+              label,
+              value,
+              icon,
+              media,
+            }: {
+              label?: string
+              value?: string
+              icon?: string
+              media?: unknown
+            }) {
+              const iconData = icon ? hugeIconMap[icon] : undefined
+              const IconComp = iconData
+                ? () => createElement(HugeiconsIcon, {icon: iconData, size: 20})
+                : undefined
+              return {
+                title: label ?? 'Fact',
+                subtitle: value,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                media: (media as any) ?? IconComp,
+              }
+            },
+          },
+          fields: [
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              components: {input: IconInput},
+            }),
+            defineField({
+              name: 'label',
+              title: 'Label',
+              description: 'e.g. "Morning drink"',
+              type: 'string',
+              validation: (Rule) => Rule.required(),
+            }),
+            defineField({
+              name: 'value',
+              title: 'Value',
+              description: 'e.g. "Café latte"',
+              type: 'string',
+              validation: (Rule) => Rule.required(),
+            }),
+            defineField({
+              name: 'tagline',
+              title: 'Tagline (optional)',
+              description:
+                'Short sentence shown under a large value, type-specimen style — e.g. for a font: "A grotesque sans-serif with a Swiss soul"',
+              type: 'string',
+            }),
+            defineField({
+              name: 'image',
+              title: 'Illustration (optional)',
+              description: 'Shown full-bleed on the card instead of the icon/value layout — e.g. a photo for the morning drink',
+              type: 'image',
+              options: {hotspot: true},
             }),
           ],
         },
