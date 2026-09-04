@@ -22,8 +22,6 @@ import {
   GithubIcon,
   GitCommitIcon,
   GameController03Icon,
-  Image02Icon,
-  InformationCircleIcon,
   MapPinpoint01Icon,
   MusicNote01Icon,
   RainIcon,
@@ -34,7 +32,6 @@ import {
   Sun01Icon,
   SunCloud01Icon,
   SwimmingIcon,
-  Video01Icon,
   WalkingIcon,
   WorkoutRunIcon,
   ZapIcon,
@@ -192,23 +189,13 @@ function getWeatherIcon(
 
 // ─── Shared primitives ─────────────────────────────────────────────────────────
 
-function PlaceholderSlide({
-  icon,
-  label,
-}: {
-  icon: Parameters<typeof HugeiconsIcon>[0]["icon"];
-  label: string;
-}) {
+// Shared "nothing to show yet" state — used both while a card is still
+// fetching (Valorant) and when a slide genuinely has no data (empty Sanity
+// field). Deliberately content-free: no icon, no label, just a neutral
+// gradient, so it never looks like a broken/mislabeled card mid-stack.
+function PlaceholderSlide() {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-stone-50">
-      <HugeiconsIcon
-        icon={icon}
-        size={28}
-        strokeWidth={1.5}
-        className="text-stone-300"
-      />
-      <span className="text-xs font-medium text-stone-400">{label}</span>
-    </div>
+    <div className="h-full w-full bg-gradient-to-br from-stone-200 to-stone-300" />
   );
 }
 
@@ -245,7 +232,7 @@ function LocationCard({
   }, []);
 
   if (slide.lat == null || slide.lon == null) {
-    return <PlaceholderSlide icon={MapPinpoint01Icon} label="carte à venir" />;
+    return <PlaceholderSlide />;
   }
 
   const timeStr = new Intl.DateTimeFormat("fr-FR", {
@@ -463,21 +450,7 @@ function MusicCard({
 
   // Fallback when no track data yet
   if (!variant?.trackName) {
-    return (
-      <CardShell
-        bg="bg-gradient-to-br from-rose-500 to-fuchsia-600"
-        top={
-          <>
-            <HugeiconsIcon icon={MusicNote01Icon} size={18} strokeWidth={2} />
-            <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-              Music
-            </span>
-          </>
-        }
-      >
-        <span className="text-base font-semibold">Now playing</span>
-      </CardShell>
-    );
+    return <PlaceholderSlide />;
   }
 
   return (
@@ -631,7 +604,7 @@ function LetterboxdCard({
       : null;
 
   if (!variant?.filmTitle) {
-    return <PlaceholderSlide icon={FilmIcon} label="Movies" />;
+    return <PlaceholderSlide />;
   }
 
   return (
@@ -699,7 +672,7 @@ function BggCard({
       : null;
 
   if (!variant?.gameName) {
-    return <PlaceholderSlide icon={Cards02Icon} label="Board Games" />;
+    return <PlaceholderSlide />;
   }
 
   // BGG ratings are 0–10 — rescale to the shared 5-star component.
@@ -774,7 +747,7 @@ function FactCard({
   slide: Extract<StorySlide, { type: "fact" }>;
 }) {
   if (!slide.value) {
-    return <PlaceholderSlide icon={InformationCircleIcon} label="Fact" />;
+    return <PlaceholderSlide />;
   }
 
   const topBar = (
@@ -1136,8 +1109,7 @@ export function SlideContent({
 }) {
   switch (slide.type) {
     case "photo":
-      if (!slide.imageUrl)
-        return <PlaceholderSlide icon={Image02Icon} label="photo à venir" />;
+      if (!slide.imageUrl) return <PlaceholderSlide />;
       return (
         <div className="relative h-full w-full">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1157,8 +1129,7 @@ export function SlideContent({
       );
 
     case "video":
-      if (!slide.videoUrl)
-        return <PlaceholderSlide icon={Video01Icon} label="vidéo à venir" />;
+      if (!slide.videoUrl) return <PlaceholderSlide />;
       return (
         <div className="relative h-full w-full">
           <video
@@ -1194,8 +1165,7 @@ export function SlideContent({
       return <StravaCard slide={slide} round={round} />;
 
     case "github": {
-      if (!slide.repo && !slide.contributions)
-        return <PlaceholderSlide icon={GithubIcon} label="Code" />;
+      if (!slide.repo && !slide.contributions) return <PlaceholderSlide />;
 
       // Chunk into columns of 5 weekdays (Mon–Fri, filtered in fetcher)
       const weeks: Array<Array<{ level: number }>> = [];
@@ -1349,31 +1319,8 @@ function ValorantCard({
       .finally(() => setLoading(false));
   }, [slide.trackerUrl, slide.region]);
 
-  if (loading) {
-    return (
-      <div
-        className="flex h-full w-full items-center justify-center"
-        style={{ background: "#0d0d0e" }}
-      >
-        <span className="text-[10px] font-black tracking-[0.18em] text-red-400/60">
-          VALORANT
-        </span>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div
-        className="flex h-full w-full flex-col items-center justify-center gap-2"
-        style={{ background: "#0d0d0e" }}
-      >
-        <span className="text-[10px] font-black tracking-[0.18em] text-red-400">
-          VALORANT
-        </span>
-        <span className="text-[10px] text-white/30">No data</span>
-      </div>
-    );
+  if (loading || !data) {
+    return <PlaceholderSlide />;
   }
 
   const r = RESULT_STYLE[data.result];
