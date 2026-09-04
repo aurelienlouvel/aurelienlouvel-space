@@ -291,6 +291,7 @@ export const profileQuery = defineQuery(`
       _key,
       _type,
       "imageUrl": image.asset->url + "?w=900&q=85&auto=format",
+      "paletteDominant": image.asset->metadata.palette.dominant.background,
       alt,
       caption,
       "videoFileUrl": file.asset->url,
@@ -368,6 +369,7 @@ export type ProfileStory =
       label: string | null;
       value: string | null;
       imageUrl: string | null;
+      paletteDominant: string | null;
       tagline: string | null;
     };
 

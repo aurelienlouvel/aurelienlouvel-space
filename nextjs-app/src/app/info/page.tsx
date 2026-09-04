@@ -63,7 +63,7 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
                 activityType: activity.activityType ?? null,
                 speedKmh: activity.speedKmh ?? null,
                 distanceKm: activity.distanceKm ?? null,
-                durationMin: activity.durationMin ?? null,
+                durationSec: activity.durationSec ?? null,
                 bpm: activity.bpm ?? null,
                 elevationM: activity.elevationM ?? null,
                 date: activity.date ? formatDateTime(activity.date) : null,
@@ -141,6 +141,7 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
               label: story.label,
               value: story.value,
               imageUrl: story.imageUrl,
+              imageColor: story.paletteDominant,
               tagline: story.tagline,
             };
           default:

@@ -28,7 +28,7 @@ export type StravaActivityEntry = {
   activityType: string;
   speedKmh: number;
   distanceKm: number;
-  durationMin: number;
+  durationSec: number;
   bpm: number | null;
   elevationM: number;
   date: string;
@@ -250,7 +250,7 @@ export async function getStravaActivities(
       activityType: a.type,
       speedKmh: Math.round(a.avg * 10) / 10,
       distanceKm: Math.round(a.distance / 100) / 10,
-      durationMin: Math.round(a.moving_time / 60),
+      durationSec: Math.round(a.moving_time),
       bpm: a.average_heartrate > 0 ? Math.round(a.average_heartrate) : null,
       elevationM: Math.round(a.total_elevation_gain),
       // Full datetime (StatsHunters returns "YYYY-MM-DD HH:MM:SS")

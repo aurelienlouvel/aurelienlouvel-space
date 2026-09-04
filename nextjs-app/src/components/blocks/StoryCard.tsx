@@ -64,6 +64,7 @@ export type StorySlide =
       label: string | null;
       value: string | null;
       imageUrl: string | null;
+      imageColor: string | null;
       tagline: string | null;
     }
   | {
@@ -73,7 +74,7 @@ export type StorySlide =
         activityType: string | null;
         speedKmh: number | null;
         distanceKm: number | null;
-        durationMin: number | null;
+        durationSec: number | null;
         bpm: number | null;
         elevationM: number | null;
         date: string | null;
@@ -155,12 +156,15 @@ function formatPace(speedKmh: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-function formatDuration(min: number | null): string {
-  if (min == null) return "—";
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+// "22m 10s" (or "1h 05m 10s" past an hour) — short labeled units.
+function formatDuration(totalSec: number | null): string {
+  if (totalSec == null) return "—";
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const ss = s.toString().padStart(2, "0");
+  if (h > 0) return `${h}h ${m}m ${ss}s`;
+  return `${m}m ${ss}s`;
 }
 
 function getActivityIcon(type: string | null) {
@@ -766,28 +770,35 @@ function FactCard({
     </>
   );
 
-  // Illustration-forward layout — full-bleed image with the value as a
-  // caption, e.g. the morning-drink card.
+  // Illustration-forward layout — a smaller product shot centered on a dark
+  // backdrop tinted with its own dominant color (from Sanity's image palette
+  // metadata), with the value as a caption underneath, e.g. the
+  // morning-drink card. Dark bg + white text matches every other card in
+  // the stack; the tint is what still ties each fact card to its photo.
   if (slide.imageUrl) {
+    const darkBg = slide.imageColor
+      ? `color-mix(in srgb, ${slide.imageColor} 40%, var(--color-stone-900))`
+      : "var(--color-stone-800)";
     return (
-      <div className="relative h-full w-full overflow-hidden bg-stone-900">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={slide.imageUrl}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-        <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/45 to-transparent" />
+      <div
+        className="relative flex h-full w-full flex-col overflow-hidden text-white"
+        style={{ backgroundColor: darkBg }}
+      >
+        <div className="flex items-center gap-1.5 p-4">{topBar}</div>
 
-        <div className="relative flex h-full flex-col text-white">
-          <div className="flex items-center gap-1.5 p-4 drop-shadow">
-            {topBar}
-          </div>
-          <div className="mt-auto bg-gradient-to-t from-black/70 to-transparent px-6 pt-16 pb-6">
-            <span className="text-xl font-semibold leading-tight drop-shadow">
-              {slide.value}
-            </span>
-          </div>
+        <div className="flex flex-1 items-center justify-center px-6 pb-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={slide.imageUrl}
+            alt=""
+            className="max-h-[65%] max-w-[72%] -rotate-6 object-contain drop-shadow-lg"
+          />
+        </div>
+
+        <div className="px-6 pb-6">
+          <span className="block text-2xl font-semibold leading-tight text-white">
+            {slide.value}
+          </span>
         </div>
       </div>
     );
@@ -842,6 +853,54 @@ function smoothPathD(points: { x: number; y: number }[]): string {
   return d;
 }
 
+// Ramer–Douglas–Peucker simplification: drops points that sit within
+// `epsilon` of the straight line between their neighbors. Raw GPS traces are
+// noisy (satellite drift, small back-and-forth jitter at turns/stops), and
+// since smoothPathD's Catmull-Rom curve threads through every point it's
+// given, that noise otherwise shows up as little kinks in an
+// otherwise-smooth line. Thinning the point set first, then smoothing what's
+// left, is what actually produces a clean/simplified-looking route.
+function simplifyPath(
+  points: { x: number; y: number }[],
+  epsilon: number,
+): { x: number; y: number }[] {
+  if (points.length < 3) return points;
+
+  const sqDistToSegment = (
+    p: { x: number; y: number },
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+  ) => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if (dx === 0 && dy === 0) return (p.x - a.x) ** 2 + (p.y - a.y) ** 2;
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+    const clampedT = Math.max(0, Math.min(1, t));
+    const projX = a.x + clampedT * dx;
+    const projY = a.y + clampedT * dy;
+    return (p.x - projX) ** 2 + (p.y - projY) ** 2;
+  };
+
+  let maxDist = 0;
+  let index = 0;
+  const first = points[0];
+  const last = points[points.length - 1];
+  for (let i = 1; i < points.length - 1; i++) {
+    const dist = sqDistToSegment(points[i], first, last);
+    if (dist > maxDist) {
+      maxDist = dist;
+      index = i;
+    }
+  }
+
+  if (Math.sqrt(maxDist) > epsilon) {
+    const left = simplifyPath(points.slice(0, index + 1), epsilon);
+    const right = simplifyPath(points.slice(index), epsilon);
+    return [...left.slice(0, -1), ...right];
+  }
+  return [first, last];
+}
+
 // Equirectangular local projection (x = lng·cos(avgLat), y = -lat) — accurate
 // enough for a route spanning a few km, and keeps the real aspect ratio
 // instead of stretching a north-south run into a square. North is up.
@@ -876,29 +935,39 @@ function projectPath(path: { lat: number; lng: number }[]): {
 // extent, so a short local loop and a long point-to-point ride both get a
 // clean, consistently-weighted line instead of it scaling into a thick blob
 // for small routes.
+//
+// Fills whatever box the caller positions it in — the caller (StravaCard)
+// controls where on the card that box sits; this component only handles
+// projecting + drawing the route inside it. `preserveAspectRatio="meet"`
+// centers the route within that box regardless of its aspect ratio, and for
+// a route that's tall/narrow relative to the box (common for point-to-point
+// runs) that guarantees the whole shape always fits inside it — the
+// vignette mask fading toward the box's edges is then just a soft dissolve
+// into the rest of the card, not a crop.
 function RoutePath({ path }: { path: { lat: number; lng: number }[] }) {
   if (path.length < 2) return null;
-  const { points, w, h } = projectPath(path);
+  const { points: rawPoints, w, h } = projectPath(path);
+  const points = simplifyPath(rawPoints, Math.max(w, h) * 0.03);
   const pad = Math.max(w, h) * 0.08 || 0.0002;
 
   return (
     <svg
       viewBox={`${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}`}
       preserveAspectRatio="xMidYMid meet"
-      className="pointer-events-none absolute inset-0 h-full w-full"
+      className="h-full w-full"
       style={{
         maskImage:
-          "linear-gradient(to bottom, black 0%, black 38%, transparent 65%)",
+          "radial-gradient(ellipse at center, black 30%, transparent 80%)",
         WebkitMaskImage:
-          "linear-gradient(to bottom, black 0%, black 38%, transparent 65%)",
+          "radial-gradient(ellipse at center, black 30%, transparent 80%)",
       }}
       aria-hidden="true"
     >
       <path
         d={smoothPathD(points)}
         fill="none"
-        stroke="rgba(255,255,255,0.6)"
-        strokeWidth={3}
+        stroke="rgba(255,255,255,0.35)"
+        strokeWidth={2.5}
         strokeLinecap="round"
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
@@ -939,8 +1008,14 @@ function StravaCard({
         `,
       }}
     >
-      {/* Route backdrop: simplified line traced from the real GPS path */}
-      {variant?.path && <RoutePath path={variant.path} />}
+      {/* Route backdrop: simplified line traced from the real GPS path,
+          sitting center-right — behind where the main stats print below —
+          and clear of the top bar rather than pinned to a corner. */}
+      {variant?.path && (
+        <div className="pointer-events-none absolute right-[12%] top-[16%] h-[54%] w-[68%]">
+          <RoutePath path={variant.path} />
+        </div>
+      )}
 
       {/* Grain overlay for texture */}
       <div
@@ -984,7 +1059,7 @@ function StravaCard({
               className="text-white/60"
             />
             <p className="text-2xl font-bold leading-none">
-              {formatDuration(variant?.durationMin ?? null)}
+              {formatDuration(variant?.durationSec ?? null)}
             </p>
           </div>
         </div>
