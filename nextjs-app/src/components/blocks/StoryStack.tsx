@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { EASE_IN, EASE_OUT, EASE_PUNCH } from "@/lib/easings";
+import { EASE_IN, EASE_OUT } from "@/lib/easings";
 import { SlideContent, type StorySlide } from "./StoryCard";
 
 export type { StorySlide };
@@ -75,6 +75,16 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
     setElapsed(0);
   }, []);
 
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        advance();
+      }
+    },
+    [advance],
+  );
+
   // step only ever changes via advance(), which already resets elapsed in the
   // same batch — no separate reset effect needed.
 
@@ -111,52 +121,46 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
     );
   }
 
-  // Back card is a stable non-AnimatePresence element — its key never changes,
-  // so it never remounts. Content changes in-place when step advances.
-  // Front card uses AnimatePresence: enters from POS_BACK, exits to POS_EXIT.
+  // Both slots are keyed by the absolute step they represent, not by role —
+  // so the slide pre-rendered in back (image decoded, map/audio already
+  // initialized) is the SAME element promoted to front on the next step,
+  // never a fresh mount. Only its position animates; nothing has to render
+  // while the spring plays, which is what removes the "renders at the same
+  // time as the anim" lag. Only key `step` (exiting) and `step + 2` (new
+  // back, mounted next render) ever mount/unmount — `step + 1` just changes
+  // role in place.
   return (
     <div className="relative aspect-[6/7] w-full">
-      {/* Back — always present, never exits */}
-      <motion.div
-        initial={false}
-        animate={POS_BACK}
-        transition={{ duration: 0.38, ease: EASE_PUNCH }}
-        className="absolute inset-0 overflow-hidden rounded-3xl shadow-md"
-        style={{ zIndex: 10 }}
-      >
-        <SlideContent
-          slide={slides[(step + 1) % total]}
-          round={Math.floor((step + 1) / total)}
-        />
-      </motion.div>
-
-      {/* Front — spring enter (bouncy settle), fast exit */}
       <AnimatePresence initial={false}>
-        <motion.div
-          key={step}
-          role="button"
-          tabIndex={0}
-          aria-label="Next story"
-          onClick={advance}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              advance();
-            }
-          }}
-          variants={FRONT_VARIANTS}
-          initial="back"
-          animate="front"
-          exit="gone"
-          className="absolute inset-0 cursor-pointer overflow-hidden rounded-3xl shadow-md outline-none"
-        >
-          <SlideContent
-            slide={slides[step % total]}
-            round={Math.floor(step / total)}
-            onMusicPlaying={setMusicPaused}
-          />
-          <CountdownRing progress={progress} />
-        </motion.div>
+        {[step, step + 1].map((slotStep) => {
+          const isFront = slotStep === step;
+          return (
+            <motion.div
+              key={slotStep}
+              initial={false}
+              variants={FRONT_VARIANTS}
+              animate={isFront ? "front" : "back"}
+              exit="gone"
+              role={isFront ? "button" : undefined}
+              tabIndex={isFront ? 0 : undefined}
+              aria-label={isFront ? "Next story" : undefined}
+              onClick={isFront ? advance : undefined}
+              onKeyDown={isFront ? handleKeyDown : undefined}
+              className={
+                isFront
+                  ? "absolute inset-0 cursor-pointer overflow-hidden rounded-3xl shadow-md outline-none"
+                  : "absolute inset-0 overflow-hidden rounded-3xl shadow-md"
+              }
+            >
+              <SlideContent
+                slide={slides[slotStep % total]}
+                round={Math.floor(slotStep / total)}
+                onMusicPlaying={isFront ? setMusicPaused : undefined}
+              />
+              {isFront && <CountdownRing progress={progress} />}
+            </motion.div>
+          );
+        })}
       </AnimatePresence>
     </div>
   );
