@@ -151,16 +151,16 @@ export function ActionBar() {
                       key={href}
                       href={href}
                       className={cn(
-                        "relative flex h-11 items-center rounded-xl px-3 text-base transition-colors",
+                        "relative flex h-11 items-center rounded-xl px-3 text-base transition-all",
                         isActive
-                          ? "text-zinc-950"
+                          ? "text-zinc-950 -rotate-2"
                           : "text-zinc-600 hover:text-zinc-950",
                       )}
                       style={
                         isActive
                           ? {
-                              fontWeight: 580,
-                              fontVariationSettings: "'wght' 580",
+                              fontWeight: 640,
+                              fontVariationSettings: "'wght' 640",
                             }
                           : undefined
                       }
