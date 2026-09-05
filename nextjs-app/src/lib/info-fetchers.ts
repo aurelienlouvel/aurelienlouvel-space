@@ -474,9 +474,14 @@ type AppleMusicSection = {
 // id starts with "track-list". Each item's contentDescriptor.url is a
 // normal track URL, so it's resolved for full detail (artwork, preview URL —
 // not present in this scrape) via the existing getAppleMusicData.
+//
+// `count` is a pool size, not a display count: the client (MusicCard) lets
+// the visitor shuffle back and forth through everything resolved here, so
+// it's fetched generously (10, all in parallel and cached) rather than the
+// 3 actually shown at once elsewhere.
 export async function getAppleMusicPlaylistTracks(
   url: string | null,
-  count = 3,
+  count = 10,
 ): Promise<AppleMusicTrack[]> {
   if (!url) return [];
   try {
@@ -653,10 +658,11 @@ export type BggEntry = {
 // boardgamegeek.com/applications. Without BGG_API_TOKEN set, degrade to []
 // (same fallback behaviour as an unset Mapbox token elsewhere in this app).
 //
-// Picks `count` random distinct games from the user's curated "Top 10" list
-// (a native BGG profile feature — boardgamegeek.com/user/<name> — not their
-// full owned collection), then cross-references each against their rated
-// collection for its personal rating/cover/year (favourites aren't
+// Takes the user's actual top `count` games (ranked #1..#count, sorted by
+// BGG's own rank rather than trusting response order) from their curated
+// "Top 10" list (a native BGG profile feature — boardgamegeek.com/user/<name>
+// — not their full owned collection), then cross-references each against
+// their rated collection for its cover art/year (favourites aren't
 // necessarily marked "owned", so this intentionally doesn't filter on own=1).
 export async function getBggEntries(
   username: string | null,
@@ -686,7 +692,7 @@ export async function getBggEntries(
     if (topList.length === 0) return [];
 
     const picks = [...topList]
-      .sort(() => Math.random() - 0.5)
+      .sort((a, b) => Number(a["@_rank"] ?? Infinity) - Number(b["@_rank"] ?? Infinity))
       .slice(0, count);
 
     // Best-effort enrichment — if the collection lookup fails or is still

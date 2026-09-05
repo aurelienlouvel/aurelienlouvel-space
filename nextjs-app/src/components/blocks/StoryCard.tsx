@@ -24,6 +24,8 @@ import {
   GameController03Icon,
   MapPinpoint01Icon,
   MusicNote01Icon,
+  NextIcon,
+  PreviousIcon,
   RainIcon,
   Route01Icon,
   SnowIcon,
@@ -386,19 +388,55 @@ function MusicCard({
   const [audioProgress, setAudioProgress] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 3 random tracks were picked once server-side; each full loop through the
-  // story stack ("round") shows the next one, cycling back to the first once
-  // all have been shown.
-  const variant =
-    slide.variants.length > 0
-      ? slide.variants[(round ?? 0) % slide.variants.length]
-      : null;
+  const total = slide.variants.length;
+
+  // A pool of tracks was resolved once server-side; the visitor can then
+  // shuffle through it by hand with the prev/next buttons below. `history`
+  // is the actual sequence of indices played, `pos` a pointer into it:
+  // - next() rolls a fresh random track UNLESS `pos` is already behind the
+  //   end of `history` (i.e. the visitor rewound earlier), in which case it
+  //   just replays whatever was already ahead instead of re-randomizing.
+  // - prev() only ever moves `pos` back — it never mutates `history`.
+  // The very first track still follows `round`, so each time this card
+  // cycles back into view (fresh mount, see StoryStack's key-recycling) it
+  // opens on a different one than last time.
+  const [nav, setNav] = useState(() => ({
+    history: [total > 0 ? (round ?? 0) % total : 0],
+    pos: 0,
+  }));
+
+  const variant = total > 0 ? slide.variants[nav.history[nav.pos] ?? 0] : null;
   const previewUrl = variant?.previewUrl ?? null;
+  const canGoPrev = nav.pos > 0;
+
+  const goPrev = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); // prevent story advance
+    setNav((prev) => (prev.pos > 0 ? { ...prev, pos: prev.pos - 1 } : prev));
+  }, []);
+
+  const goNext = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation(); // prevent story advance
+      if (total <= 1) return;
+      setNav((prev) => {
+        if (prev.pos + 1 < prev.history.length) {
+          return { ...prev, pos: prev.pos + 1 };
+        }
+        const current = prev.history[prev.pos];
+        let next = current;
+        while (next === current) {
+          next = Math.floor(Math.random() * total);
+        }
+        return { history: [...prev.history, next], pos: prev.pos + 1 };
+      });
+    },
+    [total],
+  );
 
   useEffect(() => {
     if (!previewUrl) return;
     const audio = new Audio(previewUrl);
-    audio.volume = 0.08;
+    audio.volume = 0.33;
     audioRef.current = audio;
     const onTimeUpdate = () => {
       setAudioProgress(Math.min(audio.currentTime / 15, 1));
@@ -418,8 +456,9 @@ function MusicCard({
     });
     return () => {
       audio.pause();
-      // The track can change (round advancing) without this card ever
-      // unmounting — reset playback state too, not just the audio element.
+      // The track can change (round advancing, or prev/next) without this
+      // card ever unmounting — reset playback state too, not just the audio
+      // element.
       setPlaying(false);
       setAudioProgress(0);
       onPlayingChange?.(false);
@@ -437,7 +476,7 @@ function MusicCard({
         setPlaying(false);
         onPlayingChange?.(false);
       } else {
-        audio.volume = 0.08; // re-apply each play so HMR / stale instances stay correct
+        audio.volume = 0.33; // re-apply each play so HMR / stale instances stay correct
         audio.currentTime = 0;
         setAudioProgress(0);
         audio.play().catch(() => {});
@@ -491,55 +530,80 @@ function MusicCard({
           </p>
           <p className="mt-0.5 text-sm text-white/70">{variant.artistName}</p>
 
-          {variant.previewUrl && (
-            <button
-              type="button"
-              onClick={toggle}
-              className="relative mt-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/25 backdrop-blur-sm transition-opacity hover:opacity-80"
-            >
-              <svg
-                className="pointer-events-none absolute inset-0 -rotate-90"
-                width="32"
-                height="32"
-                viewBox="0 0 32 32"
-                aria-hidden="true"
+          <div className="mt-3 flex items-center gap-2.5">
+            {total > 1 && (
+              <button
+                type="button"
+                onClick={goPrev}
+                disabled={!canGoPrev}
+                aria-label="Previous track"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm transition-opacity hover:opacity-80 disabled:opacity-30"
               >
-                <circle
-                  cx="16"
-                  cy="16"
-                  r={14}
-                  fill="none"
-                  stroke="rgba(255,255,255,0.3)"
-                  strokeWidth="2"
-                />
-                <circle
-                  cx="16"
-                  cy="16"
-                  r={14}
-                  fill="none"
-                  stroke="white"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeDasharray={2 * Math.PI * 14}
-                  strokeDashoffset={2 * Math.PI * 14 * (1 - audioProgress)}
-                  style={{
-                    transition:
-                      audioProgress > 0
-                        ? "stroke-dashoffset 0.1s linear"
-                        : "none",
-                  }}
-                />
-              </svg>
-              {playing ? (
-                <span className="relative flex gap-[3px]">
-                  <span className="h-3 w-[3px] rounded-sm bg-white" />
-                  <span className="h-3 w-[3px] rounded-sm bg-white" />
-                </span>
-              ) : (
-                <span className="relative ml-0.5 h-0 w-0 border-y-[5px] border-l-[9px] border-y-transparent border-l-white" />
-              )}
-            </button>
-          )}
+                <HugeiconsIcon icon={PreviousIcon} size={14} strokeWidth={2} />
+              </button>
+            )}
+
+            {variant.previewUrl && (
+              <button
+                type="button"
+                onClick={toggle}
+                className="relative flex h-8 w-8 items-center justify-center rounded-full bg-white/25 backdrop-blur-sm transition-opacity hover:opacity-80"
+              >
+                <svg
+                  className="pointer-events-none absolute inset-0 -rotate-90"
+                  width="32"
+                  height="32"
+                  viewBox="0 0 32 32"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="16"
+                    cy="16"
+                    r={14}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.3)"
+                    strokeWidth="2"
+                  />
+                  <circle
+                    cx="16"
+                    cy="16"
+                    r={14}
+                    fill="none"
+                    stroke="white"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeDasharray={2 * Math.PI * 14}
+                    strokeDashoffset={2 * Math.PI * 14 * (1 - audioProgress)}
+                    style={{
+                      transition:
+                        audioProgress > 0
+                          ? "stroke-dashoffset 0.1s linear"
+                          : "none",
+                    }}
+                  />
+                </svg>
+                {playing ? (
+                  <span className="relative flex gap-[3px]">
+                    <span className="h-3 w-[3px] rounded-sm bg-white" />
+                    <span className="h-3 w-[3px] rounded-sm bg-white" />
+                  </span>
+                ) : (
+                  <span className="relative ml-0.5 h-0 w-0 border-y-[5px] border-l-[9px] border-y-transparent border-l-white" />
+                )}
+              </button>
+            )}
+
+            {total > 1 && (
+              <button
+                type="button"
+                onClick={goNext}
+                aria-label="Next track"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm transition-opacity hover:opacity-80"
+              >
+                <HugeiconsIcon icon={NextIcon} size={14} strokeWidth={2} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -657,66 +721,77 @@ function LetterboxdCard({
 
 // ─── BoardGameGeek card ─────────────────────────────────────────────────────
 
+// Rank badge colours: gold / silver / bronze podium read, falls back to a
+// plain neutral chip past 3rd (shouldn't happen — the server already hands
+// back only the top 3 — but the array is sliced defensively below anyway).
+const BGG_RANK_STYLE = [
+  "bg-amber-400 text-stone-900",
+  "bg-zinc-300 text-stone-900",
+  "bg-orange-700 text-white",
+] as const;
+
 function BggCard({
   slide,
-  round,
 }: {
   slide: Extract<StorySlide, { type: "bgg" }>;
-  round?: number;
 }) {
-  // 3 random Top-10 picks were made once server-side; each full loop through
-  // the story stack ("round") shows the next one.
-  const variant =
-    slide.variants.length > 0
-      ? slide.variants[(round ?? 0) % slide.variants.length]
-      : null;
+  // The server already hands back the user's actual top 3 (ranked #1–#3, see
+  // getBggEntries) — shown together as a single ranked list rather than
+  // rotated one-per-round like the other card types.
+  const top3 = slide.variants.slice(0, 3).filter((game) => game.gameName);
 
-  if (!variant?.gameName) {
+  if (top3.length === 0) {
     return <PlaceholderSlide />;
   }
 
-  // BGG ratings are 0–10 — rescale to the shared 5-star component.
-  const rating = variant.rating != null ? variant.rating / 2 : null;
-
   return (
     <div className="relative h-full w-full overflow-hidden bg-stone-900">
-      {variant.imageUrl && (
+      {top3[0].imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={variant.imageUrl}
+          src={top3[0].imageUrl}
           alt=""
           className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
         />
       )}
-      <div className="absolute inset-0 bg-black/50" />
+      <div className="absolute inset-0 bg-black/60" />
 
       <div className="relative flex h-full flex-col text-white">
         <div className="flex items-center gap-1.5 p-4">
           <HugeiconsIcon icon={Cards02Icon} size={16} strokeWidth={2} />
           <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-            Board Games
+            Top Board Games
           </span>
         </div>
 
-        <div className="mt-auto p-6">
-          {variant.imageUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={variant.imageUrl}
-              alt={variant.gameName}
-              className="mb-3 max-h-28 w-auto max-w-full rounded-xl object-contain shadow-lg"
-            />
-          )}
-          <p className="text-base font-semibold leading-tight">
-            {variant.gameName}
-            {variant.yearPublished && (
-              <span className="font-normal text-white/60">
-                {" "}
-                ({variant.yearPublished})
+        <div className="mt-auto flex flex-col gap-3 p-6">
+          {top3.map((game, i) => (
+            <div key={game.gameUrl ?? game.gameName} className="flex items-center gap-3">
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  BGG_RANK_STYLE[i] ?? "bg-white/20 text-white"
+                }`}
+              >
+                {i + 1}
               </span>
-            )}
-          </p>
-          <StarRating rating={rating} />
+              {game.imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={game.imageUrl}
+                  alt=""
+                  className="h-11 w-11 shrink-0 rounded-lg object-cover shadow-lg"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold leading-tight">
+                  {game.gameName}
+                </p>
+                {game.yearPublished && (
+                  <p className="text-xs text-white/60">{game.yearPublished}</p>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -1244,7 +1319,7 @@ export function SlideContent({
       return <LetterboxdCard slide={slide} round={round} />;
 
     case "bgg":
-      return <BggCard slide={slide} round={round} />;
+      return <BggCard slide={slide} />;
   }
 }
 
