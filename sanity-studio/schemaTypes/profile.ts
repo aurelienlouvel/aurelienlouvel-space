@@ -151,12 +151,6 @@ export const profileType = defineType({
           },
           fields: [
             defineField({
-              name: 'cardTitle',
-              title: 'Card title',
-              type: 'string',
-              placeholder: 'Music',
-            }),
-            defineField({
               name: 'icon',
               title: 'Icon',
               type: 'string',
@@ -164,8 +158,14 @@ export const profileType = defineType({
               components: {input: IconInput},
             }),
             defineField({
+              name: 'cardTitle',
+              title: 'Label',
+              type: 'string',
+              placeholder: 'Music',
+            }),
+            defineField({
               name: 'url',
-              title: 'Apple Music playlist link',
+              title: 'Apple Music Playlist',
               type: 'url',
               validation: (Rule) => Rule.required(),
             }),
@@ -192,12 +192,6 @@ export const profileType = defineType({
           },
           fields: [
             defineField({
-              name: 'cardTitle',
-              title: 'Card title',
-              type: 'string',
-              placeholder: 'Activity',
-            }),
-            defineField({
               name: 'icon',
               title: 'Icon',
               type: 'string',
@@ -205,8 +199,14 @@ export const profileType = defineType({
               components: {input: IconInput},
             }),
             defineField({
+              name: 'cardTitle',
+              title: 'Label',
+              type: 'string',
+              placeholder: 'Activity',
+            }),
+            defineField({
               name: 'shareUrl',
-              title: 'StatsHunters share link',
+              title: 'StatsHunters Profile',
               type: 'url',
               validation: (Rule) => Rule.required(),
             }),
@@ -239,17 +239,17 @@ export const profileType = defineType({
           },
           fields: [
             defineField({
-              name: 'cardTitle',
-              title: 'Card title',
-              type: 'string',
-              placeholder: 'Location',
-            }),
-            defineField({
               name: 'icon',
               title: 'Icon',
               type: 'string',
               description: 'Leave empty to use the default icon for this card.',
               components: {input: IconInput},
+            }),
+            defineField({
+              name: 'cardTitle',
+              title: 'Label',
+              type: 'string',
+              placeholder: 'Location',
             }),
             defineField({
               name: 'address',
@@ -258,8 +258,11 @@ export const profileType = defineType({
               validation: (Rule) => Rule.required(),
             }),
             defineField({
+              // Distinct from the card's `cardTitle`/"Label" above — this one
+              // overrides just the address subtitle text (e.g. "Home" instead
+              // of the raw geocoded address), so it's titled to disambiguate.
               name: 'label',
-              title: 'Display label (optional)',
+              title: 'Address label (optional)',
               type: 'string',
             }),
           ],
@@ -285,12 +288,6 @@ export const profileType = defineType({
           },
           fields: [
             defineField({
-              name: 'cardTitle',
-              title: 'Card title',
-              type: 'string',
-              placeholder: 'Code',
-            }),
-            defineField({
               name: 'icon',
               title: 'Icon',
               type: 'string',
@@ -298,8 +295,14 @@ export const profileType = defineType({
               components: {input: IconInput},
             }),
             defineField({
+              name: 'cardTitle',
+              title: 'Label',
+              type: 'string',
+              placeholder: 'Code',
+            }),
+            defineField({
               name: 'username',
-              title: 'GitHub username',
+              title: 'GitHub Username',
               type: 'string',
               validation: (Rule) => Rule.required(),
             }),
@@ -326,12 +329,6 @@ export const profileType = defineType({
           },
           fields: [
             defineField({
-              name: 'cardTitle',
-              title: 'Card title',
-              type: 'string',
-              placeholder: 'Movies',
-            }),
-            defineField({
               name: 'icon',
               title: 'Icon',
               type: 'string',
@@ -339,8 +336,14 @@ export const profileType = defineType({
               components: {input: IconInput},
             }),
             defineField({
+              name: 'cardTitle',
+              title: 'Label',
+              type: 'string',
+              placeholder: 'Movies',
+            }),
+            defineField({
               name: 'username',
-              title: 'Letterboxd username',
+              title: 'Letterboxd Username',
               type: 'string',
               validation: (Rule) => Rule.required(),
             }),
@@ -371,15 +374,6 @@ export const profileType = defineType({
           },
           fields: [
             defineField({
-              name: 'cardTitle',
-              title: 'Card title',
-              type: 'string',
-              // Frontend default reads "Top Board Games" (the card shows a
-              // ranked top-3, not just "Board Games") — shown here so the
-              // placeholder matches what actually renders when left blank.
-              placeholder: 'Top Board Games',
-            }),
-            defineField({
               name: 'icon',
               title: 'Icon',
               type: 'string',
@@ -387,8 +381,17 @@ export const profileType = defineType({
               components: {input: IconInput},
             }),
             defineField({
+              name: 'cardTitle',
+              title: 'Label',
+              type: 'string',
+              // Frontend default reads "Top Board Games" (the card shows a
+              // ranked top-3, not just "Board Games") — shown here so the
+              // placeholder matches what actually renders when left blank.
+              placeholder: 'Top Board Games',
+            }),
+            defineField({
               name: 'username',
-              title: 'BoardGameGeek username',
+              title: 'BoardGameGeek Username',
               type: 'string',
               validation: (Rule) => Rule.required(),
             }),
@@ -415,13 +418,6 @@ export const profileType = defineType({
           },
           fields: [
             defineField({
-              name: 'cardTitle',
-              title: 'Card title',
-              type: 'string',
-              // Frontend default reads "Valorant", not "Gaming".
-              placeholder: 'Valorant',
-            }),
-            defineField({
               name: 'icon',
               title: 'Icon',
               type: 'string',
@@ -429,8 +425,15 @@ export const profileType = defineType({
               components: {input: IconInput},
             }),
             defineField({
+              name: 'cardTitle',
+              title: 'Label',
+              type: 'string',
+              // Frontend default reads "Valorant", not "Gaming".
+              placeholder: 'Valorant',
+            }),
+            defineField({
               name: 'trackerUrl',
-              title: 'Tracker.gg profile URL',
+              title: 'Tracker.gg Profile',
               type: 'url',
               validation: (Rule) => Rule.required(),
             }),
@@ -457,23 +460,23 @@ export const profileType = defineType({
           title: 'Fact',
           icon: storyTypeIcon(InformationCircleIcon),
           preview: {
-            select: {label: 'label', value: 'value', icon: 'icon', media: 'image'},
+            select: {label: 'label', value: 'value', icon: 'icon'},
             prepare({
               label,
               value,
               icon,
-              media,
             }: {
               label?: string
               value?: string
               icon?: string
-              media?: unknown
             }) {
               return {
                 title: label ?? 'Fact',
                 subtitle: value,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                media: (media as any) ?? pickedIconMedia(icon),
+                // Icon takes the list-row thumbnail slot (matches every other
+                // story type) rather than the optional illustration `image`,
+                // which is only used on the actual rendered card.
+                media: pickedIconMedia(icon),
               }
             },
           },
@@ -482,6 +485,7 @@ export const profileType = defineType({
               name: 'icon',
               title: 'Icon',
               type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
               components: {input: IconInput},
             }),
             defineField({
