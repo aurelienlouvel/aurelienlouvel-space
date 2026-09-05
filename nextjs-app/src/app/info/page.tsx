@@ -43,12 +43,16 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
               imageUrl: story.imageUrl,
               alt: story.alt,
               caption: story.caption,
+              cardTitle: story.cardTitle,
+              icon: story.icon,
             };
           case "storyVideo":
             return {
               type: "video",
               videoUrl: story.videoFileUrl ?? story.url,
               caption: story.caption,
+              cardTitle: story.cardTitle,
+              icon: story.icon,
             };
           case "storyAppleMusic": {
             const variants = await getAppleMusicPlaylistTracks(story.url);
@@ -177,7 +181,16 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
       slides={
         slides.length > 0
           ? slides
-          : [{ type: "photo", imageUrl: null, alt: null, caption: null }]
+          : [
+              {
+                type: "photo",
+                imageUrl: null,
+                alt: null,
+                caption: null,
+                cardTitle: null,
+                icon: null,
+              },
+            ]
       }
     />
   );
@@ -210,8 +223,17 @@ export default async function InfoPage() {
           imageUrl: firstStory.imageUrl,
           alt: firstStory.alt,
           caption: firstStory.caption,
+          cardTitle: firstStory.cardTitle,
+          icon: firstStory.icon,
         }
-      : { type: "photo", imageUrl: null, alt: null, caption: null };
+      : {
+          type: "photo",
+          imageUrl: null,
+          alt: null,
+          caption: null,
+          cardTitle: null,
+          icon: null,
+        };
 
   const leftTools = profile.tools?.filter((t) => !t.referral) ?? [];
   const rightTools = profile.tools?.filter((t) => t.referral) ?? [];

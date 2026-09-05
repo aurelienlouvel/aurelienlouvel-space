@@ -26,6 +26,7 @@ import {
   GithubIcon,
   GitCommitIcon,
   GameController03Icon,
+  Image02Icon,
   MapPinpoint01Icon,
   MusicNote01Icon,
   RainIcon,
@@ -36,6 +37,7 @@ import {
   Sun01Icon,
   SunCloud01Icon,
   SwimmingIcon,
+  Video01Icon,
   WalkingIcon,
   WorkoutRunIcon,
   ZapIcon,
@@ -47,8 +49,16 @@ export type StorySlide =
       imageUrl: string | null;
       alt: string | null;
       caption: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
-  | { type: "video"; videoUrl: string | null; caption: string | null }
+  | {
+      type: "video";
+      videoUrl: string | null;
+      caption: string | null;
+      cardTitle: string | null;
+      icon: string | null;
+    }
   | {
       type: "music";
       cardTitle: string | null;
@@ -1372,6 +1382,13 @@ export function SlideContent({
             alt={slide.alt ?? ""}
             className="h-full w-full object-cover"
           />
+          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/25 to-transparent" />
+          <div className="absolute inset-x-0 top-0 flex items-center gap-1.5 p-4 text-white drop-shadow">
+            <Icon name={slide.icon} fallback={Image02Icon} size={15} strokeWidth={2} />
+            <span className="text-xs font-medium uppercase tracking-wide text-white/80">
+              {slide.cardTitle || "Photo"}
+            </span>
+          </div>
           {slide.caption && (
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-4 pb-5 pt-10">
               <p className="text-sm font-medium text-white drop-shadow">
@@ -1394,6 +1411,13 @@ export function SlideContent({
             loop
             playsInline
           />
+          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/25 to-transparent" />
+          <div className="absolute inset-x-0 top-0 flex items-center gap-1.5 p-4 text-white drop-shadow">
+            <Icon name={slide.icon} fallback={Video01Icon} size={15} strokeWidth={2} />
+            <span className="text-xs font-medium uppercase tracking-wide text-white/80">
+              {slide.cardTitle || "Video"}
+            </span>
+          </div>
           {slide.caption && (
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-4 pb-5 pt-10">
               <p className="text-sm font-medium text-white drop-shadow">

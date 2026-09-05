@@ -334,6 +334,8 @@ export type ProfileStory =
       imageUrl: string | null;
       alt: string | null;
       caption: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
   | {
       _key: string;
@@ -341,6 +343,8 @@ export type ProfileStory =
       videoFileUrl: string | null;
       url: string | null;
       caption: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
   | {
       _key: string;
