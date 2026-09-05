@@ -18,10 +18,19 @@ import {IconInput} from './components/IconInput'
 import {hugeIconMap} from './lib/hugeIcons'
 
 // Fixed glyph per story type (shown in the "add item" menu + as list-row
-// fallback media) — distinct from the `icon` data field on storyFact, which
-// lets the editor pick any HugeIcon per entry.
+// fallback media) — distinct from the per-entry `icon` data field below,
+// which lets the editor pick any HugeIcon per entry.
 function storyTypeIcon(icon: IconSvgElement) {
   return () => createElement(HugeiconsIcon, {icon, size: 16})
+}
+
+// Renders the editor-picked `icon` field (by name, via IconInput below) as
+// list-row media, so the list matches what actually renders on the card.
+// Falls back to undefined — which leaves the type's fixed storyTypeIcon
+// glyph showing — when unset.
+function pickedIconMedia(icon?: string) {
+  const iconData = icon ? hugeIconMap[icon] : undefined
+  return iconData ? () => createElement(HugeiconsIcon, {icon: iconData, size: 20}) : undefined
 }
 
 export const profileType = defineType({
@@ -127,12 +136,33 @@ export const profileType = defineType({
           title: 'Music',
           icon: storyTypeIcon(MusicNote01Icon),
           preview: {
-            select: {subtitle: 'url'},
-            prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Music', subtitle}
+            select: {subtitle: 'url', cardTitle: 'cardTitle', icon: 'icon'},
+            prepare({
+              subtitle,
+              cardTitle,
+              icon,
+            }: {
+              subtitle?: string
+              cardTitle?: string
+              icon?: string
+            }) {
+              return {title: cardTitle || 'Music', subtitle, media: pickedIconMedia(icon)}
             },
           },
           fields: [
+            defineField({
+              name: 'cardTitle',
+              title: 'Card title',
+              type: 'string',
+              placeholder: 'Music',
+            }),
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
+              components: {input: IconInput},
+            }),
             defineField({
               name: 'url',
               title: 'Apple Music playlist link',
@@ -147,12 +177,33 @@ export const profileType = defineType({
           title: 'Activity',
           icon: storyTypeIcon(WorkoutRunIcon),
           preview: {
-            select: {subtitle: 'shareUrl'},
-            prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Activity', subtitle}
+            select: {subtitle: 'shareUrl', cardTitle: 'cardTitle', icon: 'icon'},
+            prepare({
+              subtitle,
+              cardTitle,
+              icon,
+            }: {
+              subtitle?: string
+              cardTitle?: string
+              icon?: string
+            }) {
+              return {title: cardTitle || 'Activity', subtitle, media: pickedIconMedia(icon)}
             },
           },
           fields: [
+            defineField({
+              name: 'cardTitle',
+              title: 'Card title',
+              type: 'string',
+              placeholder: 'Activity',
+            }),
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
+              components: {input: IconInput},
+            }),
             defineField({
               name: 'shareUrl',
               title: 'StatsHunters share link',
@@ -167,12 +218,39 @@ export const profileType = defineType({
           title: 'Location',
           icon: storyTypeIcon(MapPinpoint01Icon),
           preview: {
-            select: {subtitle: 'address', label: 'label'},
-            prepare({subtitle, label}: {subtitle?: string; label?: string}) {
-              return {title: 'Location', subtitle: label ?? subtitle}
+            select: {subtitle: 'address', label: 'label', cardTitle: 'cardTitle', icon: 'icon'},
+            prepare({
+              subtitle,
+              label,
+              cardTitle,
+              icon,
+            }: {
+              subtitle?: string
+              label?: string
+              cardTitle?: string
+              icon?: string
+            }) {
+              return {
+                title: cardTitle || 'Location',
+                subtitle: label ?? subtitle,
+                media: pickedIconMedia(icon),
+              }
             },
           },
           fields: [
+            defineField({
+              name: 'cardTitle',
+              title: 'Card title',
+              type: 'string',
+              placeholder: 'Location',
+            }),
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
+              components: {input: IconInput},
+            }),
             defineField({
               name: 'address',
               title: 'Address',
@@ -192,12 +270,33 @@ export const profileType = defineType({
           title: 'Code',
           icon: storyTypeIcon(GithubIcon),
           preview: {
-            select: {subtitle: 'username'},
-            prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Code', subtitle}
+            select: {subtitle: 'username', cardTitle: 'cardTitle', icon: 'icon'},
+            prepare({
+              subtitle,
+              cardTitle,
+              icon,
+            }: {
+              subtitle?: string
+              cardTitle?: string
+              icon?: string
+            }) {
+              return {title: cardTitle || 'Code', subtitle, media: pickedIconMedia(icon)}
             },
           },
           fields: [
+            defineField({
+              name: 'cardTitle',
+              title: 'Card title',
+              type: 'string',
+              placeholder: 'Code',
+            }),
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
+              components: {input: IconInput},
+            }),
             defineField({
               name: 'username',
               title: 'GitHub username',
@@ -212,12 +311,33 @@ export const profileType = defineType({
           title: 'Movies',
           icon: storyTypeIcon(FilmIcon),
           preview: {
-            select: {subtitle: 'username'},
-            prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Movies', subtitle}
+            select: {subtitle: 'username', cardTitle: 'cardTitle', icon: 'icon'},
+            prepare({
+              subtitle,
+              cardTitle,
+              icon,
+            }: {
+              subtitle?: string
+              cardTitle?: string
+              icon?: string
+            }) {
+              return {title: cardTitle || 'Movies', subtitle, media: pickedIconMedia(icon)}
             },
           },
           fields: [
+            defineField({
+              name: 'cardTitle',
+              title: 'Card title',
+              type: 'string',
+              placeholder: 'Movies',
+            }),
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
+              components: {input: IconInput},
+            }),
             defineField({
               name: 'username',
               title: 'Letterboxd username',
@@ -232,12 +352,40 @@ export const profileType = defineType({
           title: 'Board Games',
           icon: storyTypeIcon(Cards02Icon),
           preview: {
-            select: {subtitle: 'username'},
-            prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Board Games', subtitle}
+            select: {subtitle: 'username', cardTitle: 'cardTitle', icon: 'icon'},
+            prepare({
+              subtitle,
+              cardTitle,
+              icon,
+            }: {
+              subtitle?: string
+              cardTitle?: string
+              icon?: string
+            }) {
+              return {
+                title: cardTitle || 'Board Games',
+                subtitle,
+                media: pickedIconMedia(icon),
+              }
             },
           },
           fields: [
+            defineField({
+              name: 'cardTitle',
+              title: 'Card title',
+              type: 'string',
+              // Frontend default reads "Top Board Games" (the card shows a
+              // ranked top-3, not just "Board Games") — shown here so the
+              // placeholder matches what actually renders when left blank.
+              placeholder: 'Top Board Games',
+            }),
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
+              components: {input: IconInput},
+            }),
             defineField({
               name: 'username',
               title: 'BoardGameGeek username',
@@ -252,12 +400,34 @@ export const profileType = defineType({
           title: 'Gaming',
           icon: storyTypeIcon(GameController03Icon),
           preview: {
-            select: {subtitle: 'trackerUrl'},
-            prepare({subtitle}: {subtitle?: string}) {
-              return {title: 'Gaming', subtitle}
+            select: {subtitle: 'trackerUrl', cardTitle: 'cardTitle', icon: 'icon'},
+            prepare({
+              subtitle,
+              cardTitle,
+              icon,
+            }: {
+              subtitle?: string
+              cardTitle?: string
+              icon?: string
+            }) {
+              return {title: cardTitle || 'Gaming', subtitle, media: pickedIconMedia(icon)}
             },
           },
           fields: [
+            defineField({
+              name: 'cardTitle',
+              title: 'Card title',
+              type: 'string',
+              // Frontend default reads "Valorant", not "Gaming".
+              placeholder: 'Valorant',
+            }),
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
+              components: {input: IconInput},
+            }),
             defineField({
               name: 'trackerUrl',
               title: 'Tracker.gg profile URL',
@@ -299,15 +469,11 @@ export const profileType = defineType({
               icon?: string
               media?: unknown
             }) {
-              const iconData = icon ? hugeIconMap[icon] : undefined
-              const IconComp = iconData
-                ? () => createElement(HugeiconsIcon, {icon: iconData, size: 20})
-                : undefined
               return {
                 title: label ?? 'Fact',
                 subtitle: value,
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                media: (media as any) ?? IconComp,
+                media: (media as any) ?? pickedIconMedia(icon),
               }
             },
           },
