@@ -87,13 +87,40 @@ export const profileType = defineType({
           title: 'Photo',
           icon: storyTypeIcon(Image02Icon),
           preview: {
-            select: {media: 'image', title: 'caption'},
-            prepare({media, title}: {media?: unknown; title?: string}) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              return {title: title ?? 'Photo', media: media as any}
+            select: {media: 'image', cardTitle: 'cardTitle', caption: 'caption', icon: 'icon'},
+            prepare({
+              media,
+              cardTitle,
+              caption,
+              icon,
+            }: {
+              media?: unknown
+              cardTitle?: string
+              caption?: string
+              icon?: string
+            }) {
+              return {
+                title: cardTitle || 'Photo',
+                subtitle: caption,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                media: (media as any) ?? pickedIconMedia(icon),
+              }
             },
           },
           fields: [
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
+              components: {input: IconInput},
+            }),
+            defineField({
+              name: 'cardTitle',
+              title: 'Label',
+              type: 'string',
+              placeholder: 'Photo',
+            }),
             defineField({
               name: 'image',
               title: 'Image',
@@ -110,12 +137,33 @@ export const profileType = defineType({
           title: 'Video',
           icon: storyTypeIcon(Video01Icon),
           preview: {
-            select: {caption: 'caption'},
-            prepare({caption}: {caption?: string}) {
-              return {title: caption ?? 'Video'}
+            select: {cardTitle: 'cardTitle', caption: 'caption', icon: 'icon'},
+            prepare({
+              cardTitle,
+              caption,
+              icon,
+            }: {
+              cardTitle?: string
+              caption?: string
+              icon?: string
+            }) {
+              return {title: cardTitle || 'Video', subtitle: caption, media: pickedIconMedia(icon)}
             },
           },
           fields: [
+            defineField({
+              name: 'icon',
+              title: 'Icon',
+              type: 'string',
+              description: 'Leave empty to use the default icon for this card.',
+              components: {input: IconInput},
+            }),
+            defineField({
+              name: 'cardTitle',
+              title: 'Label',
+              type: 'string',
+              placeholder: 'Video',
+            }),
             defineField({
               name: 'file',
               title: 'Video file',
