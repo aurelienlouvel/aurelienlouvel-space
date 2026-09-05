@@ -7,10 +7,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Icon } from "@/components/primitives/Icon";
+import { EASE_IN_OUT, EASE_OUT } from "@/lib/easings";
 import {
+  Backward02Icon,
   Bicycle01Icon,
   CloudAngledRainZapIcon,
   CloudBigRainIcon,
@@ -19,13 +22,12 @@ import {
   Cards02Icon,
   FavouriteIcon,
   FilmIcon,
+  Forward02Icon,
   GithubIcon,
   GitCommitIcon,
   GameController03Icon,
   MapPinpoint01Icon,
   MusicNote01Icon,
-  NextIcon,
-  PreviousIcon,
   RainIcon,
   Route01Icon,
   SnowIcon,
@@ -49,6 +51,8 @@ export type StorySlide =
   | { type: "video"; videoUrl: string | null; caption: string | null }
   | {
       type: "music";
+      cardTitle: string | null;
+      icon: string | null;
       variants: {
         url: string;
         artworkUrl: string | null;
@@ -68,6 +72,8 @@ export type StorySlide =
     }
   | {
       type: "strava";
+      cardTitle: string | null;
+      icon: string | null;
       variants: {
         activityName: string | null;
         activityType: string | null;
@@ -83,6 +89,8 @@ export type StorySlide =
     }
   | {
       type: "github";
+      cardTitle: string | null;
+      icon: string | null;
       repo: string | null;
       message: string | null;
       date: string | null;
@@ -92,6 +100,8 @@ export type StorySlide =
     }
   | {
       type: "location";
+      cardTitle: string | null;
+      icon: string | null;
       label: string | null;
       timezone: string | null;
       temperature: number | null;
@@ -101,11 +111,15 @@ export type StorySlide =
     }
   | {
       type: "valorant";
+      cardTitle: string | null;
+      icon: string | null;
       trackerUrl: string | null;
       region: string | null;
     }
   | {
       type: "letterboxd";
+      cardTitle: string | null;
+      icon: string | null;
       variants: {
         filmTitle: string | null;
         filmYear: string | null;
@@ -117,6 +131,8 @@ export type StorySlide =
     }
   | {
       type: "bgg";
+      cardTitle: string | null;
+      icon: string | null;
       variants: {
         gameName: string | null;
         yearPublished: string | null;
@@ -268,9 +284,9 @@ function LocationCard({
 
       {/* Top bar */}
       <div className="absolute inset-x-0 top-0 flex items-center gap-1.5 p-4 text-white drop-shadow">
-        <HugeiconsIcon icon={MapPinpoint01Icon} size={15} strokeWidth={2} />
+        <Icon name={slide.icon} fallback={MapPinpoint01Icon} size={15} strokeWidth={2} />
         <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-          Location
+          {slide.cardTitle || "Location"}
         </span>
       </div>
 
@@ -375,6 +391,80 @@ function MapboxBackground({
 
 // ─── Music card ──────────────────────────────────────────────────────────
 
+const PREVIEW_CUTOFF_SEC = 24; // Apple's clips run ~30s natively; cut in early
+const TRACK_VOLUME = 0.33;
+// Equal, half-second ramps. The previous 200ms/100ms pair was too quick to
+// read as an actual fade, and — since fade-in was shorter than fade-out —
+// the incoming track reached full volume while the outgoing one was still
+// audibly present, masking its tail instead of letting it be heard fading
+// down. Matching durations keep both tracks genuinely audible together for
+// the whole transition instead of one drowning out the other.
+const AUDIO_FADE_OUT_MS = 500;
+const AUDIO_FADE_IN_MS = 500;
+
+type MusicNav = {
+  // Fixed shuffled play order — a permutation of every track index, computed
+  // once and never reshuffled afterwards (see MusicCard below).
+  order: number[];
+  // Unbounded in both directions — indexed into `order` via `mod` so next/
+  // prev can go forever either way without ever running out or reshuffling.
+  pos: number;
+};
+
+// Fisher-Yates shuffle of every index 0..total-1, minus `exclude` (the
+// round-seeded starting track, already placed separately — see MusicCard).
+function shuffleIndices(total: number, exclude: number): number[] {
+  const arr: number[] = [];
+  for (let i = 0; i < total; i++) {
+    if (i !== exclude) arr.push(i);
+  }
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Always-positive modulo (JS's `%` can return negative for negative `n`),
+// so `pos` can go arbitrarily negative (repeated prev) and still wrap.
+function mod(n: number, m: number): number {
+  return ((n % m) + m) % m;
+}
+
+// Ramps an <audio> element's volume to `target` over `ms` (one rAF step at a
+// time) instead of snapping it — softens the attack when a track starts and
+// the cut when it stops or hands off to the next one. Runs as a plain rAF
+// loop closed over the audio element, independent of React's lifecycle, so
+// an outgoing track can keep fading after its owning effect has already
+// torn down (see the cleanup below) without delaying the next one.
+function fadeAudioVolume(
+  audio: HTMLAudioElement,
+  target: number,
+  ms: number,
+  onDone?: () => void,
+) {
+  if (audio.volume === target) {
+    onDone?.();
+    return;
+  }
+  const start = audio.volume;
+  const startTime = performance.now();
+  const step = (now: number) => {
+    // Clamp both ends: rAF's timestamp can occasionally land a hair before
+    // this `startTime` sample, which would otherwise send `t` negative and
+    // the volume with it — an out-of-range assignment throws on a real
+    // <audio> element and silently kills the rest of the ramp.
+    const t = Math.min(Math.max((now - startTime) / ms, 0), 1);
+    audio.volume = start + (target - start) * t;
+    if (t < 1) {
+      requestAnimationFrame(step);
+    } else {
+      onDone?.();
+    }
+  };
+  requestAnimationFrame(step);
+}
+
 function MusicCard({
   slide,
   round,
@@ -388,47 +478,54 @@ function MusicCard({
   const [audioProgress, setAudioProgress] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Mirrors `playing`, read (not subscribed to) from the track-loading effect
+  // below so a prev/next mid-playback can resume the new track without also
+  // re-running that effect on every single play/pause toggle.
+  const playingRef = useRef(playing);
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
+
   const total = slide.variants.length;
 
-  // A pool of tracks was resolved once server-side; the visitor can then
-  // shuffle through it by hand with the prev/next buttons below. `history`
-  // is the actual sequence of indices played, `pos` a pointer into it:
-  // - next() rolls a fresh random track UNLESS `pos` is already behind the
-  //   end of `history` (i.e. the visitor rewound earlier), in which case it
-  //   just replays whatever was already ahead instead of re-randomizing.
-  // - prev() only ever moves `pos` back — it never mutates `history`.
-  // The very first track still follows `round`, so each time this card
-  // cycles back into view (fresh mount, see StoryStack's key-recycling) it
-  // opens on a different one than last time.
-  const [nav, setNav] = useState(() => ({
-    history: [total > 0 ? (round ?? 0) % total : 0],
-    pos: 0,
-  }));
+  // The whole pool is resolved once server-side; the visitor then moves
+  // through it — by hand with the prev/next buttons, or automatically as
+  // each track finishes (see the "ended" handling below) — in ONE fixed
+  // shuffled order that's generated once and never reshuffled afterwards:
+  // `order` is a permutation of every track index, `pos` just walks it
+  // (wrapping via `mod`), so going forward past the end or backward past
+  // the start replays the *same* order on repeat rather than rolling a new
+  // one each lap. Both directions are always live, right from the first
+  // render — prev at pos 0 simply wraps to the last entry of `order`.
+  // The very first track still follows `round` (placed at order[0], outside
+  // the shuffle), so each time this card cycles back into view (fresh
+  // mount, see StoryStack's key-recycling) it opens on a different one than
+  // last time — the shuffled order for the rest of the pool is also
+  // re-rolled at that point, but then holds steady for the whole visit.
+  const [nav, setNav] = useState<MusicNav>(() => {
+    const initial = total > 0 ? (round ?? 0) % total : 0;
+    const order = total > 1 ? [initial, ...shuffleIndices(total, initial)] : [initial];
+    return { order, pos: 0 };
+  });
 
-  const variant = total > 0 ? slide.variants[nav.history[nav.pos] ?? 0] : null;
+  const variant =
+    total > 0 ? (slide.variants[nav.order[mod(nav.pos, nav.order.length)]] ?? null) : null;
   const previewUrl = variant?.previewUrl ?? null;
-  const canGoPrev = nav.pos > 0;
 
-  const goPrev = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation(); // prevent story advance
-    setNav((prev) => (prev.pos > 0 ? { ...prev, pos: prev.pos - 1 } : prev));
-  }, []);
+  const goPrev = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation(); // prevent story advance
+      if (total <= 1) return;
+      setNav((prev) => ({ ...prev, pos: prev.pos - 1 }));
+    },
+    [total],
+  );
 
   const goNext = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation(); // prevent story advance
       if (total <= 1) return;
-      setNav((prev) => {
-        if (prev.pos + 1 < prev.history.length) {
-          return { ...prev, pos: prev.pos + 1 };
-        }
-        const current = prev.history[prev.pos];
-        let next = current;
-        while (next === current) {
-          next = Math.floor(Math.random() * total);
-        }
-        return { history: [...prev.history, next], pos: prev.pos + 1 };
-      });
+      setNav((prev) => ({ ...prev, pos: prev.pos + 1 }));
     },
     [total],
   );
@@ -436,35 +533,82 @@ function MusicCard({
   useEffect(() => {
     if (!previewUrl) return;
     const audio = new Audio(previewUrl);
-    audio.volume = 0.33;
+    audio.volume = 0; // ramped up to TRACK_VOLUME by the fade-in below
     audioRef.current = audio;
-    const onTimeUpdate = () => {
-      setAudioProgress(Math.min(audio.currentTime / 15, 1));
-      if (audio.currentTime >= 15) {
-        audio.pause();
-        audio.currentTime = 0;
+
+    // Guard against "ended" firing more than once for the same track (it
+    // shouldn't, but playback teardown below can race it).
+    let finished = false;
+    const onTrackFinished = () => {
+      if (finished) return;
+      finished = true;
+      if (total > 1) {
+        // Keep the playlist going: hand off to the next track. `playing`
+        // itself is deliberately left untouched here (unlike the manual
+        // pause path below) — if it's still true, the new track's own
+        // effect run (see playingRef above) picks it up and auto-resumes,
+        // so "play mode" carries on instead of stopping at track end. The
+        // outgoing audio fades out via this effect's own cleanup, which is
+        // about to run as `previewUrl` changes below.
+        setAudioProgress(0);
+        setNav((prev) => ({ ...prev, pos: prev.pos + 1 }));
+      } else {
+        // No next track to hand off to — fade this one out in place rather
+        // than relying on the cleanup, since nothing else here changes
+        // `previewUrl` to trigger it.
+        fadeAudioVolume(audio, 0, AUDIO_FADE_OUT_MS, () => {
+          audio.pause();
+          audio.currentTime = 0;
+        });
         setPlaying(false);
         setAudioProgress(0);
         onPlayingChange?.(false);
       }
     };
+    // Cut the preview short at PREVIEW_CUTOFF_SEC rather than letting Apple's
+    // clip run its full ~30s — the ring tracks progress against that cap, so
+    // it lands on 100% right as playback cuts. "ended" stays wired too, as a
+    // fallback for the rare clip that's naturally shorter than the cap.
+    const onTimeUpdate = () => {
+      setAudioProgress(Math.min(audio.currentTime / PREVIEW_CUTOFF_SEC, 1));
+      if (audio.currentTime >= PREVIEW_CUTOFF_SEC) {
+        onTrackFinished();
+      }
+    };
     audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("ended", () => {
-      setPlaying(false);
-      setAudioProgress(0);
-      onPlayingChange?.(false);
-    });
+    audio.addEventListener("ended", onTrackFinished);
+
+    // A prev/next click (manual or auto-advance-on-end above) lands here
+    // with the *previous* track's audio already torn down by the cleanup
+    // below. If that previous track was mid-playback, keep playing rather
+    // than dropping into paused — the cleanup's setPlaying(false)/
+    // onPlayingChange(false) below and these calls land in the same batch,
+    // and this one runs last, so it wins.
+    if (playingRef.current) {
+      audio.play().catch(() => {});
+      fadeAudioVolume(audio, TRACK_VOLUME, AUDIO_FADE_IN_MS);
+      setPlaying(true);
+      onPlayingChange?.(true);
+    }
+
     return () => {
-      audio.pause();
-      // The track can change (round advancing, or prev/next) without this
-      // card ever unmounting — reset playback state too, not just the audio
-      // element.
+      // Fade the outgoing track out instead of cutting it dead. This runs
+      // independently of React (a plain rAF loop on a detached Audio
+      // object), so it never delays the next track's setup/fade-in above —
+      // for a moment both are audible at once, old fading down as new fades
+      // up.
+      fadeAudioVolume(audio, 0, AUDIO_FADE_OUT_MS, () => audio.pause());
+      // The track can change (round advancing, prev/next, or auto-advance)
+      // without this card ever unmounting — reset playback state too, not
+      // just the audio element. (Resumed again above if it turns out we
+      // were playing.)
       setPlaying(false);
       setAudioProgress(0);
       onPlayingChange?.(false);
       audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("ended", onTrackFinished);
     };
-  }, [previewUrl, onPlayingChange]);
+  }, [previewUrl, onPlayingChange, total]);
 
   const toggle = useCallback(
     (e: React.MouseEvent) => {
@@ -472,14 +616,15 @@ function MusicCard({
       const audio = audioRef.current;
       if (!audio) return;
       if (playing) {
-        audio.pause();
+        fadeAudioVolume(audio, 0, AUDIO_FADE_OUT_MS, () => audio.pause());
         setPlaying(false);
         onPlayingChange?.(false);
       } else {
-        audio.volume = 0.33; // re-apply each play so HMR / stale instances stay correct
+        audio.volume = 0; // reset each play so HMR / stale instances stay correct
         audio.currentTime = 0;
         setAudioProgress(0);
         audio.play().catch(() => {});
+        fadeAudioVolume(audio, TRACK_VOLUME, AUDIO_FADE_IN_MS);
         setPlaying(true);
         onPlayingChange?.(true);
       }
@@ -492,54 +637,88 @@ function MusicCard({
     return <PlaceholderSlide />;
   }
 
+  // Shared identity for the transition below — changes exactly when the
+  // track does (manual prev/next or auto-advance-on-end), never on a
+  // play/pause toggle of the same track.
+  const trackKey = previewUrl ?? "none";
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-white/90">
-      {/* Blurred album art background */}
-      {variant.artworkUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={variant.artworkUrl}
-          alt=""
-          className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
-        />
-      )}
+      {/* Blurred album art background — blurs out the old cover and
+          defocuses back in on the new one as the track changes. */}
+      <AnimatePresence initial={false}>
+        {variant.artworkUrl && (
+          <motion.img
+            key={trackKey}
+            src={variant.artworkUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full scale-110 object-cover"
+            initial={{ filter: "blur(30px)", opacity: 0 }}
+            animate={{ filter: "blur(12px)", opacity: 1 }}
+            exit={{ filter: "blur(30px)", opacity: 0 }}
+            transition={{ duration: 0.5, ease: EASE_IN_OUT }}
+          />
+        )}
+      </AnimatePresence>
       <div className="absolute inset-0 bg-black/40" />
 
       {/* Content */}
       <div className="relative flex h-full flex-col text-white">
         {/* Top row */}
         <div className="flex items-center gap-1.5 p-4">
-          <HugeiconsIcon icon={MusicNote01Icon} size={18} strokeWidth={2} />
+          <Icon name={slide.icon} fallback={MusicNote01Icon} size={18} strokeWidth={2} />
           <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-            Music
+            {slide.cardTitle || "Music"}
           </span>
         </div>
 
         {/* Bottom section */}
         <div className="mt-auto p-6">
           {variant.artworkUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={variant.artworkUrl}
-              alt={variant.trackName}
-              className="mb-3 h-16 w-16 rounded-xl shadow-lg"
-            />
+            <div className="relative mb-3 h-16 w-16" style={{ perspective: 600 }}>
+              {/* Cover art flips to reveal the new track */}
+              <AnimatePresence initial={false}>
+                <motion.img
+                  key={trackKey}
+                  src={variant.artworkUrl}
+                  alt={variant.trackName}
+                  className="absolute inset-0 h-16 w-16 rounded-xl object-cover shadow-lg"
+                  style={{ backfaceVisibility: "hidden" }}
+                  initial={{ rotateY: 90, opacity: 0 }}
+                  animate={{ rotateY: 0, opacity: 1 }}
+                  exit={{ rotateY: -90, opacity: 0 }}
+                  transition={{ duration: 0.4, ease: EASE_IN_OUT }}
+                />
+              </AnimatePresence>
+            </div>
           )}
-          <p className="text-base font-semibold leading-tight">
-            {variant.trackName}
-          </p>
-          <p className="mt-0.5 text-sm text-white/70">{variant.artistName}</p>
+
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={trackKey}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3, ease: EASE_OUT }}
+            >
+              <p className="text-base font-semibold leading-tight">
+                {variant.trackName}
+              </p>
+              <p className="mt-0.5 text-sm text-white/70">
+                {variant.artistName}
+              </p>
+            </motion.div>
+          </AnimatePresence>
 
           <div className="mt-3 flex items-center gap-2.5">
             {total > 1 && (
               <button
                 type="button"
                 onClick={goPrev}
-                disabled={!canGoPrev}
                 aria-label="Previous track"
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm transition-opacity hover:opacity-80 disabled:opacity-30"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm transition-opacity hover:opacity-80"
               >
-                <HugeiconsIcon icon={PreviousIcon} size={14} strokeWidth={2} />
+                <HugeiconsIcon icon={Backward02Icon} size={14} strokeWidth={2} />
               </button>
             )}
 
@@ -600,7 +779,7 @@ function MusicCard({
                 aria-label="Next track"
                 className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm transition-opacity hover:opacity-80"
               >
-                <HugeiconsIcon icon={NextIcon} size={14} strokeWidth={2} />
+                <HugeiconsIcon icon={Forward02Icon} size={14} strokeWidth={2} />
               </button>
             )}
           </div>
@@ -685,9 +864,9 @@ function LetterboxdCard({
 
       <div className="relative flex h-full flex-col text-white">
         <div className="flex items-center gap-1.5 p-4">
-          <HugeiconsIcon icon={FilmIcon} size={16} strokeWidth={2} />
+          <Icon name={slide.icon} fallback={FilmIcon} size={16} strokeWidth={2} />
           <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-            Movies
+            {slide.cardTitle || "Movies"}
           </span>
         </div>
 
@@ -758,9 +937,9 @@ function BggCard({
 
       <div className="relative flex h-full flex-col text-white">
         <div className="flex items-center gap-1.5 p-4">
-          <HugeiconsIcon icon={Cards02Icon} size={16} strokeWidth={2} />
+          <Icon name={slide.icon} fallback={Cards02Icon} size={16} strokeWidth={2} />
           <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-            Top Board Games
+            {slide.cardTitle || "Top Board Games"}
           </span>
         </div>
 
@@ -1091,9 +1270,9 @@ function StravaCard({
 
       {/* Top bar: label only */}
       <div className="relative flex items-center gap-1.5 p-4">
-        <HugeiconsIcon icon={WorkoutRunIcon} size={16} strokeWidth={2} />
+        <Icon name={slide.icon} fallback={WorkoutRunIcon} size={16} strokeWidth={2} />
         <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-          Activity
+          {slide.cardTitle || "Activity"}
         </span>
       </div>
 
@@ -1254,9 +1433,9 @@ export function SlideContent({
         <div className="relative flex h-full w-full flex-col bg-stone-900 text-white">
           {/* Top bar */}
           <div className="flex items-center gap-1.5 px-5 pt-5 pb-2">
-            <HugeiconsIcon icon={GithubIcon} size={16} strokeWidth={2} />
+            <Icon name={slide.icon} fallback={GithubIcon} size={16} strokeWidth={2} />
             <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-              Code
+              {slide.cardTitle || "Code"}
             </span>
           </div>
 
@@ -1428,9 +1607,9 @@ function ValorantCard({
 
       {/* Top bar — same style as other cards */}
       <div className="relative flex items-center gap-1.5 px-5 pt-5 pb-2">
-        <HugeiconsIcon icon={GameController03Icon} size={16} strokeWidth={2} />
+        <Icon name={slide.icon} fallback={GameController03Icon} size={16} strokeWidth={2} />
         <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-          Valorant
+          {slide.cardTitle || "Valorant"}
         </span>
       </div>
 

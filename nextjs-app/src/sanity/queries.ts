@@ -320,7 +320,8 @@ export const profileQuery = defineQuery(`
       region,
       icon,
       value,
-      tagline
+      tagline,
+      cardTitle
     },
     "tools": tools[]->{ _id, name, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format", url, referral }
   }
@@ -345,38 +346,52 @@ export type ProfileStory =
       _key: string;
       _type: "storyAppleMusic";
       url: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
   | {
       _key: string;
       _type: "storyStrava";
       shareUrl: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
   | {
       _key: string;
       _type: "storyGithub";
       username: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
   | {
       _key: string;
       _type: "storyAppleMaps";
       address: string | null;
       label: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
   | {
       _key: string;
       _type: "storyValorant";
       trackerUrl: string | null;
       region: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
   | {
       _key: string;
       _type: "storyLetterboxd";
       username: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
   | {
       _key: string;
       _type: "storyBgg";
       username: string | null;
+      cardTitle: string | null;
+      icon: string | null;
     }
   | {
       _key: string;

@@ -475,13 +475,15 @@ type AppleMusicSection = {
 // normal track URL, so it's resolved for full detail (artwork, preview URL —
 // not present in this scrape) via the existing getAppleMusicData.
 //
-// `count` is a pool size, not a display count: the client (MusicCard) lets
-// the visitor shuffle back and forth through everything resolved here, so
-// it's fetched generously (10, all in parallel and cached) rather than the
-// 3 actually shown at once elsewhere.
+// `cap` is a safety ceiling, not a display count: the client (MusicCard)
+// shuffles through everything resolved here in one fixed order (see
+// StoryCard.tsx), so the *whole* playlist is resolved rather than a random
+// sub-sample — each track's iTunes lookup is independently cached 24h (see
+// getAppleMusicData), so re-resolving all of them on every scrape is cheap
+// in steady state (only genuinely new playlist additions cache-miss).
 export async function getAppleMusicPlaylistTracks(
   url: string | null,
-  count = 10,
+  cap = 100,
 ): Promise<AppleMusicTrack[]> {
   if (!url) return [];
   try {
@@ -503,17 +505,13 @@ export async function getAppleMusicPlaylistTracks(
     const trackSection = sections.find((s) => s.id?.startsWith("track-list"));
     const trackUrls = (trackSection?.items ?? [])
       .map((item) => item.contentDescriptor?.url)
-      .filter((u): u is string => !!u);
+      .filter((u): u is string => !!u)
+      .slice(0, cap);
     if (trackUrls.length === 0) return [];
 
-    // Pick `count` distinct random tracks
-    const picked = [...trackUrls]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, count);
-
-    const resolved = await Promise.all(picked.map((u) => getAppleMusicData(u)));
+    const resolved = await Promise.all(trackUrls.map((u) => getAppleMusicData(u)));
     const tracks: AppleMusicTrack[] = [];
-    picked.forEach((trackUrl, i) => {
+    trackUrls.forEach((trackUrl, i) => {
       const data = resolved[i];
       if (data) tracks.push({ url: trackUrl, ...data });
     });

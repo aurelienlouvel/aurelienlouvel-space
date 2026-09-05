@@ -52,12 +52,19 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
             };
           case "storyAppleMusic": {
             const variants = await getAppleMusicPlaylistTracks(story.url);
-            return { type: "music", variants };
+            return {
+              type: "music",
+              cardTitle: story.cardTitle,
+              icon: story.icon,
+              variants,
+            };
           }
           case "storyStrava": {
             const activities = await getStravaActivities(story.shareUrl);
             return {
               type: "strava",
+              cardTitle: story.cardTitle,
+              icon: story.icon,
               variants: activities.map((activity) => ({
                 activityName: activity.activityName ?? null,
                 activityType: activity.activityType ?? null,
@@ -76,6 +83,8 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
             const map = await getMapData(story.address);
             return {
               type: "location",
+              cardTitle: story.cardTitle,
+              icon: story.icon,
               label: story.label ?? map?.label ?? story.address ?? null,
               timezone: map?.timezone ?? null,
               temperature: map?.temperature ?? null,
@@ -91,6 +100,8 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
             ]);
             return {
               type: "github",
+              cardTitle: story.cardTitle,
+              icon: story.icon,
               repo: commit?.repo ?? null,
               message: commit?.message ?? null,
               date: commit?.date ?? null,
@@ -104,6 +115,8 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
           case "storyValorant":
             return {
               type: "valorant",
+              cardTitle: story.cardTitle,
+              icon: story.icon,
               trackerUrl: story.trackerUrl,
               region: story.region,
             };
@@ -111,6 +124,8 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
             const entries = await getLetterboxdEntries(story.username);
             return {
               type: "letterboxd",
+              cardTitle: story.cardTitle,
+              icon: story.icon,
               variants: entries.map((entry) => ({
                 filmTitle: entry.filmTitle ?? null,
                 filmYear: entry.filmYear ?? null,
@@ -125,6 +140,8 @@ async function SlowStories({ stories }: { stories: ProfileStory[] }) {
             const entries = await getBggEntries(story.username);
             return {
               type: "bgg",
+              cardTitle: story.cardTitle,
+              icon: story.icon,
               variants: entries.map((entry) => ({
                 gameName: entry.gameName ?? null,
                 yearPublished: entry.yearPublished ?? null,
