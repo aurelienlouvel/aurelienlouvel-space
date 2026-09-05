@@ -57,8 +57,10 @@ export function TimelineRow({
   );
 
   const rowClassName = cn(
-    "flex gap-4 rounded-xl px-4 py-4 -mx-2 transition-colors",
-    websiteUrl && "hover:bg-stone-50",
+    "flex gap-4 rounded-xl px-4 py-4 -mx-2 transition-all duration-300",
+    // Same subtle press-in as ProjectCard's hover — only on rows that are
+    // actually links, so a bare <div> row never reacts to a hover it can't act on.
+    websiteUrl && "hover:scale-[0.985] hover:bg-stone-50",
   );
 
   if (websiteUrl) {
