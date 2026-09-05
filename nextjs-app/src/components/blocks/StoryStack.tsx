@@ -12,9 +12,28 @@ const TICK_MS = 100;
 
 const POS_BACK = { x: 30, y: -12, scale: 0.92, rotate: 3, opacity: 1 };
 
+// Starting point for the very first "back" card only: same spot/size/rotation
+// as the front card, just already behind it in z-order — so it's fully
+// hidden until it springs out to POS_BACK, reading as "slides out from
+// behind card 1" on first paint. Never reused afterwards (later back cards
+// mount already in place via `initial={false}`, see the map below).
+const REVEAL_FROM_BEHIND = { x: 0, y: 0, scale: 1, rotate: 0, opacity: 1, zIndex: 10 };
+
 // Per-variant transitions: spring enter (bouncy), fast ease exit
 const FRONT_VARIANTS = {
-  back: { ...POS_BACK, zIndex: 10 },
+  back: {
+    ...POS_BACK,
+    zIndex: 10,
+    // Only ever actually plays for the initial reveal above — every other
+    // time a card animates to "back" it's already sitting at these values
+    // (initial === animate), so there's nothing to interpolate and this is
+    // a no-op.
+    transition: {
+      type: "spring" as const,
+      stiffness: 280,
+      damping: 20,
+    },
+  },
   front: {
     x: 0, y: 0, scale: 1, rotate: 0, opacity: 1, zIndex: 20,
     transition: {
@@ -131,13 +150,17 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
   // role in place.
   return (
     <div className="relative aspect-[6/7] w-full">
-      <AnimatePresence initial={false}>
+      <AnimatePresence>
         {[step, step + 1].map((slotStep) => {
           const isFront = slotStep === step;
+          // True only for the very first back card (step is still 0, i.e.
+          // before any advance() has run) — every later fresh back mount
+          // keeps the instant pop-in below.
+          const isInitialReveal = !isFront && step === 0;
           return (
             <motion.div
               key={slotStep}
-              initial={false}
+              initial={isInitialReveal ? REVEAL_FROM_BEHIND : false}
               variants={FRONT_VARIANTS}
               animate={isFront ? "front" : "back"}
               exit="gone"
