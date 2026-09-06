@@ -1019,11 +1019,11 @@ type BggSlot = {
 // there's no seeded-then-reroll dance needed to keep SSR and the first
 // client paint pixel-identical.
 const BGG_SLOTS: BggSlot[] = [
-  { left: 26, top: 33, size: 46, rotate: 3, zIndex: 3 }, // #1
-  { left: 5, top: 17, size: 30, rotate: -9, zIndex: 1 }, // #2
-  { left: 61, top: 23, size: 34, rotate: 8, zIndex: 1 }, // #3
-  { left: 11, top: 60, size: 34, rotate: -7, zIndex: 2 }, // #4
-  { left: 54, top: 61, size: 34, rotate: 5, zIndex: 2 }, // #5
+  { left: 27, top: 37, size: 46, rotate: 3, zIndex: 3 }, // #1
+  { left: 10, top: 17, size: 28, rotate: 6, zIndex: 1 }, // #2
+  { left: 61, top: 23, size: 34, rotate: -2, zIndex: 1 }, // #3
+  { left: 12, top: 60, size: 28, rotate: -7, zIndex: 2 }, // #4
+  { left: 54, top: 64, size: 32, rotate: 5, zIndex: 2 }, // #5
 ];
 
 // Same pop-in as the "play" tab's letters in the ActionBar (see
