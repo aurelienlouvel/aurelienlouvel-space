@@ -13,11 +13,12 @@ import { motion, AnimatePresence, useMotionValue, animate } from "motion/react";
 import { useActionBar } from "@/contexts/ActionBarContext";
 import { markWorkReturn } from "@/lib/scroll";
 import { cn } from "@/lib/utils";
+import { ScrambleText } from "@/components/primitives/ScrambleText";
 
 const NAV_LINKS = [
-  { href: "/work", label: "work" },
-  { href: "/play", label: "play" },
-  { href: "/info", label: "info" },
+  { href: "/work", label: "work", scramble: false },
+  { href: "/play", label: "play", scramble: true },
+  { href: "/info", label: "info", scramble: false },
 ] as const;
 
 const NAV_PILL_LAYOUT_ID = "action-bar-nav-pill";
@@ -47,6 +48,55 @@ type ToastState = {
   color: (typeof TOAST_COLORS)[number];
   rotate: number;
 };
+
+function NavLink({
+  href,
+  label,
+  isActive,
+  scramble,
+}: {
+  href: string;
+  label: string;
+  isActive: boolean;
+  scramble: boolean;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <Link
+      href={href}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className={cn(
+        "relative flex h-11 items-center rounded-xl px-3 text-base transition-all",
+        isActive
+          ? "text-zinc-950 -rotate-2"
+          : "text-zinc-600 hover:text-zinc-950",
+      )}
+      style={
+        isActive
+          ? { fontWeight: 640, fontVariationSettings: "'wght' 640" }
+          : undefined
+      }
+    >
+      {isActive && (
+        <motion.div
+          layoutId={NAV_PILL_LAYOUT_ID}
+          className="absolute inset-0 rounded-xl bg-zinc-50"
+          transition={NAV_PILL_TRANSITION}
+        />
+      )}
+      <span className="relative z-10">
+        {scramble ? (
+          // Active tab keeps its scrambled combo shown permanently, not just on hover.
+          <ScrambleText text={label} active={hovered || isActive} />
+        ) : (
+          label
+        )}
+      </span>
+    </Link>
+  );
+}
 
 export function ActionBar() {
   const pathname = usePathname();
@@ -144,38 +194,15 @@ export function ActionBar() {
               {sep}
 
               <nav className="flex items-center" aria-label="Main">
-                {NAV_LINKS.map(({ href, label }) => {
-                  const isActive = pathname.startsWith(href);
-                  return (
-                    <Link
-                      key={href}
-                      href={href}
-                      className={cn(
-                        "relative flex h-11 items-center rounded-xl px-3 text-base transition-all",
-                        isActive
-                          ? "text-zinc-950 -rotate-2"
-                          : "text-zinc-600 hover:text-zinc-950",
-                      )}
-                      style={
-                        isActive
-                          ? {
-                              fontWeight: 640,
-                              fontVariationSettings: "'wght' 640",
-                            }
-                          : undefined
-                      }
-                    >
-                      {isActive && (
-                        <motion.div
-                          layoutId={NAV_PILL_LAYOUT_ID}
-                          className="absolute inset-0 rounded-xl bg-zinc-50"
-                          transition={NAV_PILL_TRANSITION}
-                        />
-                      )}
-                      <span className="relative z-10">{label}</span>
-                    </Link>
-                  );
-                })}
+                {NAV_LINKS.map(({ href, label, scramble }) => (
+                  <NavLink
+                    key={href}
+                    href={href}
+                    label={label}
+                    isActive={pathname.startsWith(href)}
+                    scramble={scramble}
+                  />
+                ))}
               </nav>
 
               <div className="hidden sm:flex items-center">
