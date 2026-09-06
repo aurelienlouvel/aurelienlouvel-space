@@ -418,6 +418,7 @@ type ItunesTrack = {
   artistName?: string;
   artworkUrl100?: string;
   previewUrl?: string;
+  trackExplicitness?: string;
 };
 
 export async function getAppleMusicData(url: string | null) {
@@ -447,6 +448,7 @@ export async function getAppleMusicData(url: string | null) {
       trackName: track.trackName ?? null,
       artistName: track.artistName ?? null,
       previewUrl: track.previewUrl ?? null,
+      explicit: track.trackExplicitness === "explicit",
     };
   } catch {
     return null;
@@ -459,6 +461,7 @@ export type AppleMusicTrack = {
   trackName: string | null;
   artistName: string | null;
   previewUrl: string | null;
+  explicit: boolean;
 };
 
 type AppleMusicSection = {

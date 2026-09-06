@@ -1,14 +1,45 @@
 "use client";
 
-import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
+import {
+  Suspense,
+  use,
+  useCallback,
+  useEffect,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { EASE_IN, EASE_OUT } from "@/lib/easings";
-import { SlideContent, type StorySlide } from "./StoryCard";
+import { PlaceholderSlide, SlideContent, type StorySlide } from "./StoryCard";
 
 export type { StorySlide };
 
 const STORY_DURATION = 12; // seconds
 const TICK_MS = 100;
+
+// Remembers which card was showing, so navigating away (e.g. to /work) and
+// back lands on the same one instead of restarting at the first card. A
+// plain module variable, not sessionStorage — same trick as scroll.ts's
+// `workReturn`: it only has to survive a client-side route change within
+// this page load, and is always 0 on a fresh/hard-reloaded page, same as
+// the server's own render, so there's zero risk of it ever disagreeing with
+// the server-rendered first paint.
+let savedStep = 0;
+
+// Remembers each story's last-resolved slide content, keyed by its index in
+// the stories array. InfoPage hands StoryStack a brand new promise per story
+// on every visit — including a client-side nav back from e.g. /work — so
+// without this, landing back on a slide whose story does real work (BGG,
+// Strava, GitHub, a Maps lookup...) means re-suspending on that fetch and
+// staring at PlaceholderSlide's gray box again, sometimes for several
+// seconds. Slide 0 never showed this (a photo slide resolves with nothing to
+// await), which is why it only became visible once savedStep above started
+// landing on other slide types. A cached entry paints immediately instead —
+// see ResolvedSlide below — and gets refreshed in the background once the
+// fresh promise actually settles, so content still catches up to real
+// changes by the next time this story comes around, just never blocks this
+// paint on it.
+const slideCache = new Map<number, StorySlide>();
 
 const POS_BACK = { x: 30, y: -12, scale: 0.92, rotate: 3, opacity: 1 };
 
@@ -81,11 +112,69 @@ function CountdownRing({ progress }: { progress: number }) {
   );
 }
 
-export function StoryStack({ slides }: { slides: StorySlide[] }) {
-  const [step, setStep] = useState(0);
+// Unwraps one slide's own data promise via `use()`, inside its own Suspense
+// boundary (see the two call sites below) — so a slow story (e.g. a Music
+// card scraping a long playlist) only ever blocks *its own* slot's content.
+// The card itself (the motion.div wrapper) mounts and animates immediately
+// regardless; only what's inside it swaps from the placeholder once this
+// resolves.
+function ResolvedSlide({
+  promise,
+  storyIndex,
+  round,
+  onMusicPlaying,
+  isFront = true,
+}: {
+  promise: Promise<StorySlide>;
+  storyIndex: number;
+  round?: number;
+  onMusicPlaying?: (playing: boolean) => void;
+  isFront?: boolean;
+}) {
+  // A cached slide from earlier this session paints immediately, skipping
+  // Suspense entirely — `use()` supports being called conditionally like
+  // this (unlike other Hooks), precisely for cases like this one. Only
+  // actually suspend on the fresh promise when there's nothing cached yet.
+  const cached = slideCache.get(storyIndex);
+  const slide = cached ?? use(promise);
+
+  // Keep the cache fresh once the real promise settles, so a stale cached
+  // slide never lingers past the story's next real update — just never
+  // blocks *this* paint on it.
+  useEffect(() => {
+    let cancelled = false;
+    promise.then((resolved) => {
+      if (!cancelled) slideCache.set(storyIndex, resolved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [promise, storyIndex]);
+
+  return (
+    <SlideContent
+      slide={slide}
+      round={round}
+      onMusicPlaying={onMusicPlaying}
+      isFront={isFront}
+    />
+  );
+}
+
+export function StoryStack({
+  slidePromises,
+}: {
+  slidePromises: Promise<StorySlide>[];
+}) {
+  const [step, setStep] = useState(savedStep);
   const [musicPaused, setMusicPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0); // ms
-  const total = slides.length;
+  const [tabHidden, setTabHidden] = useState(false);
+  // Slide count is known synchronously (it's just the promise array's
+  // length) — unlike each slide's actual content, nothing here waits on any
+  // story's data to resolve, which is what lets the two-card stack (and the
+  // back-card reveal animation below) start immediately on page load.
+  const total = slidePromises.length;
   const hasMultiple = total > 1;
 
   const advance = useCallback(() => {
@@ -107,14 +196,32 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
   // step only ever changes via advance(), which already resets elapsed in the
   // same batch — no separate reset effect needed.
 
+  // Keep the module-level savedStep mirror in sync, so it's there to read
+  // (via useState's initializer above) if this component unmounts — leaving
+  // the page — and remounts later.
+  useEffect(() => {
+    savedStep = step;
+  }, [step]);
+
+  // Freeze the countdown while the tab/window is hidden — switching browser
+  // tabs, minimizing, switching to another app — the same way it already
+  // freezes for musicPaused below, so a story never silently advances (or
+  // several stories deep) while nobody's actually watching it, and coming
+  // back lands on the same card it left on.
+  useEffect(() => {
+    const onVisibilityChange = () => setTabHidden(document.hidden);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
   // Tick every 100ms when running
   useEffect(() => {
-    if (!hasMultiple || musicPaused) return;
+    if (!hasMultiple || musicPaused || tabHidden) return;
     const id = setInterval(() => {
       setElapsed((e) => e + TICK_MS);
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [step, hasMultiple, musicPaused]);
+  }, [step, hasMultiple, musicPaused, tabHidden]);
 
   // Advance when elapsed reaches duration. advance() itself calls setState,
   // but this is a genuine reaction to the ticking timer crossing a threshold —
@@ -134,7 +241,9 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
     return (
       <div className="relative aspect-[6/7] w-full">
         <div className="absolute inset-0 overflow-hidden rounded-3xl shadow-md">
-          <SlideContent slide={slides[0]} />
+          <Suspense fallback={<PlaceholderSlide />}>
+            <ResolvedSlide promise={slidePromises[0]} storyIndex={0} isFront />
+          </Suspense>
         </div>
       </div>
     );
@@ -175,11 +284,15 @@ export function StoryStack({ slides }: { slides: StorySlide[] }) {
                   : "absolute inset-0 overflow-hidden rounded-3xl shadow-md"
               }
             >
-              <SlideContent
-                slide={slides[slotStep % total]}
-                round={Math.floor(slotStep / total)}
-                onMusicPlaying={isFront ? setMusicPaused : undefined}
-              />
+              <Suspense fallback={<PlaceholderSlide />}>
+                <ResolvedSlide
+                  promise={slidePromises[slotStep % total]}
+                  storyIndex={slotStep % total}
+                  round={Math.floor(slotStep / total)}
+                  onMusicPlaying={isFront ? setMusicPaused : undefined}
+                  isFront={isFront}
+                />
+              </Suspense>
               {isFront && <CountdownRing progress={progress} />}
             </motion.div>
           );

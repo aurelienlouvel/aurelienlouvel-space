@@ -1,4 +1,4 @@
-import { ViewTransition, Suspense } from "react";
+import { ViewTransition } from "react";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { client } from "@/sanity/client";
 import {
@@ -32,168 +32,168 @@ import { AnimatedItem } from "@/components/AnimatedItem";
 
 export const revalidate = 60;
 
-async function SlowStories({ stories }: { stories: ProfileStory[] }) {
-  const slides = (
-    await Promise.all(
-      stories.map(async (story): Promise<StorySlide | null> => {
-        switch (story._type) {
-          case "storyPhoto":
-            return {
-              type: "photo",
-              imageUrl: story.imageUrl,
-              alt: story.alt,
-              caption: story.caption,
-              cardTitle: story.cardTitle,
-              icon: story.icon,
-            };
-          case "storyVideo":
-            return {
-              type: "video",
-              videoUrl: story.videoFileUrl ?? story.url,
-              caption: story.caption,
-              cardTitle: story.cardTitle,
-              icon: story.icon,
-            };
-          case "storyAppleMusic": {
-            const variants = await getAppleMusicPlaylistTracks(story.url);
-            return {
-              type: "music",
-              cardTitle: story.cardTitle,
-              icon: story.icon,
-              variants,
-            };
-          }
-          case "storyStrava": {
-            const activities = await getStravaActivities(story.shareUrl);
-            return {
-              type: "strava",
-              cardTitle: story.cardTitle,
-              icon: story.icon,
-              variants: activities.map((activity) => ({
-                activityName: activity.activityName ?? null,
-                activityType: activity.activityType ?? null,
-                speedKmh: activity.speedKmh ?? null,
-                distanceKm: activity.distanceKm ?? null,
-                durationSec: activity.durationSec ?? null,
-                bpm: activity.bpm ?? null,
-                elevationM: activity.elevationM ?? null,
-                date: activity.date ? formatDateTime(activity.date) : null,
-                path: activity.path ?? [],
-                city: activity.city ?? null,
-              })),
-            };
-          }
-          case "storyAppleMaps": {
-            const map = await getMapData(story.address);
-            return {
-              type: "location",
-              cardTitle: story.cardTitle,
-              icon: story.icon,
-              label: story.label ?? map?.label ?? story.address ?? null,
-              timezone: map?.timezone ?? null,
-              temperature: map?.temperature ?? null,
-              weatherCode: map?.weatherCode ?? null,
-              lat: map?.lat ?? null,
-              lon: map?.lon ?? null,
-            };
-          }
-          case "storyGithub": {
-            const [commit, contributions] = await Promise.all([
-              getLatestCommit(story.username),
-              getGitHubContributions(story.username),
-            ]);
-            return {
-              type: "github",
-              cardTitle: story.cardTitle,
-              icon: story.icon,
-              repo: commit?.repo ?? null,
-              message: commit?.message ?? null,
-              date: commit?.date ?? null,
-              contributions: contributions?.days ?? null,
-              totalContributions: contributions?.total ?? null,
-              url: story.username
-                ? `https://github.com/${story.username}`
-                : null,
-            };
-          }
-          case "storyValorant":
-            return {
-              type: "valorant",
-              cardTitle: story.cardTitle,
-              icon: story.icon,
-              trackerUrl: story.trackerUrl,
-              region: story.region,
-            };
-          case "storyLetterboxd": {
-            const entries = await getLetterboxdEntries(story.username);
-            return {
-              type: "letterboxd",
-              cardTitle: story.cardTitle,
-              icon: story.icon,
-              variants: entries.map((entry) => ({
-                filmTitle: entry.filmTitle ?? null,
-                filmYear: entry.filmYear ?? null,
-                date: entry.watchedDate ? formatDate(entry.watchedDate) : null,
-                rating: entry.rating ?? null,
-                posterUrl: entry.posterUrl ?? null,
-                filmUrl: entry.filmUrl ?? null,
-              })),
-            };
-          }
-          case "storyBgg": {
-            const entries = await getBggEntries(story.username);
-            return {
-              type: "bgg",
-              cardTitle: story.cardTitle,
-              icon: story.icon,
-              variants: entries.map((entry) => ({
-                gameName: entry.gameName ?? null,
-                yearPublished: entry.yearPublished ?? null,
-                rating: entry.rating ?? null,
-                imageUrl: entry.imageUrl ?? null,
-                gameUrl: entry.gameUrl ?? null,
-              })),
-            };
-          }
-          case "storyFact":
-            return {
-              type: "fact",
-              icon: story.icon,
-              label: story.label,
-              value: story.value,
-              imageUrl: story.imageUrl,
-              imageColors: [
-                story.paletteDominant,
-                story.paletteVibrant,
-                story.paletteDarkVibrant,
-              ],
-              tagline: story.tagline,
-            };
-          default:
-            return null;
-        }
-      }),
-    )
-  ).filter((s): s is StorySlide => s !== null);
+const EMPTY_PHOTO_SLIDE: StorySlide = {
+  type: "photo",
+  imageUrl: null,
+  alt: null,
+  caption: null,
+  cardTitle: null,
+  icon: null,
+};
 
-  return (
-    <StoryStack
-      slides={
-        slides.length > 0
-          ? slides
-          : [
-              {
-                type: "photo",
-                imageUrl: null,
-                alt: null,
-                caption: null,
-                cardTitle: null,
-                icon: null,
-              },
-            ]
-      }
-    />
-  );
+// Resolves ONE story's slide data. Deliberately not awaited by its caller —
+// InfoPage hands the resulting promises straight to StoryStack as-is, so each
+// story's fetch (Music playlist scrape, Strava, GitHub, ...) streams into its
+// own card independently via `use()` (see StoryStack.tsx) instead of every
+// card sitting behind the slowest story in the list.
+async function resolveStorySlide(story: ProfileStory): Promise<StorySlide> {
+  switch (story._type) {
+    case "storyPhoto":
+      return {
+        type: "photo",
+        imageUrl: story.imageUrl,
+        alt: story.alt,
+        caption: story.caption,
+        cardTitle: story.cardTitle,
+        icon: story.icon,
+      };
+    case "storyVideo":
+      return {
+        type: "video",
+        videoUrl: story.videoFileUrl ?? story.url,
+        caption: story.caption,
+        cardTitle: story.cardTitle,
+        icon: story.icon,
+      };
+    case "storyAppleMusic": {
+      const variants = await getAppleMusicPlaylistTracks(story.url);
+      return {
+        type: "music",
+        cardTitle: story.cardTitle,
+        icon: story.icon,
+        variants,
+      };
+    }
+    case "storyStrava": {
+      const activities = await getStravaActivities(story.shareUrl);
+      return {
+        type: "strava",
+        cardTitle: story.cardTitle,
+        icon: story.icon,
+        variants: activities.map((activity) => ({
+          activityName: activity.activityName ?? null,
+          activityType: activity.activityType ?? null,
+          speedKmh: activity.speedKmh ?? null,
+          distanceKm: activity.distanceKm ?? null,
+          durationSec: activity.durationSec ?? null,
+          bpm: activity.bpm ?? null,
+          elevationM: activity.elevationM ?? null,
+          date: activity.date ? formatDateTime(activity.date) : null,
+          path: activity.path ?? [],
+          city: activity.city ?? null,
+        })),
+      };
+    }
+    case "storyAppleMaps": {
+      const map = await getMapData(story.address);
+      return {
+        type: "location",
+        cardTitle: story.cardTitle,
+        icon: story.icon,
+        label: story.label ?? map?.label ?? story.address ?? null,
+        timezone: map?.timezone ?? null,
+        temperature: map?.temperature ?? null,
+        weatherCode: map?.weatherCode ?? null,
+        lat: map?.lat ?? null,
+        lon: map?.lon ?? null,
+      };
+    }
+    case "storyGithub": {
+      const [commit, contributions] = await Promise.all([
+        getLatestCommit(story.username),
+        getGitHubContributions(story.username),
+      ]);
+      return {
+        type: "github",
+        cardTitle: story.cardTitle,
+        icon: story.icon,
+        repo: commit?.repo ?? null,
+        message: commit?.message ?? null,
+        date: commit?.date ?? null,
+        contributions: contributions?.days ?? null,
+        totalContributions: contributions?.total ?? null,
+        url: story.username ? `https://github.com/${story.username}` : null,
+      };
+    }
+    case "storyValorant":
+      return {
+        type: "valorant",
+        cardTitle: story.cardTitle,
+        icon: story.icon,
+        trackerUrl: story.trackerUrl,
+        region: story.region,
+      };
+    case "storyLetterboxd": {
+      const entries = await getLetterboxdEntries(story.username);
+      return {
+        type: "letterboxd",
+        cardTitle: story.cardTitle,
+        icon: story.icon,
+        variants: entries.map((entry) => ({
+          filmTitle: entry.filmTitle ?? null,
+          filmYear: entry.filmYear ?? null,
+          date: entry.watchedDate ? formatDate(entry.watchedDate) : null,
+          rating: entry.rating ?? null,
+          posterUrl: entry.posterUrl ?? null,
+          filmUrl: entry.filmUrl ?? null,
+        })),
+      };
+    }
+    case "storyBgg": {
+      // Collage is a fixed 5-slot "pentagon" (2 3 / 1 / 4 5 — see BGG_SLOTS
+      // in StoryCard.tsx). BGG's own "Top 10" is the hard ceiling on how
+      // many ranked picks even exist, and not every pick actually
+      // cross-references to a piece of cover art (see getBggEntries's
+      // "best-effort enrichment" comment) — so this asks for the full top
+      // 10, drops whichever picks came back with no art, then takes the
+      // best 5 of what's left, instead of asking for exactly 5 and silently
+      // showing fewer whenever one of them has none.
+      const entries = await getBggEntries(story.username, 10);
+      const withArt = entries.filter((entry) => entry.imageUrl).slice(0, 5);
+      return {
+        type: "bgg",
+        cardTitle: story.cardTitle,
+        icon: story.icon,
+        variants: withArt.map((entry) => ({
+          gameName: entry.gameName ?? null,
+          yearPublished: entry.yearPublished ?? null,
+          rating: entry.rating ?? null,
+          imageUrl: entry.imageUrl ?? null,
+          gameUrl: entry.gameUrl ?? null,
+        })),
+      };
+    }
+    case "storyFact":
+      return {
+        type: "fact",
+        icon: story.icon,
+        label: story.label,
+        value: story.value,
+        imageUrl: story.imageUrl,
+        imageColors: [
+          story.paletteDominant,
+          story.paletteVibrant,
+          story.paletteDarkVibrant,
+        ],
+        tagline: story.tagline,
+      };
+    default:
+      // Unrecognized story type — surface the same "nothing to show" photo
+      // placeholder StoryStack already falls back to elsewhere, rather than
+      // null, so every story always yields a real slide promise 1:1 (no
+      // post-hoc filtering, which would mean awaiting everything up front).
+      return EMPTY_PHOTO_SLIDE;
+  }
 }
 
 export default async function InfoPage() {
@@ -214,26 +214,15 @@ export default async function InfoPage() {
     );
   }
 
-  // Premier slide disponible immédiatement depuis Sanity (toujours une photo)
-  const firstStory = profile.stories?.[0];
-  const firstSlide: StorySlide =
-    firstStory?._type === "storyPhoto"
-      ? {
-          type: "photo",
-          imageUrl: firstStory.imageUrl,
-          alt: firstStory.alt,
-          caption: firstStory.caption,
-          cardTitle: firstStory.cardTitle,
-          icon: firstStory.icon,
-        }
-      : {
-          type: "photo",
-          imageUrl: null,
-          alt: null,
-          caption: null,
-          cardTitle: null,
-          icon: null,
-        };
+  // Un promise par story, jamais awaited ici — StoryStack connaît le nombre
+  // de slides tout de suite (juste la longueur du tableau) et anime la pile
+  // dès le chargement de la page ; chaque carte reçoit son contenu dès que sa
+  // propre promise se résout, indépendamment des autres (voir StoryStack.tsx).
+  const stories = profile.stories ?? [];
+  const slidePromises: Promise<StorySlide>[] =
+    stories.length > 0
+      ? stories.map((story) => resolveStorySlide(story))
+      : [Promise.resolve(EMPTY_PHOTO_SLIDE)];
 
   const leftTools = profile.tools?.filter((t) => !t.referral) ?? [];
   const rightTools = profile.tools?.filter((t) => t.referral) ?? [];
@@ -292,11 +281,9 @@ export default async function InfoPage() {
                 )}
               </AnimatedItem>
 
-              {/* Right column — premier slide immédiat, reste en streaming */}
+              {/* Right column — la pile anime immédiatement, chaque story streame son contenu */}
               <AnimatedItem delay={0.1}>
-                <Suspense fallback={<StoryStack slides={[firstSlide]} />}>
-                  <SlowStories stories={profile.stories ?? []} />
-                </Suspense>
+                <StoryStack slidePromises={slidePromises} />
               </AnimatedItem>
             </div>
 

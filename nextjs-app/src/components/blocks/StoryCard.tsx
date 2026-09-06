@@ -2,6 +2,7 @@
 
 import {
   type ReactNode,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -70,6 +71,7 @@ export type StorySlide =
         trackName: string | null;
         artistName: string | null;
         previewUrl: string | null;
+        explicit: boolean;
       }[];
     }
   | {
@@ -218,11 +220,12 @@ function getWeatherIcon(
 
 // ─── Shared primitives ─────────────────────────────────────────────────────────
 
-// Shared "nothing to show yet" state — used both while a card is still
-// fetching (Valorant) and when a slide genuinely has no data (empty Sanity
-// field). Deliberately content-free: no icon, no label, just a neutral
+// Shared "nothing to show yet" state — used while a card is still fetching
+// (Valorant), when a slide genuinely has no data (empty Sanity field), and as
+// StoryStack's Suspense fallback for a slide whose own data promise hasn't
+// resolved yet. Deliberately content-free: no icon, no label, just a neutral
 // gradient, so it never looks like a broken/mislabeled card mid-stack.
-function PlaceholderSlide() {
+export function PlaceholderSlide() {
   return (
     <div className="h-full w-full bg-gradient-to-br from-stone-200 to-stone-300" />
   );
@@ -476,6 +479,19 @@ function fadeAudioVolume(
   requestAnimationFrame(step);
 }
 
+// Remembers the last-loaded track (which one, and how far into it) across a
+// client-side route change away from /info (e.g. to /work) and back — same
+// module-variable trick as StoryStack's savedStep: read synchronously at
+// mount (useState/useRef initializers below, not a post-mount effect, so
+// there's no flash where the "wrong" track briefly shows first), and always
+// at its default on a fresh/hard-reloaded page since it's only ever written
+// from client code, so SSR and first paint can never disagree with it.
+// Deliberately doesn't remember `playing` — coming back always lands
+// paused, cued up at the saved position, same "press play again" behavior
+// as returning from a hidden tab (see the visibility effect below).
+let savedMusicNav: MusicNav | null = null;
+let savedMusicTime = 0;
+
 function MusicCard({
   slide,
   round,
@@ -513,10 +529,20 @@ function MusicCard({
   // any client JS has run (see the reroll effect right below for the real
   // randomization).
   const [nav, setNav] = useState<MusicNav>(() => {
+    if (savedMusicNav && savedMusicNav.order.length === total) return savedMusicNav;
     const initial = total > 0 ? (round ?? 0) % total : 0;
     const order = total > 1 ? [initial, ...shuffleIndices(total, initial)] : [initial];
     return { order, pos: 0 };
   });
+
+  // Non-null only when `nav` above actually came from a saved position
+  // rather than a fresh shuffle — gates the reroll effect right below (skip
+  // it, keep the restored track) and, once, the restored track's starting
+  // currentTime (applied in the previewUrl effect further down, which then
+  // clears this back to null so later track changes start at 0 like normal).
+  const pendingRestoreTimeRef = useRef(
+    savedMusicNav && savedMusicNav.order.length === total ? savedMusicTime : null,
+  );
 
   // `round` only advances once per full lap through the *entire* story
   // stack, so in practice it stays 0 for the whole visit — left as the only
@@ -527,11 +553,13 @@ function MusicCard({
   // hydration mismatch) and the round-seeded pick above never actually
   // flashes on screen. It also re-fires on every fresh mount — including
   // StoryStack's key-recycling when this card cycles back into view — so
-  // each visit opens on a different track instead of the same one.
+  // each visit opens on a different track instead of the same one. Skipped
+  // entirely when restoring a saved position (pendingRestoreTimeRef below) —
+  // that track was deliberately picked, not a placeholder to reroll away
+  // from.
   useLayoutEffect(() => {
-    if (total <= 1) return;
+    if (total <= 1 || pendingRestoreTimeRef.current !== null) return;
     const initial = Math.floor(Math.random() * total);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-off reroll (see comment above), not a value derivable during render
     setNav({ order: [initial, ...shuffleIndices(total, initial)], pos: 0 });
   }, [total]);
 
@@ -557,10 +585,23 @@ function MusicCard({
     [total],
   );
 
+  // Keep the saved nav in sync with whatever's actually loaded, so it's
+  // there to restore (see savedMusicNav above) if this card unmounts —
+  // leaving /info entirely, or just cycling out of the story stack's
+  // [step, step+1] window — and later remounts.
+  useEffect(() => {
+    savedMusicNav = nav;
+  }, [nav]);
+
   useEffect(() => {
     if (!previewUrl) return;
     const audio = new Audio(previewUrl);
     audio.volume = 0; // ramped up to TRACK_VOLUME by the fade-in below
+    if (pendingRestoreTimeRef.current !== null) {
+      audio.currentTime = pendingRestoreTimeRef.current;
+      pendingRestoreTimeRef.current = null;
+    }
+    savedMusicTime = audio.currentTime; // 0 for a fresh track, restored value above otherwise
     audioRef.current = audio;
 
     // Guard against "ended" firing more than once for the same track (it
@@ -597,6 +638,7 @@ function MusicCard({
     // it lands on 100% right as playback cuts. "ended" stays wired too, as a
     // fallback for the rare clip that's naturally shorter than the cap.
     const onTimeUpdate = () => {
+      savedMusicTime = audio.currentTime;
       setAudioProgress(Math.min(audio.currentTime / PREVIEW_CUTOFF_SEC, 1));
       if (audio.currentTime >= PREVIEW_CUTOFF_SEC) {
         onTrackFinished();
@@ -637,6 +679,27 @@ function MusicCard({
     };
   }, [previewUrl, onPlayingChange, total]);
 
+  // Pause the instant the tab/window is hidden — switching browser tabs,
+  // minimizing, switching to another app. Deliberately one-directional: coming
+  // back doesn't auto-resume, the visitor presses play again (via toggle
+  // below, which now preserves position rather than restarting the track).
+  // Pausing on hide is instant, no fade: fadeAudioVolume's rAF loop is
+  // suspended for hidden pages, so a fade started right as the tab hides
+  // could stall above 0 and never actually reach pause().
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      const audio = audioRef.current;
+      if (!audio || !document.hidden) return;
+      if (playingRef.current) {
+        audio.pause();
+        setPlaying(false);
+        onPlayingChange?.(false);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [onPlayingChange]);
+
   const toggle = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation(); // prevent story advance
@@ -647,9 +710,10 @@ function MusicCard({
         setPlaying(false);
         onPlayingChange?.(false);
       } else {
-        audio.volume = 0; // reset each play so HMR / stale instances stay correct
-        audio.currentTime = 0;
-        setAudioProgress(0);
+        // Resume from exactly where it was paused (tab-hidden or manual) —
+        // currentTime is left untouched, only volume resets so a fresh fade-in
+        // still ramps from silence.
+        audio.volume = 0;
         audio.play().catch(() => {});
         fadeAudioVolume(audio, TRACK_VOLUME, AUDIO_FADE_IN_MS);
         setPlaying(true);
@@ -730,6 +794,15 @@ function MusicCard({
             >
               <p className="text-base font-semibold leading-tight">
                 {variant.trackName}
+                {variant.explicit && (
+                  <span
+                    aria-label="Explicit"
+                    title="Explicit"
+                    className="-translate-y-0.5 ml-1.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-[3px] bg-white/25 align-middle text-[9px] font-bold leading-none"
+                  >
+                    E
+                  </span>
+                )}
               </p>
               <p className="mt-0.5 text-sm text-white/70">
                 {variant.artistName}
@@ -927,82 +1000,127 @@ function LetterboxdCard({
 
 // ─── BoardGameGeek card ─────────────────────────────────────────────────────
 
-// Rank badge colours: gold / silver / bronze podium read, falls back to a
-// plain neutral chip past 3rd (shouldn't happen — the server already hands
-// back only the top 3 — but the array is sliced defensively below anyway).
-const BGG_RANK_STYLE = [
-  "bg-amber-400 text-stone-900",
-  "bg-zinc-300 text-stone-900",
-  "bg-orange-700 text-white",
-] as const;
+type BggSlot = {
+  left: number;
+  top: number;
+  size: number;
+  rotate: number;
+  zIndex: number;
+};
 
-function BggCard({
+// Fixed "pentagon-ish" layout for the top 5 games: #1 sits roughly center
+// (biggest), #2/#3 above it, #4/#5 below — each tile's rotation and offset
+// is hand-varied instead of neatly mirrored, so the stack reads more like a
+// loosely scattered pile of stickers than a rigid, symmetric grid.
+//   2   3
+//     1
+//   4   5
+// Still a fixed array, not Math.random() — same slots every render, so
+// there's no seeded-then-reroll dance needed to keep SSR and the first
+// client paint pixel-identical.
+const BGG_SLOTS: BggSlot[] = [
+  { left: 26, top: 33, size: 46, rotate: 3, zIndex: 3 }, // #1
+  { left: 5, top: 17, size: 30, rotate: -9, zIndex: 1 }, // #2
+  { left: 61, top: 23, size: 34, rotate: 8, zIndex: 1 }, // #3
+  { left: 11, top: 60, size: 34, rotate: -7, zIndex: 2 }, // #4
+  { left: 54, top: 61, size: 34, rotate: 5, zIndex: 2 }, // #5
+];
+
+// Same pop-in as the "play" tab's letters in the ActionBar (see
+// ScrambleText's ENTER_TRANSITION): scale up from nothing with a springy
+// "backOut" overshoot, staggered one after another. Held off by a beat
+// (BGG_BASE_DELAY) after the card lands up front, so the stagger reads as
+// its own follow-up flourish instead of fighting the card's own spring-in.
+const BGG_ENTER_TRANSITION = { duration: 0.3, ease: "backOut" } as const;
+const BGG_STAGGER = 0.08;
+const BGG_BASE_DELAY = 0.1;
+
+// Precomputed once, at module scope — not per render — so Framer Motion
+// always gets back the exact same `variants`/`transition` object for a given
+// slot instead of a fresh one every 100ms, which used to read as a retarget
+// mid-transition and stutter the stagger.
+const BGG_TILE_MOTION = BGG_SLOTS.map((slot, i) => ({
+  variants: {
+    hidden: { opacity: 0, scale: 0, rotate: 0 },
+    shown: { opacity: 1, scale: 1, rotate: slot.rotate },
+  },
+  transition: {
+    ...BGG_ENTER_TRANSITION,
+    delay: BGG_BASE_DELAY + i * BGG_STAGGER,
+  },
+}));
+
+// Podium collage of cover photos only (see StorySlide's "bgg" variant,
+// already rank-ordered by getBggEntries) — no names/ranks printed, just the
+// top 5 games' box art as stickers: each cover at its own natural aspect
+// ratio, borderless, with just a light shadow for a bit of lift (trying it
+// without the white sticker border — easy to bring back if it doesn't
+// work). The covers only pop in — staggered #1 → #5 — the moment this card
+// actually becomes the one on display; while it's waiting behind another
+// card they stay hidden, so the reveal is never missed off-screen.
+//
+// memo'd because `slide`/`isFront` are its only props and both stay
+// referentially stable for as long as this story is on screen (see
+// StoryStack's slideCache and its use() call) — without this, StoryStack's
+// 100ms countdown-ring tick re-renders this whole tile tree 10 times a
+// second for the entire ~12s the card is showing, not just during the ~1s
+// pop-in.
+const BggCard = memo(function BggCard({
   slide,
+  isFront = true,
 }: {
   slide: Extract<StorySlide, { type: "bgg" }>;
+  isFront?: boolean;
 }) {
-  // The server already hands back the user's actual top 3 (ranked #1–#3, see
-  // getBggEntries) — shown together as a single ranked list rather than
-  // rotated one-per-round like the other card types.
-  const top3 = slide.variants.slice(0, 3).filter((game) => game.gameName);
+  // slide.variants is already sorted #1..#N (see getBggEntries) — position i
+  // here IS rank i + 1, so it maps straight onto BGG_SLOTS below.
+  const images = slide.variants
+    .map((game) => game.imageUrl)
+    .filter((url): url is string => !!url)
+    .slice(0, BGG_SLOTS.length);
 
-  if (top3.length === 0) {
+  if (images.length === 0) {
     return <PlaceholderSlide />;
   }
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-stone-900">
-      {top3[0].imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={top3[0].imageUrl}
-          alt=""
-          className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
-        />
-      )}
-      <div className="absolute inset-0 bg-black/60" />
+      {images.map((url, i) => {
+        const slot = BGG_SLOTS[i];
+        const motionProps = BGG_TILE_MOTION[i];
+        return (
+          <motion.div
+            key={url}
+            className="absolute overflow-hidden rounded-lg shadow-md"
+            style={{
+              left: `${slot.left}%`,
+              top: `${slot.top}%`,
+              width: `${slot.size}%`,
+              zIndex: slot.zIndex,
+            }}
+            initial="hidden"
+            animate={isFront ? "shown" : "hidden"}
+            variants={motionProps.variants}
+            transition={motionProps.transition}
+          >
+            {/* No object-cover crop — height is left to `auto` so each
+                cover keeps its own natural aspect ratio instead of being
+                forced square. */}
+            <motion.img src={url} alt="" className="block h-auto w-full" />
+          </motion.div>
+        );
+      })}
 
-      <div className="relative flex h-full flex-col text-white">
-        <div className="flex items-center gap-1.5 p-4">
-          <Icon name={slide.icon} fallback={Cards02Icon} size={16} strokeWidth={2} />
-          <span className="text-xs font-medium uppercase tracking-wide text-white/80">
-            {slide.cardTitle || "Top Board Games"}
-          </span>
-        </div>
-
-        <div className="mt-auto flex flex-col gap-3 p-6">
-          {top3.map((game, i) => (
-            <div key={game.gameUrl ?? game.gameName} className="flex items-center gap-3">
-              <span
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                  BGG_RANK_STYLE[i] ?? "bg-white/20 text-white"
-                }`}
-              >
-                {i + 1}
-              </span>
-              {game.imageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={game.imageUrl}
-                  alt=""
-                  className="h-11 w-11 shrink-0 rounded-lg object-cover shadow-lg"
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold leading-tight">
-                  {game.gameName}
-                </p>
-                {game.yearPublished && (
-                  <p className="text-xs text-white/60">{game.yearPublished}</p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent" />
+      <div className="absolute inset-x-0 top-0 flex items-center gap-1.5 p-4 text-white drop-shadow">
+        <Icon name={slide.icon} fallback={Cards02Icon} size={16} strokeWidth={2} />
+        <span className="text-xs font-medium uppercase tracking-wide text-white/80">
+          {slide.cardTitle || "Top Board Games"}
+        </span>
       </div>
     </div>
   );
-}
+});
 
 // ─── Fact card ──────────────────────────────────────────────────────────────
 
@@ -1383,10 +1501,12 @@ export function SlideContent({
   slide,
   round,
   onMusicPlaying,
+  isFront = true,
 }: {
   slide: StorySlide;
   round?: number;
   onMusicPlaying?: (playing: boolean) => void;
+  isFront?: boolean;
 }) {
   switch (slide.type) {
     case "photo":
@@ -1539,7 +1659,7 @@ export function SlideContent({
       return <LetterboxdCard slide={slide} round={round} />;
 
     case "bgg":
-      return <BggCard slide={slide} />;
+      return <BggCard slide={slide} isFront={isFront} />;
   }
 }
 
