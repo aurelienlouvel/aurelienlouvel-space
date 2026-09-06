@@ -670,7 +670,7 @@ function MusicCard({
   const trackKey = previewUrl ?? "none";
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-white/90">
+    <div className="relative h-full w-full overflow-hidden bg-stone-900">
       {/* Blurred album art background — blurs out the old cover and
           defocuses back in on the new one as the track changes. */}
       <AnimatePresence initial={false}>
