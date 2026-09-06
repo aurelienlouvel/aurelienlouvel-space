@@ -61,6 +61,19 @@ function NavLink({
   scramble: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
+  // Non-scramble tabs (work/info) keep the site font but lean bolder on
+  // hover/active instead — the scramble tab (play) gets its own font-swap
+  // treatment, so it doesn't need this too. Active and hover are two
+  // distinct, mutually exclusive strengths reusing the site's own weight
+  // tokens rather than a one-off value: 600 (same as h4) at rest once
+  // active, 520 (same as .text-block) on hover while inactive.
+  const fontWeight = scramble
+    ? undefined
+    : isActive
+      ? 600
+      : hovered
+        ? 520
+        : undefined;
 
   return (
     <Link
@@ -73,11 +86,6 @@ function NavLink({
           ? "text-zinc-950 -rotate-2"
           : "text-zinc-600 hover:text-zinc-950",
       )}
-      style={
-        isActive
-          ? { fontWeight: 640, fontVariationSettings: "'wght' 640" }
-          : undefined
-      }
     >
       {isActive && (
         <motion.div
@@ -86,7 +94,22 @@ function NavLink({
           transition={NAV_PILL_TRANSITION}
         />
       )}
-      <span className="relative z-10">
+      <span
+        className="relative z-10"
+        // font-weight/font-variation-settings are inherited props — they must
+        // be set directly on the element that holds the text, not a bit
+        // higher up on the <Link>. This span is its own stacking context
+        // (relative + z-index), and Chromium never repaints an already-
+        // painted stacking-context descendant when only an *inherited* value
+        // changes on an ancestor: computed style updates correctly, but the
+        // glyphs stay stuck at the old weight (confirmed via pixel-diffing —
+        // 0% of pixels changed set on the Link, 15%+ once moved here).
+        style={
+          fontWeight
+            ? { fontWeight, fontVariationSettings: `'wght' ${fontWeight}` }
+            : undefined
+        }
+      >
         {scramble ? (
           // Active tab keeps its scrambled combo shown permanently, not just on hover.
           <ScrambleText text={label} active={hovered || isActive} />
