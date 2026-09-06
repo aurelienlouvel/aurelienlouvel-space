@@ -4,6 +4,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -507,16 +508,32 @@ function MusicCard({
   // the start replays the *same* order on repeat rather than rolling a new
   // one each lap. Both directions are always live, right from the first
   // render — prev at pos 0 simply wraps to the last entry of `order`.
-  // The very first track still follows `round` (placed at order[0], outside
-  // the shuffle), so each time this card cycles back into view (fresh
-  // mount, see StoryStack's key-recycling) it opens on a different one than
-  // last time — the shuffled order for the rest of the pool is also
-  // re-rolled at that point, but then holds steady for the whole visit.
+  // `round`-seeded here only so the very first, server-rendered paint is
+  // deterministic — SSR and hydration have to agree on what to show before
+  // any client JS has run (see the reroll effect right below for the real
+  // randomization).
   const [nav, setNav] = useState<MusicNav>(() => {
     const initial = total > 0 ? (round ?? 0) % total : 0;
     const order = total > 1 ? [initial, ...shuffleIndices(total, initial)] : [initial];
     return { order, pos: 0 };
   });
+
+  // `round` only advances once per full lap through the *entire* story
+  // stack, so in practice it stays 0 for the whole visit — left as the only
+  // seed, every mount would always open on slide.variants[0], i.e. always
+  // the playlist's first track. Reroll to a genuinely random starting track
+  // right after mount instead: useLayoutEffect is client-only and fires
+  // before paint, so it never touches the server-rendered HTML (no
+  // hydration mismatch) and the round-seeded pick above never actually
+  // flashes on screen. It also re-fires on every fresh mount — including
+  // StoryStack's key-recycling when this card cycles back into view — so
+  // each visit opens on a different track instead of the same one.
+  useLayoutEffect(() => {
+    if (total <= 1) return;
+    const initial = Math.floor(Math.random() * total);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional one-off reroll (see comment above), not a value derivable during render
+    setNav({ order: [initial, ...shuffleIndices(total, initial)], pos: 0 });
+  }, [total]);
 
   const variant =
     total > 0 ? (slide.variants[nav.order[mod(nav.pos, nav.order.length)]] ?? null) : null;
