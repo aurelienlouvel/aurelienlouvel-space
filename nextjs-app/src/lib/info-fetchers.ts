@@ -475,12 +475,16 @@ type AppleMusicSection = {
 // normal track URL, so it's resolved for full detail (artwork, preview URL —
 // not present in this scrape) via the existing getAppleMusicData.
 //
-// `cap` is a safety ceiling, not a display count: the client (MusicCard)
-// shuffles through everything resolved here in one fixed order (see
-// StoryCard.tsx), so the *whole* playlist is resolved rather than a random
-// sub-sample — each track's iTunes lookup is independently cached 24h (see
-// getAppleMusicData), so re-resolving all of them on every scrape is cheap
-// in steady state (only genuinely new playlist additions cache-miss).
+// `cap` is a safety ceiling on how many iTunes lookups fire below, not a
+// "top N" display cutoff: the client (MusicCard) shuffles through
+// everything resolved here in one fixed order (see StoryCard.tsx). A
+// playlist longer than `cap` is sampled evenly across its *entire* length
+// instead of just taking its first `cap` entries — otherwise a long
+// playlist would never surface anything past the front (e.g. a 400-track
+// playlist would never resolve its 120th track). Each track's iTunes
+// lookup is independently cached 24h (see getAppleMusicData), so
+// re-resolving the same sample on every scrape is cheap in steady state
+// (only genuinely new playlist additions cache-miss).
 export async function getAppleMusicPlaylistTracks(
   url: string | null,
   cap = 100,
@@ -503,11 +507,25 @@ export async function getAppleMusicPlaylistTracks(
     };
     const sections = parsed.data?.[0]?.data?.sections ?? [];
     const trackSection = sections.find((s) => s.id?.startsWith("track-list"));
-    const trackUrls = (trackSection?.items ?? [])
+    const allTrackUrls = (trackSection?.items ?? [])
       .map((item) => item.contentDescriptor?.url)
-      .filter((u): u is string => !!u)
-      .slice(0, cap);
-    if (trackUrls.length === 0) return [];
+      .filter((u): u is string => !!u);
+    if (allTrackUrls.length === 0) return [];
+
+    // Bucket-midpoint sampling: each of the `cap` picks comes from the
+    // middle of its own equal-sized slice of the playlist, so the sample
+    // stays spread edge-to-edge (including near the very end) instead of
+    // drifting away from it the way a plain `i * length / cap` floor would.
+    const trackUrls =
+      allTrackUrls.length <= cap
+        ? allTrackUrls
+        : Array.from(
+            { length: cap },
+            (_, i) =>
+              allTrackUrls[
+                Math.floor(((i + 0.5) * allTrackUrls.length) / cap)
+              ],
+          );
 
     const resolved = await Promise.all(trackUrls.map((u) => getAppleMusicData(u)));
     const tracks: AppleMusicTrack[] = [];
