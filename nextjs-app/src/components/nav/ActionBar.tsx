@@ -82,8 +82,14 @@ function NavLink({
       onMouseLeave={() => setHovered(false)}
       className={cn(
         "relative flex h-11 items-center rounded-xl px-3 text-base transition-all",
+        // scale/rotate are their own CSS properties (not the `transform`
+        // shorthand) — they don't affect layout, so the pill never resizes;
+        // the bigger text just grows from its own center, staying centered.
+        // Only inactive tabs get the hover press-scale — the tilt is
+        // reserved for the active tab only, untouched by hover.
+        !isActive && "hover:scale-[0.98]",
         isActive
-          ? "text-zinc-950 -rotate-2"
+          ? "text-zinc-950 -rotate-3 scale-105"
           : "text-zinc-600 hover:text-zinc-950",
       )}
     >
