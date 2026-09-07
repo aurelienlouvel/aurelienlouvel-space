@@ -61,12 +61,6 @@ function NavLink({
   scramble: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
-  // Non-scramble tabs (work/info) keep the site font but lean bolder on
-  // hover/active instead — the scramble tab (play) gets its own font-swap
-  // treatment, so it doesn't need this too. Active and hover are two
-  // distinct, mutually exclusive strengths reusing the site's own weight
-  // tokens rather than a one-off value: 600 (same as h4) at rest once
-  // active, 520 (same as .text-block) on hover while inactive.
   const fontWeight = scramble
     ? undefined
     : isActive
@@ -82,11 +76,6 @@ function NavLink({
       onMouseLeave={() => setHovered(false)}
       className={cn(
         "relative flex h-11 items-center rounded-xl px-3 text-base transition-all",
-        // scale/rotate are their own CSS properties (not the `transform`
-        // shorthand) — they don't affect layout, so the pill never resizes;
-        // the bigger text just grows from its own center, staying centered.
-        // Only inactive tabs get the hover press-scale — the tilt is
-        // reserved for the active tab only, untouched by hover.
         !isActive && "hover:scale-[0.98]",
         isActive
           ? "text-zinc-950 -rotate-3 scale-105"
@@ -100,29 +89,30 @@ function NavLink({
           transition={NAV_PILL_TRANSITION}
         />
       )}
-      <span
-        className="relative z-10"
-        // font-weight/font-variation-settings are inherited props — they must
-        // be set directly on the element that holds the text, not a bit
-        // higher up on the <Link>. This span is its own stacking context
-        // (relative + z-index), and Chromium never repaints an already-
-        // painted stacking-context descendant when only an *inherited* value
-        // changes on an ancestor: computed style updates correctly, but the
-        // glyphs stay stuck at the old weight (confirmed via pixel-diffing —
-        // 0% of pixels changed set on the Link, 15%+ once moved here).
-        style={
-          fontWeight
-            ? { fontWeight, fontVariationSettings: `'wght' ${fontWeight}` }
-            : undefined
-        }
-      >
-        {scramble ? (
-          // Active tab keeps its scrambled combo shown permanently, not just on hover.
+      {scramble ? (
+        <span className="relative z-10">
           <ScrambleText text={label} active={hovered || isActive} />
-        ) : (
-          label
-        )}
-      </span>
+        </span>
+      ) : (
+        <span className="relative z-10 inline-grid text-center">
+          <span
+            aria-hidden="true"
+            className="invisible col-start-1 row-start-1"
+            style={{ fontWeight: 600, fontVariationSettings: "'wght' 600" }}
+          >
+            {label}
+          </span>
+          <span
+            className="col-start-1 row-start-1 transition-[font-variation-settings] duration-100 ease-out"
+            style={{
+              fontWeight: fontWeight ?? 480,
+              fontVariationSettings: `'wght' ${fontWeight ?? 480}`,
+            }}
+          >
+            {label}
+          </span>
+        </span>
+      )}
     </Link>
   );
 }
@@ -164,9 +154,6 @@ export function ActionBar() {
         mass: 1,
       });
     }
-
-    // Hard load : la 1re mesure se fait avec la police de fallback (métriques
-    // plus étroites) → re-mesure une fois les webfonts chargées.
     let cancelled = false;
     document.fonts?.ready.then(() => {
       if (!cancelled) widthMv.set(measure());
@@ -207,9 +194,6 @@ export function ActionBar() {
                 href="/work"
                 className="flex h-11 shrink-0 items-center pl-3"
               >
-                {/* width/height explicites → la largeur est réservée AVANT le
-                    chargement (aspect-ratio 640/240), donc la mesure de largeur
-                    de la barre inclut le logo ; shrink-0 → jamais écrasé à 0. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/logo.png"
