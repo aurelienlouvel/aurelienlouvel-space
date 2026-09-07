@@ -332,7 +332,8 @@ function LocationCard({
 }
 
 // Mapbox GL background — centred on Paris. Custom/3D styles need a public
-// (pk.*) token; with a secret/missing token we fall back to the static image.
+// (pk.*) token; with a secret/missing token we fall back to a plain gradient
+// placeholder (same look as PlaceholderSlide) instead of a live map.
 function MapboxBackground({
   lat,
   lon,
@@ -391,12 +392,7 @@ function MapboxBackground({
 
   if (!MAPBOX_IS_PUBLIC) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src="/paris-map.webp"
-        alt=""
-        className="absolute inset-0 h-full w-full object-cover object-[45%_30%]"
-      />
+      <div className="absolute inset-0 h-full w-full bg-gradient-to-br from-stone-200 to-stone-300" />
     );
   }
 
