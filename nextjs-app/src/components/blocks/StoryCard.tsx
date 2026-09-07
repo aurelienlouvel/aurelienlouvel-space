@@ -406,7 +406,7 @@ function MapboxBackground({
 // ─── Music card ──────────────────────────────────────────────────────────
 
 const PREVIEW_CUTOFF_SEC = 24; // Apple's clips run ~30s natively; cut in early
-const TRACK_VOLUME = 0.33;
+const TRACK_VOLUME = 0.16;
 // Equal, half-second ramps. The previous 200ms/100ms pair was too quick to
 // read as an actual fade, and — since fade-in was shorter than fade-out —
 // the incoming track reached full volume while the outgoing one was still
