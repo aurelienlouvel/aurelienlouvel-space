@@ -126,6 +126,13 @@ export function ActionBar() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRotateRef = useRef<number>(2);
 
+  // Bumped on every hover — keys the shimmer overlay below, so each hover
+  // mounts a brand new instance that plays its initial->animate sweep once
+  // and then just sits done (off-screen right) until the next hover mounts
+  // a fresh one. No loop, no reset-on-leave needed. Starts at 0 so nothing
+  // renders on first paint (see the `> 0` guard below).
+  const [shimmerKey, setShimmerKey] = useState(0);
+
   const barRef = useRef<HTMLDivElement>(null);
   const widthMv = useMotionValue<number | string>("auto");
   const initialized = useRef(false);
@@ -192,16 +199,32 @@ export function ActionBar() {
             <div className="flex h-full items-center px-2 whitespace-nowrap">
               <Link
                 href="/work"
+                onMouseEnter={() => setShimmerKey((k) => k + 1)}
                 className="flex h-11 shrink-0 items-center pl-3"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/logo.png"
-                  alt="oré"
-                  width={640}
-                  height={240}
-                  className="h-5 w-auto shrink-0"
-                />
+                <span className="relative inline-block h-5 w-auto shrink-0 overflow-hidden">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/logo.png"
+                    alt="oré"
+                    width={640}
+                    height={240}
+                    className="h-5 w-auto shrink-0"
+                  />
+                  {/* Blurry light band sweeping left -> right across the
+                      logo, once per hover — see shimmerKey above. */}
+                  {shimmerKey > 0 && (
+                    <AnimatePresence>
+                      <motion.span
+                        key={shimmerKey}
+                        initial={{ x: "-150%" }}
+                        animate={{ x: "250%" }}
+                        transition={{ duration: 0.6, ease: "easeOut" }}
+                        className="pointer-events-none absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-transparent via-white/80 to-transparent blur-sm"
+                      />
+                    </AnimatePresence>
+                  )}
+                </span>
               </Link>
 
               {sep}
