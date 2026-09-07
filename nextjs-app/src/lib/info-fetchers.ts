@@ -490,7 +490,7 @@ type AppleMusicSection = {
 // (only genuinely new playlist additions cache-miss).
 export async function getAppleMusicPlaylistTracks(
   url: string | null,
-  cap = 100,
+  cap = 64,
 ): Promise<AppleMusicTrack[]> {
   if (!url) return [];
   try {

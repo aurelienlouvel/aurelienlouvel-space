@@ -489,8 +489,8 @@ function fadeAudioVolume(
 // Deliberately doesn't remember `playing` — coming back always lands
 // paused, cued up at the saved position, same "press play again" behavior
 // as returning from a hidden tab (see the visibility effect below).
-let savedMusicNav: MusicNav | null = null;
-let savedMusicTime = 0;
+// Playlist position is never saved/restored — each visit generates a
+// fresh 64-track random shuffle, always starting from time 0.
 
 function MusicCard({
   slide,
@@ -529,20 +529,20 @@ function MusicCard({
   // any client JS has run (see the reroll effect right below for the real
   // randomization).
   const [nav, setNav] = useState<MusicNav>(() => {
-    if (savedMusicNav && savedMusicNav.order.length === total) return savedMusicNav;
+    // Always start fresh: never restore a previous position. Even if
+    // savedMusicNav exists from a prior visit, ignore it and generate
+    // a new shuffle seeded by round. The useLayoutEffect below will
+    // reroll with a proper random starting track before paint, so this
+    // seed exists only for SSR determinism.
     const initial = total > 0 ? (round ?? 0) % total : 0;
     const order = total > 1 ? [initial, ...shuffleIndices(total, initial)] : [initial];
     return { order, pos: 0 };
   });
 
-  // Non-null only when `nav` above actually came from a saved position
-  // rather than a fresh shuffle — gates the reroll effect right below (skip
-  // it, keep the restored track) and, once, the restored track's starting
-  // currentTime (applied in the previewUrl effect further down, which then
-  // clears this back to null so later track changes start at 0 like normal).
-  const pendingRestoreTimeRef = useRef(
-    savedMusicNav && savedMusicNav.order.length === total ? savedMusicTime : null,
-  );
+  // Always null — never restore saved position or time. Each visit to the
+  // music card gets a fresh shuffle and starts at 0, even if coming back
+  // after visiting other stories.
+  const pendingRestoreTimeRef = useRef<number | null>(null);
 
   // `round` only advances once per full lap through the *entire* story
   // stack, so in practice it stays 0 for the whole visit — left as the only
@@ -585,14 +585,6 @@ function MusicCard({
     [total],
   );
 
-  // Keep the saved nav in sync with whatever's actually loaded, so it's
-  // there to restore (see savedMusicNav above) if this card unmounts —
-  // leaving /info entirely, or just cycling out of the story stack's
-  // [step, step+1] window — and later remounts.
-  useEffect(() => {
-    savedMusicNav = nav;
-  }, [nav]);
-
   useEffect(() => {
     if (!previewUrl) return;
     const audio = new Audio(previewUrl);
@@ -601,7 +593,6 @@ function MusicCard({
       audio.currentTime = pendingRestoreTimeRef.current;
       pendingRestoreTimeRef.current = null;
     }
-    savedMusicTime = audio.currentTime; // 0 for a fresh track, restored value above otherwise
     audioRef.current = audio;
 
     // Guard against "ended" firing more than once for the same track (it
@@ -638,7 +629,6 @@ function MusicCard({
     // it lands on 100% right as playback cuts. "ended" stays wired too, as a
     // fallback for the rare clip that's naturally shorter than the cap.
     const onTimeUpdate = () => {
-      savedMusicTime = audio.currentTime;
       setAudioProgress(Math.min(audio.currentTime / PREVIEW_CUTOFF_SEC, 1));
       if (audio.currentTime >= PREVIEW_CUTOFF_SEC) {
         onTrackFinished();
