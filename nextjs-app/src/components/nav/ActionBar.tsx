@@ -219,7 +219,7 @@ export function ActionBar() {
                         key={shimmerKey}
                         initial={{ x: "-150%" }}
                         animate={{ x: "250%" }}
-                        transition={{ duration: 0.6, ease: "easeOut" }}
+                        transition={{ duration: 0.9, ease: "easeOut" }}
                         className="pointer-events-none absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-transparent via-white/80 to-transparent blur-sm"
                       />
                     </AnimatePresence>
