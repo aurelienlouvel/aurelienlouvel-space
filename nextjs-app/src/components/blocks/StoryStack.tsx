@@ -273,16 +273,12 @@ export function StoryStack({
               variants={FRONT_VARIANTS}
               animate={isFront ? "front" : "back"}
               exit="gone"
-              role={isFront ? "button" : undefined}
-              tabIndex={isFront ? 0 : undefined}
-              aria-label={isFront ? "Next story" : undefined}
-              onClick={isFront ? advance : undefined}
-              onKeyDown={isFront ? handleKeyDown : undefined}
-              className={
-                isFront
-                  ? "absolute inset-0 cursor-pointer overflow-hidden rounded-3xl shadow-md outline-none"
-                  : "absolute inset-0 overflow-hidden rounded-3xl shadow-md"
-              }
+              role="button"
+              tabIndex={0}
+              aria-label="Next story"
+              onClick={advance}
+              onKeyDown={handleKeyDown}
+              className="absolute inset-0 cursor-pointer overflow-hidden rounded-3xl shadow-md outline-none"
             >
               <Suspense fallback={<PlaceholderSlide />}>
                 <ResolvedSlide
