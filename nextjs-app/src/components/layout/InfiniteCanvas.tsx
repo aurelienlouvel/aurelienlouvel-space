@@ -45,6 +45,8 @@ import { usePlayVideoTextures } from "./usePlayVideoTextures";
 //
 let _hasVisited = false;
 
+const LOADING_BAR_MS = 1600; // durée fixe de la loading bar au tout premier chargement
+
 // ─── Main component ────────────────────────────────────────────────────────────
 export function InfiniteCanvas({
   artifacts,
@@ -146,7 +148,7 @@ export function InfiniteCanvas({
   // which can fire prematurely or not at all depending on asset caching.
   useEffect(() => {
     if (!firstMount.current) return;
-    const t = setTimeout(() => setLoading(false), 1600);
+    const t = setTimeout(() => setLoading(false), LOADING_BAR_MS);
     return () => clearTimeout(t);
   }, []);
 

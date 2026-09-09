@@ -24,6 +24,15 @@ export const PANEL_DELAY_S = (FOCUS_DURATION * 0.75) / 1000; // seconds for Fram
 const DRAG_THRESHOLD = 6;
 const IDLE_ZOOM_LERP = 0.22; // vitesse du dézoom de sortie de focus (lerp/frame)
 
+// zoomInFocusRef bascule seulement une fois le zoom caméra passé ce seuil —
+// distinct de focusState.isActive (bascule au clic, synchrone, avant même le
+// début du zoom). Permet à un wheel/drag tiré juste après le clic d'annuler
+// le focus avant que le zoom ait vraiment bougé.
+const FOCUS_ZOOM_THRESHOLD = 1.01;
+const VELOCITY_WINDOW_MS   = 80; // ms — fenêtre glissante pour la vélocité de release
+const DRAG_MOVED_RESET_MS  = 50; // ms — debounce avant que dragMovedRef retombe à false
+const INERTIA_FRICTION     = -2.5; // décroissance exponentielle de la vélocité post-drag
+
 export function CameraController({
   selectTarget,
   zoomTarget,
@@ -45,7 +54,7 @@ export function CameraController({
 }) {
   const { camera } = useThree();
   const wheel = useRef({ x: 0, y: 0 });
-  const inFocus = useRef(false);
+  const zoomInFocusRef = useRef(false);
   const velocityRef = useRef({ x: 0, y: 0 }); // inertia after drag release
   // Time-based intro zoom animation (null = not running)
   const zoomAnim = useRef<{ startTime: number; fromZoom: number } | null>(null);
@@ -64,7 +73,7 @@ export function CameraController({
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      if (inFocus.current) {
+      if (zoomInFocusRef.current) {
         // Focused → wheel never pans the camera or exits focus anymore; only
         // clicking outside the card does (onPointerMissed → handleDeselect).
         // Redirect into the gallery stack if there's one to scroll
@@ -112,7 +121,7 @@ export function CameraController({
       // Focused → drag never pans the camera or exits focus anymore; only
       // clicking outside the card does. If there's a gallery, drag scrolls it
       // instead; otherwise the drag is simply swallowed (see onMove below).
-      focusedDrag = inFocus.current;
+      focusedDrag = zoomInFocusRef.current;
       scrollingGallery = focusedDrag && hasGalleryRef.current;
       dragActive = true;
       startX = lastX = e.clientX;
@@ -134,8 +143,8 @@ export function CameraController({
       lastY = e.clientY;
       const now = performance.now();
       recentMoves.push({ x: e.clientX, y: e.clientY, t: now });
-      // Keep only last 80ms for velocity estimation
-      while (recentMoves.length > 1 && now - recentMoves[0].t > 80) recentMoves.shift();
+      // Keep only last VELOCITY_WINDOW_MS for velocity estimation
+      while (recentMoves.length > 1 && now - recentMoves[0].t > VELOCITY_WINDOW_MS) recentMoves.shift();
       if (!dragMovedRef.current) {
         const totalDx = e.clientX - startX;
         const totalDy = e.clientY - startY;
@@ -169,7 +178,7 @@ export function CameraController({
       dragActive = false;
       focusedDrag = false;
       scrollingGallery = false;
-      setTimeout(() => { dragMovedRef.current = false; }, 50);
+      setTimeout(() => { dragMovedRef.current = false; }, DRAG_MOVED_RESET_MS);
     };
 
     window.addEventListener("pointerdown", onDown);
@@ -302,7 +311,7 @@ export function CameraController({
         const deltaMs = delta * 1000;
         cam.position.x += vx * deltaMs / cam.zoom;
         cam.position.y += vy * deltaMs / cam.zoom;
-        const decay = Math.exp(-2.5 * delta);
+        const decay = Math.exp(INERTIA_FRICTION * delta);
         velocityRef.current.x *= decay;
         velocityRef.current.y *= decay;
         if (Math.abs(velocityRef.current.x) < 0.0001 && Math.abs(velocityRef.current.y) < 0.0001) {
@@ -317,7 +326,7 @@ export function CameraController({
       panDeltaRef.current.y = 0;
     }
 
-    inFocus.current = cam.zoom > 1.01;
+    zoomInFocusRef.current = cam.zoom > FOCUS_ZOOM_THRESHOLD;
   });
   /* eslint-enable react-hooks/immutability */
 
