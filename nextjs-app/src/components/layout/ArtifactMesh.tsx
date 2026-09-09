@@ -369,9 +369,9 @@ function ImageMesh({ url, ...rest }: SharedProps & { url: string }) {
 //  top-to-bottom as its own plane (own rounded-corner mask, no rotation), gap
 //  between each. Loops infinitely: scrolling past the last item wraps back to
 //  the first (and vice versa), same "endless" spirit as the background grid's
-//  own tiling. Scroll input is redirected here by CameraController
-//  (InfiniteCanvas.tsx's onWheel/onDown/onMove) via focusState.scrollOffset /
-//  scrollPeriod instead of panning the camera — see artifact-utils.ts.
+//  own tiling. Scroll input is redirected here by CameraController's
+//  onWheel/onDown/onMove via focusState.scrollOffset instead of panning the
+//  camera — see artifact-utils.ts.
 const STACK_GAP = 24; // world units between stacked items (incl. gap on wrap)
 // Loop copies rendered per item (prev/current/next period) so the wrap reads
 // seamlessly right up to the viewport edges — see GalleryStack's useFrame.
@@ -614,18 +614,6 @@ function GalleryStack({
   // it started, so wrapping the offset by this period is seamless.
   const period      = rawTotal;
   const totalHeight = Math.max(0, period - STACK_GAP);
-
-  useEffect(() => {
-    focusState.scrollPeriod = period;
-  }, [period]);
-
-  // Reset on unmount (deselect / swap to another artifact) so a stale period
-  // doesn't leak into the next selection before its own effect above runs.
-  useEffect(() => {
-    return () => {
-      focusState.scrollPeriod = 0;
-    };
-  }, []);
 
   useFrame(() => {
     if (revealStart.current === null || isSelected !== prevSelected.current) {

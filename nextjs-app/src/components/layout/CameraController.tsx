@@ -29,6 +29,7 @@ export function CameraController({
   zoomTarget,
   panDeltaRef,
   dragMovedRef,
+  hasGalleryRef,
   active,
   running,
   introKey,
@@ -37,6 +38,7 @@ export function CameraController({
   zoomTarget: React.MutableRefObject<number>;
   panDeltaRef: React.MutableRefObject<{ x: number; y: number }>;
   dragMovedRef: React.MutableRefObject<boolean>;
+  hasGalleryRef: React.MutableRefObject<boolean>;
   active: boolean;
   running: boolean; // frameloop alive — false only when fully at rest (hidden)
   introKey: number; // bumps when the canvas is actually revealed → play intro
@@ -66,9 +68,10 @@ export function CameraController({
         // Focused → wheel never pans the camera or exits focus anymore; only
         // clicking outside the card does (onPointerMissed → handleDeselect).
         // Redirect into the gallery stack if there's one to scroll
-        // (accumulates unclamped — GalleryStack wraps it modulo scrollPeriod
-        // so it loops infinitely), otherwise just swallow the scroll.
-        if (focusState.hasGallery) {
+        // (accumulates unclamped — GalleryStack wraps it modulo its own
+        // locally-computed period so it loops infinitely), otherwise just
+        // swallow the scroll.
+        if (hasGalleryRef.current) {
           focusState.scrollOffset += e.deltaY;
         }
         return;
@@ -86,7 +89,7 @@ export function CameraController({
     };
     window.addEventListener("wheel", onWheel, { passive: false });
     return () => window.removeEventListener("wheel", onWheel);
-  }, [selectTarget, zoomTarget]);
+  }, [selectTarget, zoomTarget, hasGalleryRef]);
 
   // Drag (mouse left-button) + touch swipe → pan + inertia on release
   // Threshold avoids triggering pan on accidental micro-movements during clicks.
@@ -110,7 +113,7 @@ export function CameraController({
       // clicking outside the card does. If there's a gallery, drag scrolls it
       // instead; otherwise the drag is simply swallowed (see onMove below).
       focusedDrag = inFocus.current;
-      scrollingGallery = focusedDrag && focusState.hasGallery;
+      scrollingGallery = focusedDrag && hasGalleryRef.current;
       dragActive = true;
       startX = lastX = e.clientX;
       startY = lastY = e.clientY;

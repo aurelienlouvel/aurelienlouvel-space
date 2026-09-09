@@ -87,6 +87,11 @@ export function InfiniteCanvas({
   const zoomTargetRef = useRef<number>(0.5);
   const panDeltaRef = useRef({ x: 0, y: 0 });
   const dragMovedRef = useRef(false);
+  // Read by CameraController only (wheel/drag redirect into the gallery scroll
+  // instead of panning) — a plain prop-threaded ref, same idiom as the other
+  // cross-component refs above, rather than focusState module state (nothing
+  // else needs it across renders).
+  const hasGalleryRef = useRef(false);
   const cameraStateRef = useRef<CameraState>({
     zoom: 0.5,
     x: 0,
@@ -186,7 +191,7 @@ export function InfiniteCanvas({
       selectedWorldPosRef.current = null;
       zoomTargetRef.current = 1.0;
       panelX.set(-9999);
-      focusState.hasGallery = false;
+      hasGalleryRef.current = false;
       focusState.scrollOffset = 0;
       if (e) triggerRippleAt(e.clientX, e.clientY);
     },
@@ -274,11 +279,8 @@ export function InfiniteCanvas({
       zoomTargetRef.current = z;
       // Multi-media artifact → CameraController redirects wheel/drag into the
       // in-canvas gallery stack instead of panning (see onWheel/onMove).
-      // scrollPeriod starts at 0 — GalleryStack (ArtifactMesh.tsx) computes
-      // and writes the real value once it measures the stack's total height.
-      focusState.hasGallery = !!item.gallery && item.galleryCount > 1;
+      hasGalleryRef.current = !!item.gallery && item.galleryCount > 1;
       focusState.scrollOffset = 0;
-      focusState.scrollPeriod = 0;
     },
     [],
   );
@@ -331,6 +333,7 @@ export function InfiniteCanvas({
             paramsRef={paramsRef}
             panDeltaRef={panDeltaRef}
             dragMovedRef={dragMovedRef}
+            hasGalleryRef={hasGalleryRef}
             cameraStateRef={cameraStateRef}
             rippleRef={rippleRef}
             active={active}

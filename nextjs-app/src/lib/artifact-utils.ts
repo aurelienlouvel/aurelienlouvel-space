@@ -62,18 +62,18 @@ export function triggerOutro(): void {
 // ─── Focus dim state ──────────────────────────────────────────────────────────
 // When a card is focused, all other cards fade toward fully transparent (see
 // ArtifactMesh.tsx's useCardAnimation hook for the actual formula).
-// hasGallery/scrollOffset/scrollPeriod bridge the in-canvas gallery stack
-// (ArtifactMesh.tsx's GalleryStack) with CameraController's wheel/drag
-// handlers (InfiniteCanvas.tsx) — same "module-level mutable state read every
-// frame" idiom as isActive, just for the focused artifact's own scroll.
-// scrollOffset accumulates unclamped (raw wheel/drag delta) — GalleryStack
-// wraps it modulo scrollPeriod itself, so the gallery loops infinitely
-// instead of stopping at the first/last item.
+// scrollOffset bridges the in-canvas gallery stack (ArtifactMesh.tsx's
+// GalleryStack) with CameraController's wheel/drag handlers — same
+// "module-level mutable state read every frame" idiom as isActive, just for
+// the focused artifact's own scroll. Accumulates unclamped (raw wheel/drag
+// delta) — GalleryStack wraps it modulo its own locally-computed period, so
+// the gallery loops infinitely instead of stopping at the first/last item.
+// (hasGallery lives as a plain ref in InfiniteCanvas.tsx instead — it's only
+// ever read by CameraController, never by anything reading module state
+// across renders, so a prop-threaded ref fits better than living here.)
 export const focusState = {
   isActive: false,
-  hasGallery: false,
   scrollOffset: 0,
-  scrollPeriod: 0,
 };
 
 // ─── Selection pop scale ──────────────────────────────────────────────────────

@@ -36,6 +36,7 @@ export function InfiniteTiles({
   rippleRef,
   panDeltaRef,
   dragMovedRef,
+  hasGalleryRef,
   active,
   running,
   introKey,
@@ -64,6 +65,7 @@ export function InfiniteTiles({
   rippleRef: React.MutableRefObject<RippleState | null>;
   panDeltaRef: React.MutableRefObject<{ x: number; y: number }>;
   dragMovedRef: React.MutableRefObject<boolean>;
+  hasGalleryRef: React.MutableRefObject<boolean>;
   active: boolean;
   running: boolean;
   introKey: number;
@@ -119,6 +121,7 @@ export function InfiniteTiles({
         zoomTarget={zoomTarget}
         panDeltaRef={panDeltaRef}
         dragMovedRef={dragMovedRef}
+        hasGalleryRef={hasGalleryRef}
         active={active}
         running={running}
         introKey={introKey}
