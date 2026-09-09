@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import * as THREE from "three";
 import { focusState, SELECTION_POP_SCALE } from "@/lib/artifact-utils";
+import { damp, dampRef } from "@/lib/damp";
 import type { Params } from "@/lib/play-params";
 
 // ─── Shared card animation — hover/selection spring, focus dim, idle tilt ──────
@@ -14,6 +15,15 @@ import type { Params } from "@/lib/play-params";
 
 // Léger grossissement au survol (non cumulatif avec la sélection)
 const HOVER_SCALE = 1.03;
+
+// ─── Spring speeds ────────────────────────────────────────────────────────────
+//  Numériquement égales aujourd'hui mais conceptuellement distinctes (scale vs
+//  rotation) — les garder séparées évite de recréer le couplage accidentel qui
+//  a causé le bug de PlaceholderMesh (voir plan 4.3/4.4). SELECTION_SPRING est
+//  aussi réutilisée par GalleryStack (ArtifactMesh.tsx) pour son propre pop de
+//  groupe — même famille d'anim que selAnim ci-dessous.
+export const SELECTION_SPRING = 0.12;
+const ROTATION_SPRING = 0.12;
 
 // ─── Focus dim config ─────────────────────────────────────────────────────────
 //  Quand un item est sélectionné, les autres cards se replient : scale ↓ +
@@ -42,14 +52,14 @@ export function useCardAnimation(paramsRef: React.MutableRefObject<Params>) {
   function tick(isSelected: boolean): { scale: number; dimAmount: number; dimmed: boolean } {
     // ── Selection spring (hover gives the same slight bump when not selected) ──
     const selTarget = isSelected ? SELECTION_POP_SCALE : hovered ? HOVER_SCALE : 1;
-    selAnim.current += (selTarget - selAnim.current) * 0.12;
+    dampRef(selAnim, selTarget, SELECTION_SPRING);
 
     // ── Focus dim : les autres cards se replient quand un item est focus ──────
     const dimmed = focusState.isActive && !isSelected;
     if (isSelected) {
       dimAnim.current = 0; // snap : la card sélectionnée ne doit jamais être dimmée
     } else {
-      dimAnim.current += ((dimmed ? 1 : 0) - dimAnim.current) * DIM_LERP;
+      dampRef(dimAnim, dimmed ? 1 : 0, DIM_LERP);
       if (dimAnim.current < 0.001) dimAnim.current = 0;
     }
 
@@ -61,7 +71,7 @@ export function useCardAnimation(paramsRef: React.MutableRefObject<Params>) {
       const idleRot = rotSeed * 2 * maxRad;
       if (rotAnim.current === null) rotAnim.current = idleRot;
       const rotTarget = isSelected ? 0 : idleRot;
-      rotAnim.current += (rotTarget - rotAnim.current) * 0.12;
+      rotAnim.current = damp(rotAnim.current, rotTarget, ROTATION_SPRING);
       groupRef.current.rotation.z = rotAnim.current;
     }
 

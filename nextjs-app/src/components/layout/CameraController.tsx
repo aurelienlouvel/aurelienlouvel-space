@@ -5,6 +5,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { triggerIntro, focusState } from "@/lib/artifact-utils";
 import { easeOutExpo, easeZoom } from "@/lib/easings";
+import { damp } from "@/lib/damp";
 
 // ─── Camera controller ────────────────────────────────────────────────────────
 //
@@ -21,6 +22,7 @@ const FOCUS_DURATION = 500; // ms — focus snap
 export const PANEL_DELAY_S = (FOCUS_DURATION * 0.75) / 1000; // seconds for Framer Motion
 
 const DRAG_THRESHOLD = 6;
+const IDLE_ZOOM_LERP = 0.22; // vitesse du dézoom de sortie de focus (lerp/frame)
 
 export function CameraController({
   selectTarget,
@@ -284,7 +286,7 @@ export function CameraController({
       // Idle: zoom lerp for exit-focus, then inertia + wheel/drag pan
       const zDiff = zoomTarget.current - cam.zoom;
       if (Math.abs(zDiff) > 0.001) {
-        cam.zoom += zDiff * 0.22;
+        cam.zoom = damp(cam.zoom, zoomTarget.current, IDLE_ZOOM_LERP);
         cam.updateProjectionMatrix();
       } else if (cam.zoom !== zoomTarget.current) {
         cam.zoom = zoomTarget.current;

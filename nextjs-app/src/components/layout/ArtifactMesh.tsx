@@ -8,8 +8,9 @@ import type { ArtifactCanvasItem, ArtifactFirstMedia } from "@/sanity/queries";
 import { buildImageUrl } from "@/lib/sanity-image";
 import { CARD_W, CARD_H, introState, outroState, OUTRO_DURATION, OUTRO_STAGGER_MAX, focusState, SELECTION_POP_SCALE, GALLERY_REVEAL_STAGGER, GALLERY_REVEAL_DURATION, GALLERY_HIDE_DURATION } from "@/lib/artifact-utils";
 import { easeOutExpo, easeOutBack } from "@/lib/easings";
+import { dampRef } from "@/lib/damp";
 import type { Params } from "@/lib/play-params";
-import { useCardAnimation, DIM_SCALE } from "./useCardAnimation";
+import { useCardAnimation, DIM_SCALE, SELECTION_SPRING } from "./useCardAnimation";
 
 // ─── Card rounded-corner alpha map ───────────────────────────────────────────
 //  3× supersampling for smooth anti-aliased edges.
@@ -72,6 +73,7 @@ const OFF_FOCUS = 10;   // world-units — tighter when selected
 
 const ARM = 28;  // arm length in world units
 const TH  = 2.0; // stroke thickness
+const BRACKET_LERP = 0.14; // vitesse d'approche/opacité des brackets (lerp/frame)
 
 // Canvas sized for the maximum gap so we never need to regenerate
 const OFF_MAX = OFF_START;
@@ -163,14 +165,14 @@ function CornerBrackets({
 
     // ── Opacity: 0 idle, 0.75 hover, 0 selected (hidden once focused) ───────────
     const opTarget = isSelected ? 0 : hovered ? 0.75 : 0;
-    opAnim.current += (opTarget - opAnim.current) * 0.14;
+    dampRef(opAnim, opTarget, BRACKET_LERP);
     if (opAnim.current < 0.005) opAnim.current = 0;
     if (opAnim.current > 0.995) opAnim.current = 1;
     mat.opacity = opAnim.current;
 
     // ── Gap: lerp toward OFF_NEAR (hover) or OFF_FOCUS (selected) ───────────────
     const offTarget = isSelected ? OFF_FOCUS : OFF_NEAR;
-    offAnim.current += (offTarget - offAnim.current) * 0.14;
+    dampRef(offAnim, offTarget, BRACKET_LERP);
 
     // Scale mesh so brackets appear at the animated distance from card edge
     const curW = cardW + 2 * offAnim.current;
@@ -636,7 +638,7 @@ function GalleryStack({
     // deselect, so the handoff back to MeshBody once GalleryStack finally
     // unmounts never has a visible scale jump.
     const scaleTarget = isSelected ? SELECTION_POP_SCALE : 1;
-    scaleAnim.current += (scaleTarget - scaleAnim.current) * 0.12;
+    dampRef(scaleAnim, scaleTarget, SELECTION_SPRING);
     groupRef.current.scale.setScalar(scaleAnim.current);
     // Wrap into [0, period) — scrolling past either end cycles back around
     // instead of stopping, matching the canvas's own infinite-tiling feel.
