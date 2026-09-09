@@ -1,4 +1,3 @@
-import { buildImageUrl } from "./sanity-image";
 import type { ArtifactCanvasItem } from "@/sanity/queries";
 
 // ─── Card dimensions ──────────────────────────────────────────────────────────
@@ -61,18 +60,39 @@ export function triggerOutro(): void {
 }
 
 // ─── Focus dim state ──────────────────────────────────────────────────────────
-// When a card is focused, all other cards dim toward DIM_OPACITY.
-export const focusState = { isActive: false };
-export const DIM_OPACITY = 0;
+// When a card is focused, all other cards fade toward fully transparent (see
+// ArtifactMesh.tsx's useCardAnimation hook for the actual formula).
+// hasGallery/scrollOffset/scrollPeriod bridge the in-canvas gallery stack
+// (ArtifactMesh.tsx's GalleryStack) with CameraController's wheel/drag
+// handlers (InfiniteCanvas.tsx) — same "module-level mutable state read every
+// frame" idiom as isActive, just for the focused artifact's own scroll.
+// scrollOffset accumulates unclamped (raw wheel/drag delta) — GalleryStack
+// wraps it modulo scrollPeriod itself, so the gallery loops infinitely
+// instead of stopping at the first/last item.
+export const focusState = {
+  isActive: false,
+  hasGallery: false,
+  scrollOffset: 0,
+  scrollPeriod: 0,
+};
 
-/**
- * Retourne l'URL de l'image de couverture d'un artifact.
- * Importable partout (server + client), aucune dépendance browser.
- */
-export function getArtifactImageUrl(artifact: ArtifactCanvasItem): string | null {
-  const m = artifact.firstMedia;
-  if (!m || m._type === "galleryVideo") return null;
-  return m.imageRef
-    ? buildImageUrl(m.imageRef, m.imageUrl, m.imageHotspot, m.imageCrop, { width: 1280, quality: 80 })
-    : (m.imageUrl ?? null);
-}
+// ─── Selection pop scale ──────────────────────────────────────────────────────
+// Scale bump applied to a card's mesh when it becomes the focused item (see
+// ArtifactMesh.tsx's MeshBody). InfiniteCanvas.tsx's focus-zoom-box math
+// multiplies the same factor into the target box so the camera zoom accounts
+// for the mesh's actual popped size — keep both in sync via this constant.
+export const SELECTION_POP_SCALE = 1.12;
+
+// ─── Gallery reveal animation ───────────────────────────────────────────────
+// Tuning for the stacked media BEYOND the clicked item (index 0) in
+// ArtifactMesh.tsx's GalleryStack: a small staggered fade+scale-in when an
+// artifact is selected, and a matching fade-out when it's deselected. Item 0
+// keeps its own existing pop treatment and is never touched by this.
+// The animation clock itself is a ref local to each GalleryStack instance
+// (not module state here) — a shared clock would let a fast deselect-A /
+// select-B (both galleries) reset A's timer while it's still playing its
+// exit fade, snapping its items back to "revealing" instead of continuing
+// to hide. See GalleryStack's revealStart ref.
+export const GALLERY_REVEAL_STAGGER  = 55;  // ms between each item's start
+export const GALLERY_REVEAL_DURATION = 340; // ms — per-item fade+scale-in
+export const GALLERY_HIDE_DURATION   = 240; // ms — per-item fade-out on deselect
