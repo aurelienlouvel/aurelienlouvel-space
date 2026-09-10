@@ -24,11 +24,18 @@ export const PANEL_DELAY_S = (FOCUS_DURATION * 0.75) / 1000; // seconds for Fram
 const DRAG_THRESHOLD = 6;
 const IDLE_ZOOM_LERP = 0.22; // vitesse du dézoom de sortie de focus (lerp/frame)
 
-// zoomInFocusRef bascule seulement une fois le zoom caméra passé ce seuil —
-// distinct de focusState.isActive (bascule au clic, synchrone, avant même le
-// début du zoom). Permet à un wheel/drag tiré juste après le clic d'annuler
-// le focus avant que le zoom ait vraiment bougé.
-const FOCUS_ZOOM_THRESHOLD = 1.01;
+// focusLockedRef bascule seulement un court instant après le DÉBUT du snap de
+// focus — distinct de focusState.isActive (bascule au clic, synchrone, avant
+// même le début de l'anim caméra). Permet à un wheel/drag tiré juste après le
+// clic d'annuler le focus avant que la caméra ait vraiment commencé à bouger.
+// Basé sur le temps écoulé depuis focusAnim.startTime, PAS sur une valeur de
+// zoom absolue : depuis que computeFocusZoom cible une fraction de largeur
+// d'écran (focusWidthFrac), le zoom focus peut légitimement être < 1 pour une
+// grande card sur un petit viewport — un seuil comme `cam.zoom > 1.01` n'est
+// plus un proxy fiable de "la caméra a commencé à bouger" (il ne se
+// déclenchait alors quasiment jamais, laissant le pan/scroll actif même en
+// focus).
+const FOCUS_LOCK_DELAY_MS = 30;
 const VELOCITY_WINDOW_MS   = 80; // ms — fenêtre glissante pour la vélocité de release
 const DRAG_MOVED_RESET_MS  = 50; // ms — debounce avant que dragMovedRef retombe à false
 const INERTIA_FRICTION     = -2.5; // décroissance exponentielle de la vélocité post-drag
@@ -54,7 +61,7 @@ export function CameraController({
 }) {
   const { camera } = useThree();
   const wheel = useRef({ x: 0, y: 0 });
-  const zoomInFocusRef = useRef(false);
+  const focusLockedRef = useRef(false);
   const velocityRef = useRef({ x: 0, y: 0 }); // inertia after drag release
   // Time-based intro zoom animation (null = not running)
   const zoomAnim = useRef<{ startTime: number; fromZoom: number } | null>(null);
@@ -73,7 +80,7 @@ export function CameraController({
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      if (zoomInFocusRef.current) {
+      if (focusLockedRef.current) {
         // Focused → wheel never pans the camera or exits focus anymore; only
         // clicking outside the card does (onPointerMissed → handleDeselect).
         // Redirect into the gallery stack if there's one to scroll
@@ -121,7 +128,7 @@ export function CameraController({
       // Focused → drag never pans the camera or exits focus anymore; only
       // clicking outside the card does. If there's a gallery, drag scrolls it
       // instead; otherwise the drag is simply swallowed (see onMove below).
-      focusedDrag = zoomInFocusRef.current;
+      focusedDrag = focusLockedRef.current;
       scrollingGallery = focusedDrag && hasGalleryRef.current;
       dragActive = true;
       startX = lastX = e.clientX;
@@ -326,7 +333,12 @@ export function CameraController({
       panDeltaRef.current.y = 0;
     }
 
-    zoomInFocusRef.current = cam.zoom > FOCUS_ZOOM_THRESHOLD;
+    // Locked once focused AND the snap has had a brief instant to actually
+    // start moving (or has already finished — focusAnim.current is null once
+    // settled). Not focused at all → never locked (idle browsing).
+    focusLockedRef.current =
+      focusState.isActive &&
+      (!focusAnim.current || performance.now() - focusAnim.current.startTime > FOCUS_LOCK_DELAY_MS);
   });
   /* eslint-enable react-hooks/immutability */
 

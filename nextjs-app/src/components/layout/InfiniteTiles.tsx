@@ -6,7 +6,7 @@ import * as THREE from "three";
 import type { MotionValue } from "motion/react";
 import type { ArtifactCanvasItem } from "@/sanity/queries";
 import { ArtifactMesh } from "./ArtifactMesh";
-import { CARD_W } from "@/lib/artifact-utils";
+import { CARD_W, STACK_LAYER_COUNT, _videoDimsCache } from "@/lib/artifact-utils";
 import type { Params } from "@/lib/play-params";
 import type { TileLayout } from "@/lib/play-tile-layout";
 import type {
@@ -169,6 +169,16 @@ export function InfiniteTiles({
                     )
                   }
                   videoTexture={videoTextures.get(item._id)}
+                  stackVideoTextures={item.gallery
+                    ?.slice(1, 1 + STACK_LAYER_COUNT)
+                    .map((_, gi) => videoTextures.get(`${item._id}:${gi + 1}`))}
+                  // Reference height (at CARD_W, pre-cardScale — same convention
+                  // as getCardHeight()) for stack-layer videos whose ratio has
+                  // been runtime-detected — see usePlayVideoTextures.ts. undefined
+                  // until detected; ArtifactMesh.tsx falls back to 16:9 meanwhile.
+                  stackVideoRefHeights={item.gallery
+                    ?.slice(1, 1 + STACK_LAYER_COUNT)
+                    .map((_, gi) => _videoDimsCache.get(`${item._id}:${gi + 1}`))}
                   paramsRef={paramsRef}
                 />
               </Suspense>

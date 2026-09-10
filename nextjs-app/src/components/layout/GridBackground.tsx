@@ -5,6 +5,10 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { DEFAULT_PARAMS, type Params } from "@/lib/play-params";
 import type { CameraState, RippleState } from "@/lib/play-types";
+import { focusState } from "@/lib/artifact-utils";
+import { dampRef } from "@/lib/damp";
+
+const DOT_FADE_LERP = 0.12; // vitesse de fondu des dots à l'entrée/sortie du focus
 
 // ─── Background dots + click ripple ───────────────────────────────────────────
 export function GridBackground({
@@ -18,6 +22,7 @@ export function GridBackground({
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const { camera, size } = useThree();
+  const dotFade = useRef(0); // 0 = dots visibles, 1 = complètement effacés (focus actif)
 
   const material = useMemo(
     () =>
@@ -33,6 +38,7 @@ export function GridBackground({
           uRippleSpeed: { value: DEFAULT_PARAMS.rippleSpeed },
           uRippleWidth: { value: DEFAULT_PARAMS.rippleWidth },
           uRippleDuration: { value: DEFAULT_PARAMS.rippleDuration },
+          uDotFade: { value: 0 },
         },
         vertexShader: `
       varying vec2 vWorldPos;
@@ -51,11 +57,12 @@ export function GridBackground({
       uniform float uRippleSpeed;
       uniform float uRippleWidth;
       uniform float uRippleDuration;
+      uniform float uDotFade;
       varying vec2 vWorldPos;
       void main() {
         vec2 cell = mod(vWorldPos + uGridSize * 0.5, uGridSize) - uGridSize * 0.5;
         float dist = length(cell);
-        float alpha = 1.0 - smoothstep(uDotRadius - 0.5, uDotRadius + 0.5, dist);
+        float alpha = (1.0 - smoothstep(uDotRadius - 0.5, uDotRadius + 0.5, dist)) * (1.0 - uDotFade);
 
         // Pixel-art ripple: quantize world position into blocks BEFORE the
         // distance calc, so the ring expands in chunky steps, not a smooth circle.
@@ -92,6 +99,9 @@ export function GridBackground({
     material.uniforms.uRippleSpeed.value = q.rippleSpeed;
     material.uniforms.uRippleWidth.value = q.rippleWidth;
     material.uniforms.uRippleDuration.value = q.rippleDuration;
+    // Dots s'effacent pendant le focus (voir focusState.isActive) — la grille
+    // ne doit pas rivaliser visuellement avec le média/panel au premier plan.
+    material.uniforms.uDotFade.value = dampRef(dotFade, focusState.isActive ? 1 : 0, DOT_FADE_LERP);
 
     const ripple = rippleRef.current;
     if (ripple) {

@@ -194,7 +194,11 @@ export function InfiniteCanvas({
       zoomTargetRef.current = 1.0;
       panelX.set(-9999);
       hasGalleryRef.current = false;
-      focusState.scrollOffset = 0;
+      // scrollOffset is deliberately NOT reset here (unlike handleSelect
+      // below) — GalleryStack stays mounted through its own exit-fade grace
+      // window (see useDelayedFalse in ArtifactMesh.tsx) and eases it back
+      // to rest itself, so the stack settles into place instead of jump-
+      // cutting past wherever the user had scrolled to.
       if (e) triggerRippleAt(e.clientX, e.clientY);
     },
     [panelX, triggerRippleAt],
@@ -253,13 +257,14 @@ export function InfiniteCanvas({
         vh,
         mobile,
         q.focusZoomIntensity,
-        q.camOffsetX,
-        q.gapPanel,
+        q.focusWidthFrac,
       );
 
-      // Cadrage caméra : card en haut (mobile, panel dessous) ou décalée à
-      // gauche (desktop, panel à droite).
-      const targetX = mobile ? point[0] : point[0] + q.camOffsetX / z;
+      // Cadrage caméra : card en haut (mobile, panel dessous) ou centrée sur
+      // focusCenterFrac (règle des tiers par défaut, desktop, panel à droite).
+      const targetX = mobile
+        ? point[0]
+        : point[0] + ((0.5 - q.focusCenterFrac) * vw) / z;
       // Mobile : la card peut désormais remplir toute la largeur de l'écran,
       // donc être bien plus haute qu'avant — on la cale près du haut avec
       // juste assez de marge pour que son bord supérieur ne sorte jamais de

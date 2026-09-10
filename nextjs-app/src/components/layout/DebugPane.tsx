@@ -212,11 +212,17 @@ export function DebugPane({
 
       // ── Camera ──────────────────────────────────────────────────────────────
       const cam = pane.addFolder({ title: "Camera", expanded: false });
-      cam.addBinding(q, "camOffsetX", {
-        label: "cam offset X",
-        min: 0,
-        max: 400,
-        step: 5,
+      cam.addBinding(q, "focusWidthFrac", {
+        label: "focus width %",
+        min: 0.1,
+        max: 0.6,
+        step: 0.01,
+      });
+      cam.addBinding(q, "focusCenterFrac", {
+        label: "focus center %",
+        min: 0.1,
+        max: 0.9,
+        step: 0.01,
       });
       cam.addBinding(q, "focusVCenter", {
         label: "v-center (0↑ · 1↓)",
@@ -238,6 +244,12 @@ export function DebugPane({
         min: 8,
         max: 100,
         step: 4,
+      });
+      panel.addBinding(q, "panelVAnchor", {
+        label: "v-anchor (0↓ · 1↑)",
+        min: 0,
+        max: 1,
+        step: 0.01,
       });
 
       // ── Dots ────────────────────────────────────────────────────────────────

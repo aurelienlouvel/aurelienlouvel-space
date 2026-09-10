@@ -1,38 +1,12 @@
 // ─── Adaptive focus zoom ───────────────────────────────────────────────────────
-//  Au select, le zoom fait RENTRER la card dans une boîte cible (largeur/hauteur
-//  max). Desktop : la card remplit toute la hauteur de l'écran, décalée à
-//  gauche (panel à droite). Mobile : la card remplit toute la largeur de
-//  l'écran, en haut (panel dessous).
+//  Desktop : le média focus mesure une fraction fixe de la largeur d'écran
+//  (focusWidthFrac), centrée horizontalement sur focusCenterFrac (règle des
+//  tiers par défaut — 1/3 — le panel occupe le reste à droite, voir
+//  InfiniteCanvas.tsx's handleSelect pour le calcul de targetX correspondant).
+//  Mobile : la card remplit toute la largeur de l'écran, en haut (panel dessous).
 export const FOCUS_MIN_ZOOM = 0.85;
 export const FOCUS_MAX_ZOOM = 12; // généreux — une card courte/paysage a besoin de
                                    // beaucoup de zoom pour remplir toute la hauteur
-export const PANEL_WIDTH  = 256; // ArtifactInfo est en w-64 fixe
-export const PANEL_MARGIN = 24; // marge de respiration avec le bord droit de l'écran
-
-//  Boîte cible : desktop PRIORISE la hauteur (h → toute la hauteur), mobile
-//  PRIORISE la largeur (wMax → toute la largeur). L'autre axe n'est qu'un
-//  garde-fou pour éviter qu'un média extrême (panorama / portrait très haut)
-//  ne déborde. wMax desktop réserve la place du panel — même décalage
-//  camOffsetX que celui utilisé dans handleSelect pour caler la caméra.
-export function focusBox(
-  vw: number,
-  vh: number,
-  mobile: boolean,
-  intensity: number,
-  camOffsetX: number,
-  gapPanel: number,
-) {
-  const box = mobile
-    ? { h: vh * 0.85, wMax: vw }
-    : {
-        h: vh,
-        wMax: Math.max(
-          vw * 0.35,
-          vw + 2 * camOffsetX - 2 * (gapPanel + PANEL_WIDTH + PANEL_MARGIN),
-        ),
-      };
-  return { h: box.h * intensity, wMax: box.wMax }; // intensity ne tempère que la hauteur
-}
 
 export function computeFocusZoom(
   worldW: number,
@@ -41,11 +15,18 @@ export function computeFocusZoom(
   vh: number,
   mobile: boolean,
   intensity: number,
-  camOffsetX: number,
-  gapPanel: number,
+  widthFrac: number,
 ) {
-  const { h, wMax } = focusBox(vw, vh, mobile, intensity, camOffsetX, gapPanel);
-  const z = Math.min(h / worldH, wMax / worldW); // axe prioritaire vs. garde-fou
+  if (!mobile) {
+    // Largeur cible fixe — le zoom en découle directement, pas de box-fit
+    // hauteur/panel (le panel ne réserve plus d'espace dans ce calcul).
+    const z = (widthFrac * vw) / worldW;
+    return Math.max(FOCUS_MIN_ZOOM, Math.min(FOCUS_MAX_ZOOM, z));
+  }
+  // Mobile : la card remplit toute la largeur de l'écran (panel dessous) —
+  // hauteur bornée par intensity, garde-fou pour les médias très hauts.
+  const h = vh * 0.85 * intensity;
+  const z = Math.min(h / worldH, vw / worldW);
   return Math.max(FOCUS_MIN_ZOOM, Math.min(FOCUS_MAX_ZOOM, z));
 }
 

@@ -6,7 +6,7 @@ import { useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import type { ArtifactCanvasItem, ArtifactFirstMedia } from "@/sanity/queries";
 import { buildImageUrl } from "@/lib/sanity-image";
-import { CARD_W, CARD_H, introState, outroState, OUTRO_DURATION, OUTRO_STAGGER_MAX, focusState, SELECTION_POP_SCALE, GALLERY_REVEAL_STAGGER, GALLERY_REVEAL_DURATION, GALLERY_HIDE_DURATION } from "@/lib/artifact-utils";
+import { CARD_W, CARD_H, MIN_CARD_H, MAX_CARD_H, introState, outroState, OUTRO_DURATION, OUTRO_STAGGER_MAX, focusState, SELECTION_POP_SCALE, GALLERY_REVEAL_STAGGER, GALLERY_REVEAL_DURATION, GALLERY_HIDE_DURATION, GALLERY_SCROLL_SNAP_DURATION, STACK_LAYER_COUNT } from "@/lib/artifact-utils";
 import { easeOutExpo, easeOutBack } from "@/lib/easings";
 import { dampRef } from "@/lib/damp";
 import type { Params } from "@/lib/play-params";
@@ -15,12 +15,18 @@ import { useCardAnimation, DIM_SCALE, SELECTION_SPRING } from "./useCardAnimatio
 // ─── Card rounded-corner alpha map ───────────────────────────────────────────
 //  3× supersampling for smooth anti-aliased edges.
 const CARD_RADIUS = 24;
-const _alphaCache = new Map<number, THREE.Texture>();
+// Keyed by "w_h" (not just h) — every call site used to pass a constant
+// reference w (CARD_W), so caching by h alone was safe; the gallery's wheel
+// effect (see GalleryPlane) now varies w per item too (row layout: fixed
+// height, variable width), so an h-only key would collide two different-
+// aspect items onto the same cached mask and stretch its rounded corners.
+const _alphaCache = new Map<string, THREE.Texture>();
 const SS          = 3;
 
 function getRoundedAlpha(w: number, h: number): THREE.Texture | null {
   if (typeof document === "undefined") return null;
-  if (_alphaCache.has(h)) return _alphaCache.get(h)!;
+  const key = `${Math.round(w)}_${Math.round(h)}`;
+  if (_alphaCache.has(key)) return _alphaCache.get(key)!;
 
   const canvas = document.createElement("canvas");
   canvas.width  = w * SS;
@@ -49,7 +55,7 @@ function getRoundedAlpha(w: number, h: number): THREE.Texture | null {
   tex.minFilter       = THREE.LinearFilter;
   tex.magFilter       = THREE.LinearFilter;
   tex.generateMipmaps = false;
-  _alphaCache.set(h, tex);
+  _alphaCache.set(key, tex);
   return tex;
 }
 
@@ -203,6 +209,19 @@ type SharedProps = {
   onSelect:   (point: [number, number]) => void;
   cardScale?: number;
   cardH?:     number;
+  // Backing layers for the idle-grid stack hint (see StackLayers) — the
+  // artifact's OWN other gallery media (gallery[1..STACK_LAYER_COUNT]), real
+  // content, not a placeholder. videoTextures is index-aligned with
+  // stackMedia and only meaningful where that slot is a galleryVideo — see
+  // usePlayVideoTextures.ts for how/why these are pre-shared across
+  // InfiniteTiles' 9 tile copies.
+  stackMedia?: ArtifactFirstMedia[];
+  stackVideoTextures?: (THREE.VideoTexture | undefined)[];
+  // Reference height (at CARD_W, pre-cardScale) for stack-layer videos whose
+  // ratio has been runtime-detected — index-aligned with stackMedia, see
+  // usePlayVideoTextures.ts. undefined until detected (StackLayers falls
+  // back to a 16:9 guess meanwhile).
+  stackVideoRefHeights?: (number | undefined)[];
   paramsRef:  React.MutableRefObject<Params>;
 };
 
@@ -216,6 +235,166 @@ const INTRO_STAGGER_MAX = 240; // more spread → visible wave effect
 const DEFAULT_RAYCAST: THREE.Mesh["raycast"] = THREE.Mesh.prototype.raycast;
 const NOOP_RAYCAST: THREE.Mesh["raycast"] = () => {};
 
+// ─── Gallery stack indicator (idle grid view) ────────────────────────────────
+//  Artifacts with more than one gallery media render a couple of extra REAL
+//  media planes (gallery[1..STACK_LAYER_COUNT], own texture each) behind the
+//  front card — each with a small random rotation and offset baked in once
+//  at mount (see makeStackLayers) — reading as a stack of photos, hinting
+//  "there's more" before the artifact is even clicked. Purely decorative:
+//  NOOP_RAYCAST so clicks always land on the front card, never these. Shared
+//  by MeshBody and PlaceholderMesh below.
+//  Images load via useTexture's own URL cache — free dedup across
+//  InfiniteTiles' 9 tile copies, no duplicate fetch/upload (same reasoning as
+//  GalleryStackImageItem below). Videos NEVER decode their own <video> here —
+//  they reuse the texture usePlayVideoTextures.ts already created and shared
+//  across those same 9 copies (stackVideoTextures prop); doing our own decode
+//  per layer would multiply it up to 9× for nothing.
+const STACK_ROTATION_MAX  = 6; // degrees — random tilt range per layer
+const STACK_OFFSET_MAX    = 5; // world units — random xy nudge range per layer
+const STACK_LAYER_OPACITY = [0.92, 0.8]; // per layer, nearest-to-front first
+
+type StackLayer = { rot: number; dx: number; dy: number };
+
+function makeStackLayers(count: number): StackLayer[] {
+  return Array.from({ length: count }, () => ({
+    rot: (Math.random() * 2 - 1) * STACK_ROTATION_MAX,
+    dx:  (Math.random() * 2 - 1) * STACK_OFFSET_MAX,
+    dy:  (Math.random() * 2 - 1) * STACK_OFFSET_MAX,
+  }));
+}
+
+// Applies the SAME live scale/opacity already driving the front card's own
+// mesh this frame (see useCardAnimation.ts's tick()) to every backing layer —
+// called inline from MeshBody/PlaceholderMesh's existing useFrame, never
+// through React props, or it would only refresh on re-render.
+function applyStackFrame(
+  refs: React.MutableRefObject<(THREE.Mesh | null)[]>,
+  scale: number,
+  frontOpacity: number,
+) {
+  refs.current.forEach((mesh, i) => {
+    if (!mesh) return;
+    const mat = mesh.material as THREE.MeshBasicMaterial;
+    const layerOpacity = STACK_LAYER_OPACITY[i] ?? STACK_LAYER_OPACITY[STACK_LAYER_OPACITY.length - 1];
+    mat.opacity = frontOpacity * layerOpacity;
+    mesh.scale.setScalar(scale);
+    mesh.visible = mat.opacity > 0.001;
+  });
+}
+
+// One backing layer's plane — position/rotation from its randomized layer,
+// registers into stackRefs (index-aligned with the owning StackLayers' media
+// array) so applyStackFrame can drive it every frame. NOOP_RAYCAST: never
+// intercepts clicks, purely decorative.
+function StackLayerPlane({
+  layer, index, texture, w, h, stackRefs,
+}: {
+  layer: StackLayer; index: number; texture: THREE.Texture;
+  w: number; h: number; stackRefs: React.MutableRefObject<(THREE.Mesh | null)[]>;
+}) {
+  return (
+    <mesh
+      ref={(m) => {
+        // stackRefs is a ref threaded down as a prop (owned by MeshBody/
+        // PlaceholderMesh, populated here so their useFrame can drive every
+        // backing layer) — same imperative-ref-as-prop idiom as elsewhere in
+        // this file (e.g. GalleryPlane's revealStartRef), not accidental
+        // prop mutation.
+        // eslint-disable-next-line react-hooks/immutability
+        stackRefs.current[index] = m;
+        if (m) m.raycast = NOOP_RAYCAST;
+      }}
+      position={[layer.dx, layer.dy, -0.02 * (index + 1)]}
+      rotation={[0, 0, (layer.rot * Math.PI) / 180]}
+    >
+      <planeGeometry args={[w, h]} />
+      <meshBasicMaterial
+        map={texture}
+        toneMapped={false}
+        transparent
+        opacity={0}
+        depthWrite={false}
+        alphaMap={getRoundedAlpha(CARD_W, h) ?? undefined}
+      />
+    </mesh>
+  );
+}
+
+// Image backing layer — useTexture caches by URL, so this dedupes for free
+// across InfiniteTiles' 9 tile copies (same texture, no duplicate fetch),
+// same idiom as GalleryStackImageItem/ImageMesh elsewhere in this file.
+function StackLayerImage({
+  url, layer, index, w, h, stackRefs,
+}: {
+  url: string; layer: StackLayer; index: number; w: number; h: number;
+  stackRefs: React.MutableRefObject<(THREE.Mesh | null)[]>;
+}) {
+  const texture = useTexture(url);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+  }, [texture]);
+  return <StackLayerPlane layer={layer} index={index} texture={texture} w={w} h={h} stackRefs={stackRefs} />;
+}
+
+// Per-layer height honouring EACH layer's own aspect ratio — layers used to
+// be forced uniformly into the FRONT card's h, stretching any layer whose
+// native aspect differed from the front card's (e.g. a landscape photo
+// stacked behind a portrait front card rendered squashed into portrait).
+// Images: real Sanity asset dimensions. Videos: runtime-detected reference
+// height (see usePlayVideoTextures.ts), rescaled from CARD_W to this card's
+// actual w; falls back to a 16:9 guess until detected.
+function stackLayerHeight(m: ArtifactFirstMedia, w: number, videoRefH: number | undefined): number {
+  if (m._type === "galleryImage" && m.imageWidth && m.imageHeight) {
+    return Math.max(MIN_CARD_H, Math.min(MAX_CARD_H, Math.round((w * m.imageHeight) / m.imageWidth)));
+  }
+  if (m._type === "galleryVideo") {
+    if (videoRefH) return Math.max(MIN_CARD_H, Math.min(MAX_CARD_H, Math.round(videoRefH * (w / CARD_W))));
+    return Math.round((w * 9) / 16); // fallback until runtime-detected
+  }
+  return CARD_H;
+}
+
+function StackLayers({
+  media, videoTextures, videoRefHeights, layers, stackRefs, w,
+}: {
+  media:           ArtifactFirstMedia[]; // stackMedia — gallery[1..STACK_LAYER_COUNT]
+  videoTextures:   (THREE.VideoTexture | undefined)[]; // index-aligned with media
+  videoRefHeights: (number | undefined)[]; // index-aligned with media, video slots only
+  layers:          StackLayer[]; // index-aligned with media (see makeStackLayers)
+  stackRefs:       React.MutableRefObject<(THREE.Mesh | null)[]>;
+  w: number;
+}) {
+  return (
+    <>
+      {media.map((m, i) => {
+        const layer = layers[i];
+        if (!layer) return null;
+        const h = stackLayerHeight(m, w, videoRefHeights[i]);
+        if (m._type === "galleryVideo") {
+          const tex = videoTextures[i];
+          if (!tex) return null; // shared texture not created yet — see usePlayVideoTextures.ts
+          return (
+            <StackLayerPlane
+              key={i} layer={layer} index={i} texture={tex} w={w} h={h} stackRefs={stackRefs}
+            />
+          );
+        }
+        const src = m.imageRef
+          ? buildImageUrl(m.imageRef, m.imageUrl, m.imageHotspot, m.imageCrop, { width: 640, quality: 70 })
+          : m.imageUrl;
+        if (!src) return null;
+        return (
+          <Suspense key={i} fallback={null}>
+            <StackLayerImage url={src} layer={layer} index={i} w={w} h={h} stackRefs={stackRefs} />
+          </Suspense>
+        );
+      })}
+    </>
+  );
+}
+
 // ─── MeshBody — image or video card ──────────────────────────────────────────
 function MeshBody({
   texture,
@@ -224,6 +403,9 @@ function MeshBody({
   onSelect,
   cardScale = 1,
   cardH = CARD_H,
+  stackMedia = [],
+  stackVideoTextures = [],
+  stackVideoRefHeights = [],
   paramsRef,
 }: SharedProps & { texture: THREE.Texture }) {
   const { meshRef, groupRef, hovered, setHovered, tick } = useCardAnimation(paramsRef);
@@ -232,6 +414,8 @@ function MeshBody({
   const [staggerMs] = useState(() => Math.random() * INTRO_STAGGER_MAX);
   // Outro stagger is a scaled-down version of intro stagger (same relative order)
   const outroStaggerMs = staggerMs * (OUTRO_STAGGER_MAX / INTRO_STAGGER_MAX);
+  const [stackLayers] = useState(() => makeStackLayers(stackMedia.length));
+  const stackRefs = useRef<(THREE.Mesh | null)[]>([]);
 
   const w = CARD_W * cardScale;
   const h = cardH  * cardScale;
@@ -277,10 +461,19 @@ function MeshBody({
       // repliée → non-cliquable (le clic traverse et désélectionne)
       meshRef.current.raycast = dimmed ? NOOP_RAYCAST : DEFAULT_RAYCAST;
     }
+    if (stackLayers.length > 0) {
+      applyStackFrame(stackRefs, scale * scaleBoost * (1 - DIM_SCALE * dimAmount), finalOpacity);
+    }
   });
 
   return (
     <group ref={groupRef} position={[worldPos[0], worldPos[1], 0]}>
+      {stackLayers.length > 0 && (
+        <StackLayers
+          media={stackMedia} videoTextures={stackVideoTextures} videoRefHeights={stackVideoRefHeights}
+          layers={stackLayers} stackRefs={stackRefs} w={w}
+        />
+      )}
       <mesh
         ref={meshRef}
         onPointerOver={(e) => { e.stopPropagation(); setHovered(true); document.body.style.cursor = "pointer"; }}
@@ -307,9 +500,12 @@ function MeshBody({
 
 // ─── Placeholder (no media) ───────────────────────────────────────────────────
 function PlaceholderMesh({
-  worldPos, isSelected, onSelect, cardScale = 1, cardH = CARD_H, paramsRef,
+  worldPos, isSelected, onSelect, cardScale = 1, cardH = CARD_H,
+  stackMedia = [], stackVideoTextures = [], stackVideoRefHeights = [], paramsRef,
 }: SharedProps) {
   const { meshRef, groupRef, hovered, setHovered, tick } = useCardAnimation(paramsRef);
+  const [stackLayers] = useState(() => makeStackLayers(stackMedia.length));
+  const stackRefs = useRef<(THREE.Mesh | null)[]>([]);
 
   const w = CARD_W * cardScale;
   const h = cardH  * cardScale;
@@ -323,10 +519,19 @@ function PlaceholderMesh({
       meshRef.current.visible = 1 - dimAmount > 0.001;
       meshRef.current.raycast = dimmed ? NOOP_RAYCAST : DEFAULT_RAYCAST;
     }
+    if (stackLayers.length > 0) {
+      applyStackFrame(stackRefs, scale * (1 - DIM_SCALE * dimAmount), 1 - dimAmount);
+    }
   });
 
   return (
     <group ref={groupRef} position={[worldPos[0], worldPos[1], 0]}>
+      {stackLayers.length > 0 && (
+        <StackLayers
+          media={stackMedia} videoTextures={stackVideoTextures} videoRefHeights={stackVideoRefHeights}
+          layers={stackLayers} stackRefs={stackRefs} w={w}
+        />
+      )}
       <mesh
         ref={meshRef}
         onPointerOver={(e) => { e.stopPropagation(); setHovered(true); document.body.style.cursor = "pointer"; }}
@@ -366,30 +571,66 @@ function ImageMesh({ url, ...rest }: SharedProps & { url: string }) {
 // ─── Gallery stack ────────────────────────────────────────────────────────────
 //  Real, unmasked, scrollable in-canvas replacement for the single mesh once a
 //  focused artifact has more than one gallery media — every item stacked
-//  top-to-bottom as its own plane (own rounded-corner mask, no rotation), gap
-//  between each. Loops infinitely: scrolling past the last item wraps back to
-//  the first (and vice versa), same "endless" spirit as the background grid's
-//  own tiling. Scroll input is redirected here by CameraController's
+//  top-to-bottom as its own plane (own rounded-corner mask), gap between
+//  each — always a vertical column, desktop and mobile alike (only the PANEL
+//  docks differently: left of the media on desktop, below it on mobile — see
+//  PanelPositioner/play-focus-zoom.ts, unrelated to this axis). Loops
+//  infinitely: scrolling past the last item wraps back to the first (and
+//  vice versa), same "endless" spirit as the background grid's own tiling.
+//  Scroll input is redirected here by CameraController's
 //  onWheel/onDown/onMove via focusState.scrollOffset instead of panning the
 //  camera — see artifact-utils.ts.
 const STACK_GAP = 24; // world units between stacked items (incl. gap on wrap)
 // Loop copies rendered per item (prev/current/next period) so the wrap reads
 // seamlessly right up to the viewport edges — see GalleryStack's useFrame.
 const LOOP_COPIES = [-1, 0, 1] as const;
+// Items 1+ pop in/out as they reveal (and reverse as they hide): slide up
+// from below their resting spot and scale up from smaller — see
+// GalleryPlane's useFrame. World +Y is up on screen, so a positive offset
+// subtracted from the resting Y starts/ends the item BELOW its resting
+// position. Rotation is NOT part of this — that's the continuous wheel-tilt
+// below, which already covers every item (including mid-reveal ones).
+const GALLERY_REVEAL_SLIDE      = 130; // world units travelled vertically
+const GALLERY_REVEAL_SCALE_FROM = 0.7; // starting/ending scale (settles to 1)
 
-// Item 0 (the clicked media) keeps a constant, fully-opaque look here — its
-// own transition is the group-level pop in GalleryStack's scaleAnim. Items 1+
-// cascade in (staggered fade+scale) when selected, and fade back out on
-// deselect. isSelected/revealStartRef come from the owning GalleryStack —
-// revealStartRef is a ref (read fresh every frame, not a snapshot prop) so
-// the animation restarts the instant it's reset, even if this instance never
-// actually unmounted (e.g. a fast reselect during the exit grace window —
-// see ArtifactMesh's useDelayedFalse).
+// "Wheel" scroll tilt — every item rotates in-plane (rotation.z) by an amount
+// that grows with its live distance from the centered/focused slot (its
+// resting Y plus the current scroll offset) and passes back through 0° right
+// at center — "pivote pour être bien orienté": whichever item is centered
+// reads flat/upright, and items ramp away from that the further they've
+// scrolled off, like frames on a rolling wheel/reel tipping in and out of
+// view. Sign follows which side of center the item currently sits on, so it
+// swings smoothly through 0 as an item crosses center rather than jumping.
+// TILT_RADIUS is in the same world-unit space as CARD_W/STACK_GAP (NOT
+// screen pixels), picked so a neighbouring item already shows a clear tilt
+// without needing to scroll far. See GalleryPlane's useFrame.
+const GALLERY_WHEEL_TILT_RADIUS = 400; // world units — distance at which tilt saturates
+const GALLERY_WHEEL_TILT_MAX    = 12;  // degrees, reached at/beyond the radius above
+
+// Item 0 (the clicked media) keeps a constant, fully-opaque, full-scale look
+// here — its own transition is the group-level pop in GalleryStack's
+// scaleAnim. Items 1+ cascade in (staggered fade+scale) when selected, and
+// fade back out on deselect. isSelected/revealStartRef come from the owning
+// GalleryStack — revealStartRef is a ref (read fresh every frame, not a
+// snapshot prop) so the animation restarts the instant it's reset, even if
+// this instance never actually unmounted (e.g. a fast reselect during the
+// exit grace window — see ArtifactMesh's useDelayedFalse). The wheel tilt
+// below applies to EVERY item incl. index 0, every frame, regardless of
+// reveal state — index 0 can scroll away from center too, same as any other.
 function GalleryPlane({
-  texture, y, w, h, index, isSelected, revealStartRef,
+  texture, y, w, h, index, isSelected, revealStartRef, offsetRef, onSelect,
 }: {
   texture: THREE.Texture; y: number; w: number; h: number; index: number;
   isSelected: boolean; revealStartRef: React.MutableRefObject<number | null>;
+  // Live wrapped scroll offset (world units), updated every frame by the
+  // owning GalleryStack's own useFrame — read fresh here (not a snapshot
+  // prop) so the wheel tilt animates continuously as the user scrolls,
+  // instead of only updating on this item's own re-render.
+  offsetRef: React.MutableRefObject<number>;
+  // Clicking a stacked item eases it to center (see GalleryStack's
+  // handleItemClick/scrollAnim) — wired on every item incl. index 0, where
+  // it's a harmless near-zero-distance no-op since it's already centered.
+  onSelect: (y: number) => void;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
 
@@ -397,6 +638,15 @@ function GalleryPlane({
     const mesh = meshRef.current;
     const mat  = mesh?.material as THREE.MeshBasicMaterial | undefined;
     if (!mesh || !mat) return;
+
+    // ── Wheel tilt ───────────────────────────────────────────────────────────
+    // Clamped to ±1 before scaling to degrees — beyond the radius the tilt
+    // holds at its max instead of continuing to increase without bound.
+    const dist  = y + offsetRef.current;
+    const ratio = THREE.MathUtils.clamp(dist / GALLERY_WHEEL_TILT_RADIUS, -1, 1);
+    mesh.rotation.z = THREE.MathUtils.degToRad(ratio * GALLERY_WHEEL_TILT_MAX);
+    // Sign is a judgment call made without a live render to check against —
+    // flip the sign above if it curls the wrong way once you see it moving.
 
     if (index === 0) {
       mat.opacity = 1;
@@ -408,39 +658,62 @@ function GalleryPlane({
     if (start === null) return; // GalleryStack hasn't ticked its own useFrame yet this mount — wait one frame
 
     const now = performance.now();
+    let p: number;
     if (!isSelected) {
       const t = Math.max(0, Math.min(1, (now - start) / GALLERY_HIDE_DURATION));
-      const p = easeOutExpo(t);
+      p = easeOutExpo(t);
       mat.opacity = 1 - p;
-      mesh.scale.setScalar(1 - 0.05 * p);
     } else {
       const delay = index * GALLERY_REVEAL_STAGGER;
       const t = Math.max(0, Math.min(1, (now - start - delay) / GALLERY_REVEAL_DURATION));
-      const p = easeOutExpo(t);
+      p = easeOutExpo(t);
       mat.opacity = p;
-      mesh.scale.setScalar(0.95 + 0.05 * p);
     }
+    // travel: 1 = fully off (below resting spot, shrunk), 0 = fully settled —
+    // drives position/scale together so they read as one motion instead of
+    // two unrelated tweens. Slides+scales into place on reveal (p: 0→1 while
+    // appearing), reverses on hide (p: 0→1 while disappearing).
+    const travel = isSelected ? 1 - p : p;
+    mesh.position.y = y - travel * GALLERY_REVEAL_SLIDE;
+    mesh.scale.setScalar(1 - travel * (1 - GALLERY_REVEAL_SCALE_FROM));
   });
 
   return (
-    <mesh ref={meshRef} position={[0, y, 0]} onClick={(e) => e.stopPropagation()}>
+    <mesh
+      ref={meshRef}
+      position={[0, y, 0]}
+      onClick={(e) => {
+        e.stopPropagation(); // don't let this reach onPointerMissed → deselect
+        onSelect(y);
+      }}
+      onPointerOver={(e) => {
+        if (index === 0) return; // already centered — no affordance needed
+        e.stopPropagation();
+        document.body.style.cursor = "pointer";
+      }}
+      onPointerOut={() => {
+        if (index !== 0) document.body.style.cursor = "auto";
+      }}
+    >
       <planeGeometry args={[w, h]} />
       <meshBasicMaterial
         map={texture}
         toneMapped={false}
         transparent
         opacity={0}
-        alphaMap={getRoundedAlpha(CARD_W, h) ?? undefined}
+        alphaMap={getRoundedAlpha(w, h) ?? undefined}
       />
     </mesh>
   );
 }
 
 function GalleryStackImageItem({
-  src, y, w, h, index, isSelected, revealStartRef,
+  src, y, w, h, index, isSelected, revealStartRef, offsetRef, onSelect,
 }: {
   src: string; y: number; w: number; h: number; index: number;
   isSelected: boolean; revealStartRef: React.MutableRefObject<number | null>;
+  offsetRef: React.MutableRefObject<number>;
+  onSelect: (y: number) => void;
 }) {
   // useTexture caches by URL — mounting this 3× for an item's looped copies
   // resolves to the same GPU texture, no duplicate fetch/upload.
@@ -453,7 +726,8 @@ function GalleryStackImageItem({
   return (
     <GalleryPlane
       texture={texture} y={y} w={w} h={h} index={index}
-      isSelected={isSelected} revealStartRef={revealStartRef}
+      isSelected={isSelected} revealStartRef={revealStartRef} offsetRef={offsetRef}
+      onSelect={onSelect}
     />
   );
 }
@@ -583,6 +857,20 @@ function GalleryStack({
   // useDelayedFalse), snapping its items back to "revealing" mid-hide.
   const revealStart  = useRef<number | null>(null); // lazily set on first useFrame tick — performance.now() is impure, can't seed it during render
   const prevSelected = useRef(isSelected);
+  // Live wrapped scroll offset (world units), updated every frame below —
+  // read fresh by every GalleryPlane instance to drive the wheel tilt (see
+  // GALLERY_WHEEL_TILT_RADIUS). A ref, not state: it changes every frame
+  // during a scroll, and routing that through React state would re-render
+  // this whole subtree at 60fps for nothing — same idiom as revealStart.
+  const offsetRef = useRef(0);
+  // Eased scrollOffset transition — set either by clicking a stacked item
+  // (handleItemClick below) or automatically when exiting focus (see
+  // useFrame below), and ticked down each frame until it lands on `to`. A
+  // ref, not state, same "written every frame during an animation" idiom as
+  // offsetRef — this one just happens to also write back into the shared
+  // focusState.scrollOffset so CameraController's wheel/drag deltas keep
+  // compounding on top of wherever it settles.
+  const scrollAnim = useRef<{ startTime: number; from: number; to: number } | null>(null);
   // Detected video aspect ratios (height/width) and loaded textures, keyed by
   // gallery index — unknown until each video's loadedmetadata fires (Sanity
   // doesn't store video dimensions, same runtime-detection story as
@@ -612,14 +900,55 @@ function GalleryStack({
   );
   // Full loop distance — scroll this far and item 0 reappears exactly where
   // it started, so wrapping the offset by this period is seamless.
-  const period      = rawTotal;
-  const totalHeight = Math.max(0, period - STACK_GAP);
+  const period = rawTotal;
+
+  // Clicking a stacked item eases scrollOffset so IT becomes the centered
+  // "front" item — the rest of the stack reflows around it for free, since
+  // their positions are already fixed relative to it (see yBase below).
+  // Reuses the exact same eased-transition machinery as the exit-to-rest
+  // case in useFrame below. `y` is the clicked mesh's own resting position,
+  // its loop copy's k*period baked in (see the render loop) — targeting -y
+  // directly keeps the animated direction faithful to the actual copy that
+  // was clicked, then the shortest-path adjustment below avoids an
+  // unnecessarily long spin if that raw target and the live offset land far
+  // apart.
+  const handleItemClick = (y: number) => {
+    if (period <= 0) return;
+    const from = offsetRef.current;
+    const rawTarget = ((-y % period) + period) % period;
+    let delta = rawTarget - from;
+    if (delta > period / 2) delta -= period;
+    else if (delta < -period / 2) delta += period;
+    scrollAnim.current = { startTime: performance.now(), from, to: from + delta };
+  };
 
   useFrame(() => {
     if (revealStart.current === null || isSelected !== prevSelected.current) {
+      if (prevSelected.current && !isSelected && period > 0) {
+        // Exiting focus — ease scrollOffset back to rest (item 0 centered)
+        // instead of InfiniteCanvas's handleDeselect snapping it to 0
+        // outright, which used to jump-cut the stack to wherever it
+        // happened to be scrolled the instant the swap to MeshBody/
+        // ImageMesh/PlaceholderMesh landed. Shortest path, same as a click.
+        // Unconditionally overrides any in-flight click-triggered animation
+        // (handleItemClick) — deselecting always wins, so a click-then-
+        // immediately-deselect never leaves scrollOffset mid-flight toward
+        // the clicked item instead of back to rest.
+        const from = offsetRef.current;
+        const to = from > period / 2 ? period : 0;
+        scrollAnim.current = { startTime: performance.now(), from, to };
+      }
       prevSelected.current = isSelected;
       revealStart.current = performance.now();
     }
+
+    if (scrollAnim.current) {
+      const { startTime, from, to } = scrollAnim.current;
+      const t = Math.min(1, (performance.now() - startTime) / GALLERY_SCROLL_SNAP_DURATION);
+      focusState.scrollOffset = from + (to - from) * easeOutExpo(t);
+      if (t >= 1) scrollAnim.current = null;
+    }
+
     if (!groupRef.current) return;
     // Un-pop toward 1 while exiting (isSelected already false, still mounted
     // for its trailing fade-out) — mirrors MeshBody's selAnim un-popping on
@@ -633,6 +962,7 @@ function GalleryStack({
     const offset = period > 0
       ? ((focusState.scrollOffset % period) + period) % period
       : 0;
+    offsetRef.current = offset;
     groupRef.current.position.set(worldPos[0], worldPos[1] + offset, 0);
   });
 
@@ -660,9 +990,15 @@ function GalleryStack({
 
       {gallery.map((media, i) => {
         const h = heights[i];
-        // Center-Y of item i within one period — stack vertically centered on
-        // the group origin, item 0 at the top.
-        const yBase = totalHeight / 2 - tops[i] - h / 2;
+        // Y of item i relative to item 0 — item 0 (the clicked/centered
+        // media) always rests exactly at the group origin (0), which is what
+        // GalleryPlane's wheel-tilt reads as "centered → upright" (see
+        // GALLERY_WHEEL_TILT_RADIUS). The previous formula centered the
+        // stack's overall bounding box instead, which left item 0 itself
+        // off-center — and visibly tilted — the instant the gallery opened,
+        // for any gallery where the other items don't sum to exactly its own
+        // height (i.e. almost always).
+        const yBase = heights[0] / 2 - tops[i] - h / 2;
         const isVideo = media._type === "galleryVideo";
 
         const texture = isVideo ? (i === 0 ? videoTexture0 : videoTextures.get(i)) : undefined;
@@ -691,8 +1027,8 @@ function GalleryStack({
               const y = yBase + k * period;
               const key = `${i}-${k}`;
               return isVideo
-                ? <GalleryPlane key={key} texture={texture!} y={y} w={w} h={h} index={i} isSelected={isSelected} revealStartRef={revealStart} />
-                : <GalleryStackImageItem key={key} src={src!} y={y} w={w} h={h} index={i} isSelected={isSelected} revealStartRef={revealStart} />;
+                ? <GalleryPlane key={key} texture={texture!} y={y} w={w} h={h} index={i} isSelected={isSelected} revealStartRef={revealStart} offsetRef={offsetRef} onSelect={handleItemClick} />
+                : <GalleryStackImageItem key={key} src={src!} y={y} w={w} h={h} index={i} isSelected={isSelected} revealStartRef={revealStart} offsetRef={offsetRef} onSelect={handleItemClick} />;
             })}
           </Suspense>
         );
@@ -739,6 +1075,13 @@ export function ArtifactMesh({
   // GalleryStack can play its exit fade before actually being removed.
   const showGallery   = isSelected && !!artifact.gallery && artifact.galleryCount > 1;
   const galleryMounted = useDelayedFalse(showGallery, GALLERY_HIDE_DURATION + 40);
+  // Idle-grid stack indicator (see StackLayers) — independent of isSelected:
+  // in practice only ever observed by MeshBody/PlaceholderMesh while NOT
+  // showing the GalleryStack above (that branch returns early), i.e. exactly
+  // the idle/grid state this is meant for. Real media, index-aligned with
+  // stackVideoTextures (already resolved one level up by InfiniteTiles from
+  // the shared cache — see usePlayVideoTextures.ts).
+  const stackMedia = artifact.gallery?.slice(1, 1 + STACK_LAYER_COUNT) ?? [];
 
   if (galleryMounted && artifact.gallery) {
     return (
@@ -755,14 +1098,14 @@ export function ArtifactMesh({
   const m = artifact.firstMedia || null;
 
   if (m?._type === "galleryVideo") {
-    if (videoTexture) return <MeshBody texture={videoTexture} cardH={cardH} isSelected={isSelected} {...rest} />;
-    return <PlaceholderMesh cardH={cardH} isSelected={isSelected} {...rest} />;
+    if (videoTexture) return <MeshBody texture={videoTexture} cardH={cardH} isSelected={isSelected} stackMedia={stackMedia} {...rest} />;
+    return <PlaceholderMesh cardH={cardH} isSelected={isSelected} stackMedia={stackMedia} {...rest} />;
   }
 
   const src = m?.imageRef
     ? buildImageUrl(m.imageRef, m.imageUrl, m.imageHotspot, m.imageCrop, { width: 1280, quality: 80 })
     : (m?.imageUrl ?? null);
 
-  if (!src) return <PlaceholderMesh cardH={cardH} isSelected={isSelected} {...rest} />;
-  return <ImageMesh url={src} cardH={cardH} isSelected={isSelected} {...rest} />;
+  if (!src) return <PlaceholderMesh cardH={cardH} isSelected={isSelected} stackMedia={stackMedia} {...rest} />;
+  return <ImageMesh url={src} cardH={cardH} isSelected={isSelected} stackMedia={stackMedia} {...rest} />;
 }

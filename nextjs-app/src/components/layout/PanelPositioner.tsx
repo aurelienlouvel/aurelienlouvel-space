@@ -39,9 +39,11 @@ export function PanelPositioner({
       panelX.set(sx - halfW);
       panelY.set(sy + halfH + gap);
     } else {
-      // panel à droite de la card, aligné en haut
+      // panel à droite de la card, ancré verticalement à panelVAnchor
+      // fraction depuis le BAS de la card (0=bas, 1=haut) — 0.6 par défaut :
+      // plus centré que l'ancien alignement strict sur le haut (panelVAnchor=1).
       panelX.set(sx + halfW + gap);
-      panelY.set(sy - halfH);
+      panelY.set(sy + halfH * (1 - 2 * paramsRef.current.panelVAnchor));
     }
   });
 

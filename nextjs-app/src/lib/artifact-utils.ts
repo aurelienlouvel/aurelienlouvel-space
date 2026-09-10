@@ -93,6 +93,22 @@ export const SELECTION_POP_SCALE = 1.12;
 // select-B (both galleries) reset A's timer while it's still playing its
 // exit fade, snapping its items back to "revealing" instead of continuing
 // to hide. See GalleryStack's revealStart ref.
-export const GALLERY_REVEAL_STAGGER  = 55;  // ms between each item's start
-export const GALLERY_REVEAL_DURATION = 340; // ms — per-item fade+scale-in
-export const GALLERY_HIDE_DURATION   = 240; // ms — per-item fade-out on deselect
+export const GALLERY_REVEAL_STAGGER  = 90;  // ms between each item's start
+export const GALLERY_REVEAL_DURATION = 600; // ms — per-item fade+scale-in
+export const GALLERY_HIDE_DURATION   = 420; // ms — per-item fade-out on deselect
+
+// Eased scrollOffset transition (see GalleryStack's scrollAnim ref): plays
+// when clicking a stacked, non-front item to bring it to center, and when
+// easing scrollOffset back to rest as the artifact is deselected. Slower
+// than a wheel tick on purpose — this is a deliberate "snap to this item"
+// move, not a continuous input, so it reads as its own animated beat.
+export const GALLERY_SCROLL_SNAP_DURATION = 600; // ms
+
+// ─── Gallery stack indicator (idle grid view) ───────────────────────────────
+// Artifacts with more than one gallery media render a couple of extra REAL
+// media planes (gallery[1..STACK_LAYER_COUNT], own texture each) behind the
+// front card in ArtifactMesh.tsx — reading as a stack of photos before the
+// artifact is even clicked. Shared here (not just ArtifactMesh.tsx) because
+// usePlayVideoTextures.ts also needs it to pre-create/cache backing-layer
+// video textures keyed the same way.
+export const STACK_LAYER_COUNT = 2;

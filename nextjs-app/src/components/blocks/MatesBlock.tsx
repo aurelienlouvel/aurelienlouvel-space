@@ -60,7 +60,7 @@ export function MatesBlock({ mates }: { mates: Mate[] }) {
               transition={SPRING}
               className="cursor-pointer [filter:drop-shadow(0_1px_4px_rgb(0_0_0/0.08))]"
             >
-              <Avatar className="!h-10 rounded-lg ring-2 ring-white after:rounded-lg">
+              <Avatar className="!h-12 rounded-lg ring-2 ring-white after:rounded-lg">
                 <AvatarImage
                   src={person.avatarUrl ?? undefined}
                   alt={fullName}

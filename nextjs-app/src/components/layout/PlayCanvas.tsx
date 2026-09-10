@@ -32,10 +32,8 @@ let _everMounted = false;
  */
 export function PlayCanvas({
   artifacts,
-  customDoodles,
 }: {
   artifacts: ArtifactCanvasItem[];
-  customDoodles: { url: string; aspect: number }[];
 }) {
   const pathname = usePathname();
   const isPlay   = pathname === "/play";
@@ -122,7 +120,6 @@ export function PlayCanvas({
     >
       <InfiniteCanvas
         artifacts={artifacts}
-        customDoodles={customDoodles}
         active={active}
         running={running}
       />

@@ -18,14 +18,16 @@ export type Params = {
   scaleMin: number; // smallest card scale
   scaleMax: number; // largest  card scale
   // ── Camera (live — no rebuild) ───────────────────────────────────────────────
-  camOffsetX: number; // camera shifts right on focus (card left, panel fits right)
+  focusWidthFrac: number; // desktop — target width of the focused media, fraction of vw
+  focusCenterFrac: number; // desktop — target horizontal center of the focused media, fraction of vw
   focusVCenter: number; // vertical position of focused item (0=top · 0.5=center · 1=bottom)
-  focusZoomIntensity: number; // 0–1, scales how much the focus box zooms in
+  focusZoomIntensity: number; // 0–1, scales mobile's focus box height (desktop uses focusWidthFrac directly)
   // ── Card decoration (live — read every frame) ────────────────────────────────
   rotMax: number; // max card tilt, degrees (idle — straightens to 0 on focus, never animated otherwise)
   bracketRadius: number; // corner-bracket bend rounding, world units
   // ── Info panel (live) ────────────────────────────────────────────────────────
   gapPanel: number; // px gap between card right edge and info panel
+  panelVAnchor: number; // desktop — panel's vertical anchor on the card, fraction from bottom (0=bottom · 1=top)
   // ── Background dots (live — uniform update in useFrame) ──────────────────────
   gridCell: number; // world-space dot grid cell size
   dotRadius: number; // dot radius in world units
@@ -47,12 +49,14 @@ export const DEFAULT_PARAMS: Params = {
   minPerTile: 40,
   scaleMin: 0.8,
   scaleMax: 1.15,
-  camOffsetX: 220,
+  focusWidthFrac: 0.33,
+  focusCenterFrac: 1 / 3,
   focusVCenter: 0.5,
   focusZoomIntensity: 1,
   rotMax: 2, // ±~2°
   bracketRadius: 16,
   gapPanel: 80,
+  panelVAnchor: 0.6,
   gridCell: 64,
   dotRadius: 2.0,
   rippleSpeed: 120,
