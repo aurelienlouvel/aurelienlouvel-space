@@ -207,6 +207,45 @@ export const allProjectSlugsQuery = defineQuery(`
   *[_type == "project"] { "slug": slug.current }
 `);
 
+// ─── Artifacts (canvas /play) ─────────────────────────────────────────────────
+
+/**
+ * Premier artifact de l'ordre manuel qui porte au moins une image de galerie,
+ * et la première de ces images.
+ *
+ * Le filtre `count(...) > 0` n'est pas cosmétique : les premiers artifacts du
+ * dataset n'ont qu'une vidéo en galerie, donc un simple `order(orderRank)[0]`
+ * retourne `image: null` et le canvas n'affiche rien.
+ *
+ * Singulier assumé — à renommer quand le canvas passera à N artifacts.
+ */
+export const playArtifactQuery = defineQuery(`
+  *[_type == "artifact" && count(gallery[_type == "galleryImage"]) > 0] | order(orderRank) [0] {
+    _id,
+    title,
+    "image": gallery[_type == "galleryImage"][0].image {
+      "ref": asset._ref,
+      "width": asset->metadata.dimensions.width,
+      "height": asset->metadata.dimensions.height
+    }
+  }
+`);
+
+export type PlayArtifact = {
+  _id: string;
+  title: string;
+  /**
+   * Les champs internes sont nullables : le champ `image` du `galleryImage`
+   * n'est pas `required` au schéma, donc une entrée sans asset uploadé
+   * remonte un objet dont `ref` / `width` / `height` valent `null`.
+   */
+  image: {
+    ref: string | null;
+    width: number | null;
+    height: number | null;
+  } | null;
+};
+
 // ─── Profile (Info page) ──────────────────────────────────────────────────────
 
 export const profileQuery = defineQuery(`
