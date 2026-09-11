@@ -261,7 +261,7 @@
        render at this h3's 3xl no matter what (Tailwind's utility, being
        layered, always lost). Moving these here lets any text-size/color
        utility applied directly in JSX override the default again, as
-       expected — see ArtifactInfo.tsx's h3 and work/[slug]/page.tsx's h1. */
+       expected — see work/[slug]/page.tsx's h1. */
     h1 {
         font-weight: 640;
         --font-wght: 640;
