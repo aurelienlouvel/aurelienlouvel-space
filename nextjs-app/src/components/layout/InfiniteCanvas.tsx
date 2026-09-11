@@ -4,35 +4,23 @@ import {
   useRef,
   useState,
   useEffect,
-  useLayoutEffect,
   useCallback,
   useMemo,
 } from "react";
 import { Canvas } from "@react-three/fiber";
-import { motion, AnimatePresence, useMotionValue } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import type { ArtifactCanvasItem } from "@/sanity/queries";
-import {
-  CARD_W,
-  CARD_H,
-  focusState,
-  SELECTION_POP_SCALE,
-} from "@/lib/artifact-utils";
+import { SELECTION_POP_SCALE } from "@/lib/artifact-utils";
 import { ArtifactInfo } from "@/components/blocks/ArtifactInfo";
 import { useActionBar } from "@/contexts/ActionBarContext";
 import {
-  type Params,
-  DEFAULT_PARAMS,
   MOBILE_BREAKPOINT,
   applyResponsiveLayout,
-  getSavedParamOverrides,
 } from "@/lib/play-params";
 import { computeFocusZoom, computeMobileVFrac } from "@/lib/play-focus-zoom";
 import { buildTile } from "@/lib/play-tile-layout";
-import type {
-  SelectedInstance,
-  CameraState,
-  RippleState,
-} from "@/lib/play-types";
+import type { SelectedInstance } from "@/lib/play-types";
+import { usePlayStore, PlayStoreProvider } from "@/contexts/PlayStoreContext";
 import { InfiniteTiles } from "./InfiniteTiles";
 import { PANEL_DELAY_S } from "./CameraController";
 import { DebugPane } from "./DebugPane";
@@ -48,6 +36,13 @@ let _hasVisited = false;
 const LOADING_BAR_MS = 1600; // durée fixe de la loading bar au tout premier chargement
 
 // ─── Main component ────────────────────────────────────────────────────────────
+//  Reads/writes the shared PlayRuntime via usePlayStore() — PlayCanvas.tsx
+//  (our parent) already wraps us in PlayStoreProvider. React Three Fiber's
+//  <Canvas> renders its children through a SEPARATE reconciler root, so plain
+//  Context from outside doesn't reach it (the documented reason drei ships
+//  useContextBridge) — we re-provide the same runtime instance a second time
+//  around <InfiniteTiles> below to bridge it in, no extra dependency needed
+//  since we already own both the value and the Provider.
 export function InfiniteCanvas({
   artifacts,
   active = true,
@@ -57,6 +52,7 @@ export function InfiniteCanvas({
   active?: boolean;
   running?: boolean; // keeps frameloop alive during outro even when active=false
 }) {
+  const store = usePlayStore();
   // firstMount captures _hasVisited at construction time (before we flip it)
   const firstMount = useRef(!_hasVisited);
   const { setProject, clearProject } = useActionBar();
@@ -75,37 +71,17 @@ export function InfiniteCanvas({
 
   // Responsive — grille verticale en mobile (≤768px)
   const [isMobile, setIsMobile] = useState(false);
+  // Synchronous mirror of isMobile for handleSelect (stable-identity callback,
+  // can't close over the state value without going stale) — same idiom as
+  // firstMount/readyRef above, unrelated to the shared PlayRuntime.
   const isMobileRef = useRef(false);
 
-  const paramsRef = useRef<Params>({
-    ...DEFAULT_PARAMS,
-    ...getSavedParamOverrides(),
-  });
-  const selectTargetRef = useRef<{ x: number; y: number } | null>(null);
-  const selectedWorldPosRef = useRef<[number, number] | null>(null);
-  const selectedHalfWRef = useRef<number>(CARD_W / 2);
-  const selectedHalfHRef = useRef<number>(CARD_H / 2);
-  // Always start at 0.5 — CameraController handles the dezoom on each visit
-  const zoomTargetRef = useRef<number>(0.5);
-  const panDeltaRef = useRef({ x: 0, y: 0 });
-  const dragMovedRef = useRef(false);
-  // Read by CameraController only (wheel/drag redirect into the gallery scroll
-  // instead of panning) — a plain prop-threaded ref, same idiom as the other
-  // cross-component refs above, rather than focusState module state (nothing
-  // else needs it across renders).
-  const hasGalleryRef = useRef(false);
-  const cameraStateRef = useRef<CameraState>({
-    zoom: 0.5,
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-  });
-  const rippleRef = useRef<RippleState | null>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
-
-  const panelX = useMotionValue(-9999);
-  const panelY = useMotionValue(0);
+  // Adapter for DebugPane's still-ref-shaped API (step 7, not yet migrated to
+  // usePlayStore()) — store.params never gets reassigned after creation, only
+  // mutated in place, so mirroring it into a ref once keeps both call sites
+  // looking at the exact same object.
+  const paramsRef = useRef(store.params);
 
   const handleLayoutChange = useCallback(
     () => setTileVersion((v) => v + 1),
@@ -119,19 +95,18 @@ export function InfiniteCanvas({
     const apply = () => {
       isMobileRef.current = mq.matches;
       setIsMobile(mq.matches);
-      applyResponsiveLayout(paramsRef.current, mq.matches);
+      applyResponsiveLayout(store.params, mq.matches);
       handleLayoutChange();
     };
     apply();
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
-  }, [handleLayoutChange]);
+  }, [handleLayoutChange, store]);
 
-  // paramsRef holds tunable layout params mutated by other effects; tileVersion
-  // is the deliberate reactive trigger to recompute this memo off that ref.
+  // store.params holds tunable layout params mutated by other effects/DebugPane;
+  // tileVersion is the deliberate reactive trigger to recompute this memo off it.
   const tile = useMemo(
-    // eslint-disable-next-line react-hooks/refs
-    () => buildTile(artifacts, paramsRef.current),
+    () => buildTile(artifacts, store.params),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [artifacts, tileVersion],
   );
@@ -166,8 +141,12 @@ export function InfiniteCanvas({
   }, [active, loading]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
+  // store is the shared runtime's designated imperative-mutation surface
+  // (see PlayStoreContext.tsx's own header comment) — reads/writes to it from
+  // event handlers are the intended pattern, not accidental impurity.
+  /* eslint-disable react-hooks/immutability */
   const triggerRippleAt = useCallback((clientX: number, clientY: number) => {
-    const cam = cameraStateRef.current;
+    const cam = store.camera.state;
     const rect = canvasWrapperRef.current?.getBoundingClientRect();
     if (!rect || cam.width === 0 || cam.height === 0) return;
     const offsetX = clientX - rect.left;
@@ -176,46 +155,39 @@ export function InfiniteCanvas({
     const ndcY = -((offsetY / cam.height) * 2 - 1);
     const worldX = cam.x + (ndcX * cam.width) / (2 * cam.zoom);
     const worldY = cam.y + (ndcY * cam.height) / (2 * cam.zoom);
-    rippleRef.current = {
-      x: worldX,
-      y: worldY,
-      startTime: performance.now() / 1000,
-    };
-  }, []);
+    store.ripple = { x: worldX, y: worldY, startTime: performance.now() / 1000 };
+  }, [store]);
 
   // onPointerMissed is R3F-specific: it fires only when a click's raycast hits
   // no scene object, so it naturally distinguishes "clicked empty canvas"
   // (ripple + deselect) from "clicked a card" (focus, no ripple).
   const handleDeselect = useCallback(
     (e?: MouseEvent) => {
-      if (dragMovedRef.current) return;
+      if (store.pointer.dragMoved) return;
       setSelected(null);
-      selectedWorldPosRef.current = null;
-      zoomTargetRef.current = 1.0;
-      panelX.set(-9999);
-      hasGalleryRef.current = false;
+      store.focus.worldPos = null;
+      store.camera.zoomTarget = 1.0;
+      // Hands off to CameraController's own FSM — collapses to "idle" itself
+      // once the exit-focus zoom lerp actually settles (see CameraController).
+      store.camera.phase = "returning";
+      store.panel.x.set(-9999);
+      store.gallery.hasGallery = false;
       // scrollOffset is deliberately NOT reset here (unlike handleSelect
       // below) — GalleryStack stays mounted through its own exit-fade grace
-      // window (see useDelayedFalse in ArtifactMesh.tsx) and eases it back
-      // to rest itself, so the stack settles into place instead of jump-
-      // cutting past wherever the user had scrolled to.
+      // window (see useDelayedFalse in GridCard.tsx) and eases it back to
+      // rest itself, so the stack settles into place instead of jump-cutting
+      // past wherever the user had scrolled to.
       if (e) triggerRippleAt(e.clientX, e.clientY);
     },
-    [panelX, triggerRippleAt],
+    [store, triggerRippleAt],
   );
-
-  // Sync focusState synchronously before browser paint (useLayoutEffect
-  // fires before rAF) so Three.js always reads the correct value on the very
-  // next frame. Focus now only ever exits via onPointerMissed → handleDeselect
-  // (explicit click outside the card) — scroll/drag never trigger it.
-  useLayoutEffect(() => {
-    focusState.isActive = selected !== null;
-  }, [selected]);
+  /* eslint-enable react-hooks/immutability */
 
   // Deselect panel when navigating away from /play. handleDeselect calls
   // setSelected, but this reacts to the `active` transition itself — not a
   // value derivable during render.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!active) handleDeselect();
   }, [active, handleDeselect]);
 
@@ -232,6 +204,9 @@ export function InfiniteCanvas({
     return () => clearProject();
   }, [selected, setProject, clearProject, handleDeselect]);
 
+  // See the earlier triggerRippleAt/handleDeselect block — store is the
+  // shared runtime's designated imperative-mutation surface.
+  /* eslint-disable react-hooks/immutability */
   const handleSelect = useCallback(
     (
       item: ArtifactCanvasItem,
@@ -241,23 +216,23 @@ export function InfiniteCanvas({
       groupIdx: number,
       itemIdx: number,
     ) => {
-      if (dragMovedRef.current) return;
-      const q = paramsRef.current;
+      if (store.pointer.dragMoved) return;
+      const q = store.params;
       const mobile = isMobileRef.current;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
 
-      // Zoom adaptatif : la card rentre dans une boîte cible (max W/H), donc
+      // Zoom adaptatif : la card rentre dans une boîte cible (desktop : largeur
+      // fixe, hauteur libre — mobile : largeur pleine, hauteur bornée), donc
       // toutes les cards focus apparaissent ~à la même taille. (SELECTION_POP_SCALE
-      // mirrors ArtifactMesh.tsx's own selection-pop scale.)
+      // mirrors useCardAnimation.ts's own selection-pop scale.)
+      const boxW = mobile ? vw : q.focusWidthFrac * vw;
+      const boxH = mobile ? vh * 0.85 * q.focusZoomIntensity : Infinity;
       const z = computeFocusZoom(
         halfW * 2 * SELECTION_POP_SCALE,
         halfH * 2 * SELECTION_POP_SCALE,
-        vw,
-        vh,
-        mobile,
-        q.focusZoomIntensity,
-        q.focusWidthFrac,
+        boxW,
+        boxH,
       );
 
       // Cadrage caméra : card en haut (mobile, panel dessous) ou centrée sur
@@ -277,20 +252,24 @@ export function InfiniteCanvas({
       const targetY = point[1] - ((0.5 - vFrac) * vh) / z;
 
       setSelected({ artifact: item, groupIdx, itemIdx });
-      selectTargetRef.current = { x: targetX, y: targetY };
-      selectedWorldPosRef.current = point;
+      store.focus.target = { x: targetX, y: targetY };
+      store.focus.worldPos = point;
       // × SELECTION_POP_SCALE : PanelPositioner doit suivre le bord réel de
       // la card une fois poppée, pas sa taille native.
-      selectedHalfWRef.current = halfW * SELECTION_POP_SCALE;
-      selectedHalfHRef.current = halfH * SELECTION_POP_SCALE;
-      zoomTargetRef.current = z;
+      store.focus.halfW = halfW * SELECTION_POP_SCALE;
+      store.focus.halfH = halfH * SELECTION_POP_SCALE;
+      store.camera.zoomTarget = z;
+      // CameraController notices the phase change next frame and builds the
+      // snap tween from wherever the camera actually is right now.
+      store.camera.phase = "focusing";
       // Multi-media artifact → CameraController redirects wheel/drag into the
       // in-canvas gallery stack instead of panning (see onWheel/onMove).
-      hasGalleryRef.current = !!item.gallery && item.galleryCount > 1;
-      focusState.scrollOffset = 0;
+      store.gallery.hasGallery = !!item.gallery && item.galleryCount > 1;
+      store.gallery.scrollOffset = 0;
     },
-    [],
+    [store],
   );
+  /* eslint-enable react-hooks/immutability */
 
   if (artifacts.length === 0) {
     return (
@@ -325,29 +304,18 @@ export function InfiniteCanvas({
           onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
           onPointerMissed={handleDeselect}
         >
-          <InfiniteTiles
-            tile={tile}
-            videoTextures={videoTextures}
-            selected={selected}
-            onSelect={handleSelect}
-            selectTarget={selectTargetRef}
-            zoomTarget={zoomTargetRef}
-            worldPosRef={selectedWorldPosRef}
-            halfWRef={selectedHalfWRef}
-            halfHRef={selectedHalfHRef}
-            panelX={panelX}
-            panelY={panelY}
-            paramsRef={paramsRef}
-            panDeltaRef={panDeltaRef}
-            dragMovedRef={dragMovedRef}
-            hasGalleryRef={hasGalleryRef}
-            cameraStateRef={cameraStateRef}
-            rippleRef={rippleRef}
-            active={active}
-            running={running}
-            introKey={introKey}
-            isMobile={isMobile}
-          />
+          <PlayStoreProvider runtime={store}>
+            <InfiniteTiles
+              tile={tile}
+              videoTextures={videoTextures}
+              selected={selected}
+              onSelect={handleSelect}
+              active={active}
+              running={running}
+              introKey={introKey}
+              isMobile={isMobile}
+            />
+          </PlayStoreProvider>
         </Canvas>
       </div>
 
@@ -357,7 +325,7 @@ export function InfiniteCanvas({
           <motion.div
             key={`${selected.groupIdx}-${selected.itemIdx}`}
             className="fixed z-50 pointer-events-none"
-            style={{ left: 0, top: 0, x: panelX, y: panelY }}
+            style={{ left: 0, top: 0, x: store.panel.x, y: store.panel.y }}
             initial={{ opacity: 0 }}
             animate={{
               opacity: 1,

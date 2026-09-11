@@ -17,7 +17,7 @@ import {
 //  they're reused the moment the user comes back.
 //
 //  Keyed by artifact._id for the front/grid media, and by `${id}:${index}`
-//  for gallery stack backing layers (ArtifactMesh.tsx's StackLayers, index
+//  for gallery stack backing layers (GridCard.tsx's StackLayers, index
 //  1..STACK_LAYER_COUNT) — InfiniteTiles renders 9 simultaneous tile copies
 //  of every artifact, so without this shared cache a video sitting in a
 //  backing-layer slot would spin up up to 9 redundant decode pipelines
@@ -67,7 +67,7 @@ export function usePlayVideoTextures(
       if (m?._type === "galleryVideo" && m.videoFileUrl && !_videoCache.has(a._id)) {
         createCachedVideoTexture(a._id, m.videoFileUrl);
       }
-      // Stack backing layers (see StackLayers in ArtifactMesh.tsx) — same
+      // Stack backing layers (see StackLayers in GridCard.tsx) — same
       // slice as makeStackLayers there (gallery[1..STACK_LAYER_COUNT]).
       a.gallery?.slice(1, 1 + STACK_LAYER_COUNT).forEach((gm, i) => {
         const key = `${a._id}:${i + 1}`;
@@ -88,7 +88,7 @@ export function usePlayVideoTextures(
   // pour toujours (jamais retentée), et pouvait s'afficher étirée si sa vraie
   // vidéo n'est pas 16:9. _videoDimsCache stocke toujours une hauteur de
   // référence à CARD_W (jamais la largeur réelle affichée) — voir
-  // ArtifactMesh.tsx pour la remise à l'échelle par cardScale au call site.
+  // GridCard.tsx pour la remise à l'échelle par cardScale au call site.
   useEffect(() => {
     const cleanups: (() => void)[] = [];
 

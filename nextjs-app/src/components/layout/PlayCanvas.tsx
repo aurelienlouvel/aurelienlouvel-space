@@ -4,8 +4,9 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import type { ArtifactCanvasItem } from "@/sanity/queries";
 import { InfiniteCanvas } from "@/components/layout/InfiniteCanvas";
-import { triggerOutro, OUTRO_DURATION, OUTRO_STAGGER_MAX } from "@/lib/artifact-utils";
+import { OUTRO_DURATION, OUTRO_STAGGER_MAX } from "@/lib/artifact-utils";
 import { EASE_IN_OUT_CSS } from "@/lib/easings";
+import { usePlayRuntime, PlayStoreProvider, triggerWave } from "@/contexts/PlayStoreContext";
 
 // Crossfade de sortie — voile blanc + cards fondent ensemble, révélant la page.
 const FADE_OUT_MS = 470;
@@ -37,6 +38,7 @@ export function PlayCanvas({
 }) {
   const pathname = usePathname();
   const isPlay   = pathname === "/play";
+  const runtime  = usePlayRuntime();
 
   const [mounted, setMounted] = useState(_everMounted);
   const [active,  setActive]  = useState(isPlay && _everMounted);
@@ -86,7 +88,7 @@ export function PlayCanvas({
       }, ENTER_DELAY);
     } else if (!isPlay && wasPlay) {
       // Sortie /play
-      triggerOutro();
+      triggerWave(runtime.outro);
       setActive(false);
       setRunning(true);
       setVisible(true);
@@ -101,7 +103,7 @@ export function PlayCanvas({
     }
 
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [isPlay]);
+  }, [isPlay, runtime]);
 
   if (!mounted) return null;
 
@@ -118,11 +120,13 @@ export function PlayCanvas({
         zIndex:        visible ? 0         : -50,
       }}
     >
-      <InfiniteCanvas
-        artifacts={artifacts}
-        active={active}
-        running={running}
-      />
+      <PlayStoreProvider runtime={runtime}>
+        <InfiniteCanvas
+          artifacts={artifacts}
+          active={active}
+          running={running}
+        />
+      </PlayStoreProvider>
     </div>
   );
 }

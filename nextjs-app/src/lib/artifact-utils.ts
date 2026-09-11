@@ -34,65 +34,34 @@ export function getCardHeight(artifact: ArtifactCanvasItem): number {
   return CARD_H;
 }
 
-// ─── Intro animation state (module-level — survives remounts / soft-navs) ──────
-export const introState = {
-  version:   0,
-  startTime: -Infinity as number,
-};
-
-export function triggerIntro(): void {
-  introState.version  += 1;
-  introState.startTime = typeof performance !== "undefined" ? performance.now() : 0;
-}
-
-// ─── Outro animation state ────────────────────────────────────────────────────
-export const OUTRO_DURATION    = 450; // ms — total card fade-out time
+// ─── Card entrance/exit wave timing ──────────────────────────────────────────
+// GridCard staggers each card's intro/outro fade+slide off these durations,
+// keyed by the PlayRuntime's intro/outro WaveState (see PlayStoreContext.tsx
+// and its triggerWave()) — version bumps + a fresh startTime restart the wave,
+// each card offsetting its own start by up to *_STAGGER_MAX ms so they don't
+// all move in lockstep.
+export const INTRO_DURATION    = 520; // ms — per-card entrance fade+slide
+export const INTRO_STAGGER_MAX = 240; // ms — max extra delay between cards
+export const OUTRO_DURATION    = 450; // ms — per-card exit fade
 export const OUTRO_STAGGER_MAX = 120; // ms — max extra delay between cards
-
-export const outroState = {
-  version:   0,
-  startTime: -Infinity as number,
-};
-
-export function triggerOutro(): void {
-  outroState.version  += 1;
-  outroState.startTime = typeof performance !== "undefined" ? performance.now() : 0;
-}
-
-// ─── Focus dim state ──────────────────────────────────────────────────────────
-// When a card is focused, all other cards fade toward fully transparent (see
-// ArtifactMesh.tsx's useCardAnimation hook for the actual formula).
-// scrollOffset bridges the in-canvas gallery stack (ArtifactMesh.tsx's
-// GalleryStack) with CameraController's wheel/drag handlers — same
-// "module-level mutable state read every frame" idiom as isActive, just for
-// the focused artifact's own scroll. Accumulates unclamped (raw wheel/drag
-// delta) — GalleryStack wraps it modulo its own locally-computed period, so
-// the gallery loops infinitely instead of stopping at the first/last item.
-// (hasGallery lives as a plain ref in InfiniteCanvas.tsx instead — it's only
-// ever read by CameraController, never by anything reading module state
-// across renders, so a prop-threaded ref fits better than living here.)
-export const focusState = {
-  isActive: false,
-  scrollOffset: 0,
-};
 
 // ─── Selection pop scale ──────────────────────────────────────────────────────
 // Scale bump applied to a card's mesh when it becomes the focused item (see
-// ArtifactMesh.tsx's MeshBody). InfiniteCanvas.tsx's focus-zoom-box math
-// multiplies the same factor into the target box so the camera zoom accounts
-// for the mesh's actual popped size — keep both in sync via this constant.
+// useCardAnimation.ts). InfiniteCanvas.tsx's focus-zoom-box math multiplies
+// the same factor into the target box so the camera zoom accounts for the
+// mesh's actual popped size — keep both in sync via this constant.
 export const SELECTION_POP_SCALE = 1.12;
 
 // ─── Gallery reveal animation ───────────────────────────────────────────────
 // Tuning for the stacked media BEYOND the clicked item (index 0) in
-// ArtifactMesh.tsx's GalleryStack: a small staggered fade+scale-in when an
-// artifact is selected, and a matching fade-out when it's deselected. Item 0
-// keeps its own existing pop treatment and is never touched by this.
+// GalleryStack.tsx: a small staggered fade+scale-in when an artifact is
+// selected, and a matching fade-out when it's deselected. Item 0 keeps its
+// own existing pop treatment and is never touched by this.
 // The animation clock itself is a ref local to each GalleryStack instance
-// (not module state here) — a shared clock would let a fast deselect-A /
-// select-B (both galleries) reset A's timer while it's still playing its
-// exit fade, snapping its items back to "revealing" instead of continuing
-// to hide. See GalleryStack's revealStart ref.
+// (not runtime state) — a shared clock would let a fast deselect-A / select-B
+// (both galleries) reset A's timer while it's still playing its exit fade,
+// snapping its items back to "revealing" instead of continuing to hide. See
+// GalleryStack's revealStart ref.
 export const GALLERY_REVEAL_STAGGER  = 90;  // ms between each item's start
 export const GALLERY_REVEAL_DURATION = 600; // ms — per-item fade+scale-in
 export const GALLERY_HIDE_DURATION   = 420; // ms — per-item fade-out on deselect
@@ -107,8 +76,8 @@ export const GALLERY_SCROLL_SNAP_DURATION = 600; // ms
 // ─── Gallery stack indicator (idle grid view) ───────────────────────────────
 // Artifacts with more than one gallery media render a couple of extra REAL
 // media planes (gallery[1..STACK_LAYER_COUNT], own texture each) behind the
-// front card in ArtifactMesh.tsx — reading as a stack of photos before the
-// artifact is even clicked. Shared here (not just ArtifactMesh.tsx) because
+// front card in GridCard.tsx — reading as a stack of photos before the
+// artifact is even clicked. Shared here (not just GridCard.tsx) because
 // usePlayVideoTextures.ts also needs it to pre-create/cache backing-layer
 // video textures keyed the same way.
 export const STACK_LAYER_COUNT = 2;

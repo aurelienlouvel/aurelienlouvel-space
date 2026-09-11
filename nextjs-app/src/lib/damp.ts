@@ -1,7 +1,7 @@
 // ─── Damp — shared exponential-lerp-toward-target helper ───────────────────────
 //  Replaces the hand-rolled `x += (target - x) * factor` idiom, previously
 //  reimplemented independently at every spring/lerp site across
-//  useCardAnimation.ts, ArtifactMesh.tsx and CameraController.tsx — that
+//  useCardAnimation.ts, GridCard.tsx and CameraController.tsx — that
 //  duplication is exactly what let MeshBody's and PlaceholderMesh's selection
 //  springs silently diverge (see useCardAnimation.ts). Guard logic adjacent to
 //  a call site (snap thresholds, early-exit branches, etc.) stays at the call

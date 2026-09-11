@@ -3,23 +3,18 @@
 import { useRef, useMemo, useEffect } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { DEFAULT_PARAMS, type Params } from "@/lib/play-params";
-import type { CameraState, RippleState } from "@/lib/play-types";
-import { focusState } from "@/lib/artifact-utils";
+import { DEFAULT_PARAMS } from "@/lib/play-params";
 import { dampRef } from "@/lib/damp";
+import { usePlayStore, isFocusPhase } from "@/contexts/PlayStoreContext";
 
 const DOT_FADE_LERP = 0.12; // vitesse de fondu des dots à l'entrée/sortie du focus
 
 // ─── Background dots + click ripple ───────────────────────────────────────────
-export function GridBackground({
-  paramsRef,
-  cameraStateRef,
-  rippleRef,
-}: {
-  paramsRef: React.MutableRefObject<Params>;
-  cameraStateRef: React.MutableRefObject<CameraState>;
-  rippleRef: React.MutableRefObject<RippleState | null>;
-}) {
+//  Reads params/ripple straight from the shared PlayRuntime — no more prop
+//  drilling. Camera state PUBLISHING moved to CameraController (the camera's
+//  actual owner); this component only ever READS store.camera.phase.
+export function GridBackground() {
+  const store = usePlayStore();
   const meshRef = useRef<THREE.Mesh>(null);
   const { camera, size } = useThree();
   const dotFade = useRef(0); // 0 = dots visibles, 1 = complètement effacés (focus actif)
@@ -91,7 +86,7 @@ export function GridBackground({
   /* eslint-disable react-hooks/immutability */
   useFrame(() => {
     if (!meshRef.current) return;
-    const q = paramsRef.current;
+    const q = store.params;
     const cam = camera as THREE.OrthographicCamera;
     material.uniforms.uGridSize.value = q.gridCell;
     material.uniforms.uDotRadius.value = q.dotRadius;
@@ -99,11 +94,11 @@ export function GridBackground({
     material.uniforms.uRippleSpeed.value = q.rippleSpeed;
     material.uniforms.uRippleWidth.value = q.rippleWidth;
     material.uniforms.uRippleDuration.value = q.rippleDuration;
-    // Dots s'effacent pendant le focus (voir focusState.isActive) — la grille
-    // ne doit pas rivaliser visuellement avec le média/panel au premier plan.
-    material.uniforms.uDotFade.value = dampRef(dotFade, focusState.isActive ? 1 : 0, DOT_FADE_LERP);
+    // Dots s'effacent pendant le focus — la grille ne doit pas rivaliser
+    // visuellement avec le média/panel au premier plan.
+    material.uniforms.uDotFade.value = dampRef(dotFade, isFocusPhase(store.camera.phase) ? 1 : 0, DOT_FADE_LERP);
 
-    const ripple = rippleRef.current;
+    const ripple = store.ripple;
     if (ripple) {
       material.uniforms.uRippleOrigin.value.set(ripple.x, ripple.y);
       material.uniforms.uRippleTime.value =
@@ -116,12 +111,6 @@ export function GridBackground({
     const visH = size.height / cam.zoom;
     meshRef.current.position.set(cam.position.x, cam.position.y, -10);
     meshRef.current.scale.set(visW * 4, visH * 4, 1);
-
-    cameraStateRef.current.zoom = cam.zoom;
-    cameraStateRef.current.x = cam.position.x;
-    cameraStateRef.current.y = cam.position.y;
-    cameraStateRef.current.width = size.width;
-    cameraStateRef.current.height = size.height;
   });
   /* eslint-enable react-hooks/immutability */
 

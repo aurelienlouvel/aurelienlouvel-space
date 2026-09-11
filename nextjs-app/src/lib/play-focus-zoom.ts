@@ -1,32 +1,26 @@
 // ─── Adaptive focus zoom ───────────────────────────────────────────────────────
-//  Desktop : le média focus mesure une fraction fixe de la largeur d'écran
-//  (focusWidthFrac), centrée horizontalement sur focusCenterFrac (règle des
-//  tiers par défaut — 1/3 — le panel occupe le reste à droite, voir
-//  InfiniteCanvas.tsx's handleSelect pour le calcul de targetX correspondant).
-//  Mobile : la card remplit toute la largeur de l'écran, en haut (panel dessous).
+//  One box-fit function used by both desktop and mobile — the caller (currently
+//  InfiniteCanvas's handleSelect) supplies the target box for its own device:
+//    Desktop : fixed width fraction of the viewport (boxW), unconstrained
+//              height (boxH = Infinity) — the media's width alone drives the
+//              zoom, the panel takes the remaining space to the right.
+//    Mobile  : full viewport width (boxW = vw) AND a height cap (boxH),
+//              whichever constraint binds first wins — the panel sits below.
 export const FOCUS_MIN_ZOOM = 0.85;
 export const FOCUS_MAX_ZOOM = 12; // généreux — une card courte/paysage a besoin de
                                    // beaucoup de zoom pour remplir toute la hauteur
 
+/**
+ * Largest zoom that fits a worldW×worldH media inside a boxW×boxH box. Pass
+ * boxH = Infinity for an unconstrained dimension (desktop's width-only fit).
+ */
 export function computeFocusZoom(
   worldW: number,
   worldH: number,
-  vw: number,
-  vh: number,
-  mobile: boolean,
-  intensity: number,
-  widthFrac: number,
-) {
-  if (!mobile) {
-    // Largeur cible fixe — le zoom en découle directement, pas de box-fit
-    // hauteur/panel (le panel ne réserve plus d'espace dans ce calcul).
-    const z = (widthFrac * vw) / worldW;
-    return Math.max(FOCUS_MIN_ZOOM, Math.min(FOCUS_MAX_ZOOM, z));
-  }
-  // Mobile : la card remplit toute la largeur de l'écran (panel dessous) —
-  // hauteur bornée par intensity, garde-fou pour les médias très hauts.
-  const h = vh * 0.85 * intensity;
-  const z = Math.min(h / worldH, vw / worldW);
+  boxW: number,
+  boxH: number,
+): number {
+  const z = Math.min(boxW / worldW, boxH / worldH);
   return Math.max(FOCUS_MIN_ZOOM, Math.min(FOCUS_MAX_ZOOM, z));
 }
 

@@ -2,48 +2,36 @@
 
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import type { MotionValue } from "motion/react";
-import type { Params } from "@/lib/play-params";
+import { usePlayStore } from "@/contexts/PlayStoreContext";
 
 // ─── Panel positioner ─────────────────────────────────────────────────────────
-export function PanelPositioner({
-  worldPosRef,
-  halfWRef,
-  halfHRef,
-  panelX,
-  panelY,
-  paramsRef,
-  isMobile,
-}: {
-  worldPosRef: React.MutableRefObject<[number, number] | null>;
-  halfWRef: React.MutableRefObject<number>;
-  halfHRef: React.MutableRefObject<number>;
-  panelX: MotionValue<number>;
-  panelY: MotionValue<number>;
-  paramsRef: React.MutableRefObject<Params>;
-  isMobile: boolean;
-}) {
+//  Projects the focused card's world position to screen space every frame and
+//  writes it into store.panel.x/y (MotionValues — InfiniteCanvas's panel JSX
+//  binds directly to them, no re-render). isMobile stays a prop: it's a rare,
+//  React-driven layout switch, not per-frame runtime state.
+export function PanelPositioner({ isMobile }: { isMobile: boolean }) {
+  const store = usePlayStore();
   const { camera, size } = useThree();
 
   useFrame(() => {
-    const wp = worldPosRef.current;
+    const wp = store.focus.worldPos;
     if (!wp) return;
     const cam = camera as THREE.OrthographicCamera;
     const sx = (wp[0] - cam.position.x) * cam.zoom + size.width / 2;
     const sy = -(wp[1] - cam.position.y) * cam.zoom + size.height / 2;
-    const halfW = halfWRef.current * cam.zoom;
-    const halfH = halfHRef.current * cam.zoom;
-    const gap = paramsRef.current.gapPanel;
+    const halfW = store.focus.halfW * cam.zoom;
+    const halfH = store.focus.halfH * cam.zoom;
+    const gap = store.params.gapPanel;
     if (isMobile) {
       // panel sous la card, aligné sur son bord gauche
-      panelX.set(sx - halfW);
-      panelY.set(sy + halfH + gap);
+      store.panel.x.set(sx - halfW);
+      store.panel.y.set(sy + halfH + gap);
     } else {
       // panel à droite de la card, ancré verticalement à panelVAnchor
       // fraction depuis le BAS de la card (0=bas, 1=haut) — 0.6 par défaut :
       // plus centré que l'ancien alignement strict sur le haut (panelVAnchor=1).
-      panelX.set(sx + halfW + gap);
-      panelY.set(sy + halfH * (1 - 2 * paramsRef.current.panelVAnchor));
+      store.panel.x.set(sx + halfW + gap);
+      store.panel.y.set(sy + halfH * (1 - 2 * store.params.panelVAnchor));
     }
   });
 

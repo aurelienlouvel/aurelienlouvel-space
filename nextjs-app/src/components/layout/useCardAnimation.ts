@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import * as THREE from "three";
-import { focusState, SELECTION_POP_SCALE } from "@/lib/artifact-utils";
+import { SELECTION_POP_SCALE } from "@/lib/artifact-utils";
 import { damp, dampRef } from "@/lib/damp";
-import type { Params } from "@/lib/play-params";
+import { usePlayStore, isFocusPhase } from "@/contexts/PlayStoreContext";
 
 // ─── Shared card animation — hover/selection spring, focus dim, idle tilt ──────
 //  MeshBody and PlaceholderMesh drive their mesh from the exact same per-frame
@@ -20,8 +20,8 @@ const HOVER_SCALE = 1.03;
 //  Numériquement égales aujourd'hui mais conceptuellement distinctes (scale vs
 //  rotation) — les garder séparées évite de recréer le couplage accidentel qui
 //  a causé le bug de PlaceholderMesh (voir plan 4.3/4.4). SELECTION_SPRING est
-//  aussi réutilisée par GalleryStack (ArtifactMesh.tsx) pour son propre pop de
-//  groupe — même famille d'anim que selAnim ci-dessous.
+//  aussi réutilisée par GalleryStack pour son propre pop de groupe — même
+//  famille d'anim que selAnim ci-dessous.
 export const SELECTION_SPRING = 0.12;
 const ROTATION_SPRING = 0.12;
 
@@ -29,11 +29,12 @@ const ROTATION_SPRING = 0.12;
 //  Quand un item est sélectionné, les autres cards se replient : scale ↓ +
 //  fondu d'opacité (pas de rotation), et deviennent non-cliquables (raycast
 //  toggle left to the caller — see DEFAULT_RAYCAST/NOOP_RAYCAST in
-//  ArtifactMesh.tsx).
+//  GridCard.tsx).
 const DIM_LERP = 0.12; // vitesse du repli (lerp/frame)
 export const DIM_SCALE = 0.22; // réduction d'échelle au repli (→ 78 %)
 
-export function useCardAnimation(paramsRef: React.MutableRefObject<Params>) {
+export function useCardAnimation() {
+  const store = usePlayStore();
   const meshRef  = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
   const [hovered, setHovered] = useState(false);
@@ -55,7 +56,7 @@ export function useCardAnimation(paramsRef: React.MutableRefObject<Params>) {
     dampRef(selAnim, selTarget, SELECTION_SPRING);
 
     // ── Focus dim : les autres cards se replient quand un item est focus ──────
-    const dimmed = focusState.isActive && !isSelected;
+    const dimmed = isFocusPhase(store.camera.phase) && !isSelected;
     if (isSelected) {
       dimAnim.current = 0; // snap : la card sélectionnée ne doit jamais être dimmée
     } else {
@@ -67,7 +68,7 @@ export function useCardAnimation(paramsRef: React.MutableRefObject<Params>) {
     // se redresse à 0° (média bien droit) — anime en douceur entre les deux,
     // même vitesse que le pop de sélection.
     if (groupRef.current) {
-      const maxRad  = (paramsRef.current.rotMax * Math.PI) / 180;
+      const maxRad  = (store.params.rotMax * Math.PI) / 180;
       const idleRot = rotSeed * 2 * maxRad;
       if (rotAnim.current === null) rotAnim.current = idleRot;
       const rotTarget = isSelected ? 0 : idleRot;
