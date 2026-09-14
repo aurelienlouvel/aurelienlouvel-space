@@ -32,34 +32,35 @@ export type PlayDebugState = {
 export type PlayDebugRef = RefObject<PlayDebugState>;
 
 /**
- * Largeur du plane à l'ouverture. La caméra étant orthographique à zoom 1,
- * une unité monde vaut un pixel CSS : 640 unités = 640 px à l'écran.
- */
-const PLANE_WIDTH = 640;
-const PLANE_RADIUS = 16;
-
-/**
- * Brackets à l'ouverture. Le rayon vaut `PLANE_RADIUS` + `BRACKET_PADDING` :
- * les deux arrondis sont alors concentriques, ce qui est le point de départ le
- * plus propre — mais rien n'oblige à y rester.
+ * Plane à l'ouverture. La caméra étant orthographique à zoom 1, une unité monde
+ * vaut un pixel CSS : 480 unités = 480 px à l'écran.
  *
- * L'angle est l'ouverture de l'arc de coin, en degrés. À 90° il couvre tout le
- * coin et les bras longent les bords de l'image ; en deçà l'arc se raccourcit
- * et les bras, qui lui restent tangents, s'écartent d'autant.
+ * Le plane est remonté au-dessus du centre : l'`ActionBar` est ancrée en bas de
+ * la fenêtre, et l'image se poserait sinon dessus.
  */
-const BRACKET_PADDING = 16;
-const BRACKET_RADIUS = 32;
-const BRACKET_ANGLE = 90;
-const BRACKET_ARM = 22;
-const BRACKET_THICKNESS = 2;
+const PLANE_WIDTH = 480;
+const PLANE_RADIUS = 32;
+const PLANE_Y = 48;
 
 /**
- * Le `stone-600` de Tailwind, en littéral : three ne sait pas parser
- * `oklch()`, et une CSS variable n'a de toute façon pas de sens dans le
- * canvas. Converti depuis `oklch(44.4% 0.011 73.639)`, la valeur du thème
- * installé — que le site ne redéfinit pas.
+ * Brackets à l'ouverture. L'angle est l'ouverture de l'arc de coin, en degrés :
+ * à 90° il couvre tout le coin et les bras longent les bords de l'image ; en
+ * deçà l'arc se raccourcit et les bras, qui lui restent tangents, s'écartent
+ * d'autant.
  */
-const BRACKET_COLOR = "#57534d";
+const BRACKET_PADDING = 20;
+const BRACKET_RADIUS = 48;
+const BRACKET_ANGLE = 90;
+const BRACKET_ARM = 8;
+const BRACKET_THICKNESS = 4;
+
+/**
+ * En littéral : three ne sait pas parser `oklch()`, et une CSS variable n'a de
+ * toute façon pas de sens dans le canvas. Ce gris est proche du `zinc-400` de
+ * Tailwind sans en venir — la palette v4 est en oklch, et le `zinc-400`
+ * installé rasterise à `#9f9fa9`.
+ */
+const BRACKET_COLOR = "#a1a1aa";
 
 /** Texture tirée au double de la largeur du plane, pour les écrans retina. */
 const TEXTURE_WIDTH = PLANE_WIDTH * 2;
@@ -101,7 +102,7 @@ function CameraRig({ debug }: { debug: PlayDebugRef }) {
 
 export function PlayCanvas({ artifact }: { artifact: PlayArtifact | null }) {
   const debug = useRef<PlayDebugState>({
-    plane: { x: 0, y: 0, width: PLANE_WIDTH, radius: PLANE_RADIUS },
+    plane: { x: 0, y: PLANE_Y, width: PLANE_WIDTH, radius: PLANE_RADIUS },
     brackets: {
       padding: BRACKET_PADDING,
       radius: BRACKET_RADIUS,
