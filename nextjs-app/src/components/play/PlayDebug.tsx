@@ -18,7 +18,11 @@ export function PlayDebug({ state }: { state: PlayDebugRef }) {
     const container = containerRef.current;
     if (!container) return;
 
-    const { plane: planeState, camera: cameraState } = state.current;
+    const {
+      plane: planeState,
+      brackets: bracketsState,
+      camera: cameraState,
+    } = state.current;
     const pane = new Pane({ container, title: "play" });
 
     // Titre `image` et non `plane` : c'est ce que le pane donne à lire, et le
@@ -28,6 +32,15 @@ export function PlayDebug({ state }: { state: PlayDebugRef }) {
     plane.addBinding(planeState, "y", { min: -1000, max: 1000, step: 1 });
     plane.addBinding(planeState, "width", { min: 50, max: 2000, step: 1 });
     plane.addBinding(planeState, "radius", { min: 0, max: 200, step: 1 });
+
+    const brackets = pane.addFolder({ title: "brackets" });
+    brackets.addBinding(bracketsState, "radius", { min: 0, max: 200, step: 1 });
+    brackets.addBinding(bracketsState, "thickness", {
+      min: 0,
+      max: 24,
+      step: 0.5,
+    });
+    brackets.addBinding(bracketsState, "arm", { min: 0, max: 200, step: 1 });
 
     const camera = pane.addFolder({ title: "camera" });
     camera.addBinding(cameraState, "x", { min: -2000, max: 2000, step: 1 });

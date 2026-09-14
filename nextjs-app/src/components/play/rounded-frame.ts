@@ -5,10 +5,11 @@ import type {
 } from "three";
 
 /**
- * Outillage des formes du cadre, dessinées en SDF dans le fragment shader
- * plutôt qu'en géométrie : leur plane est un carré unitaire mis à l'échelle
- * séparément en x et en y, donc des coins arrondis dans la géométrie
- * sortiraient en ellipses.
+ * Outillage commun aux deux formes du cadre : l'image et les brackets.
+ *
+ * Les deux sont dessinées en SDF dans le fragment shader plutôt qu'en
+ * géométrie : leur plane est un carré unitaire mis à l'échelle séparément en x
+ * et en y, donc des coins arrondis dans la géométrie sortiraient en ellipses.
  */
 
 /**

@@ -98,15 +98,20 @@ function roundCornersCacheKey() {
  * géométrie.
  *
  * `ratio` = largeur / hauteur de l'image source.
+ *
+ * Le survol est remonté au parent plutôt que gardé ici : c'est `FocusIndicator`
+ * qui le consomme, et les deux sont frères dans la scène.
  */
 export function ArtifactPlane({
   url,
   ratio,
   debug,
+  onHoverChange,
 }: {
   url: string;
   ratio: number;
   debug: PlayDebugRef;
+  onHoverChange: (hovered: boolean) => void;
 }) {
   const meshRef = useRef<Mesh>(null);
   const materialRef = useRef<MeshBasicMaterial>(null);
@@ -127,7 +132,11 @@ export function ArtifactPlane({
   });
 
   return (
-    <mesh ref={meshRef}>
+    <mesh
+      ref={meshRef}
+      onPointerOver={() => onHoverChange(true)}
+      onPointerOut={() => onHoverChange(false)}
+    >
       <planeGeometry args={[1, 1]} />
       <meshBasicMaterial
         ref={materialRef}

@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useMemo, useRef, type RefObject } from "react";
+import { Suspense, useMemo, useRef, useState, type RefObject } from "react";
 import dynamic from "next/dynamic";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { buildImageUrl } from "@/lib/sanity-image";
 import type { PlayArtifact } from "@/sanity/queries";
 import { ArtifactPlane } from "./ArtifactPlane";
+import { FocusIndicator } from "./FocusIndicator";
 
 /**
  * État mutable du canvas : tweakpane écrit dedans, les `useFrame` le lisent et
@@ -17,6 +18,7 @@ import { ArtifactPlane } from "./ArtifactPlane";
  */
 export type PlayDebugState = {
   plane: { x: number; y: number; width: number; radius: number };
+  brackets: { radius: number; thickness: number; arm: number };
   camera: { x: number; y: number; zoom: number };
 };
 
@@ -28,6 +30,15 @@ export type PlayDebugRef = RefObject<PlayDebugState>;
  */
 const PLANE_WIDTH = 640;
 const PLANE_RADIUS = 16;
+
+/**
+ * Brackets à l'ouverture. Le rayon vaut `PLANE_RADIUS` + l'écart des brackets
+ * au média : les deux arrondis sont alors concentriques, ce qui est le point de
+ * départ le plus propre — mais rien n'oblige à y rester.
+ */
+const BRACKET_RADIUS = 32;
+const BRACKET_THICKNESS = 2;
+const BRACKET_ARM = 22;
 
 /** Texture tirée au double de la largeur du plane, pour les écrans retina. */
 const TEXTURE_WIDTH = PLANE_WIDTH * 2;
@@ -70,8 +81,17 @@ function CameraRig({ debug }: { debug: PlayDebugRef }) {
 export function PlayCanvas({ artifact }: { artifact: PlayArtifact | null }) {
   const debug = useRef<PlayDebugState>({
     plane: { x: 0, y: 0, width: PLANE_WIDTH, radius: PLANE_RADIUS },
+    brackets: {
+      radius: BRACKET_RADIUS,
+      thickness: BRACKET_THICKNESS,
+      arm: BRACKET_ARM,
+    },
     camera: { x: 0, y: 0, zoom: 1 },
   });
+
+  // Le survol vit en state React, pas dans `debug` : il change sur événement,
+  // jamais par frame, donc un re-render par entrée/sortie ne coûte rien.
+  const [hovered, setHovered] = useState(false);
 
   const ref = artifact?.image?.ref ?? null;
   const width = artifact?.image?.width ?? null;
@@ -97,13 +117,23 @@ export function PlayCanvas({ artifact }: { artifact: PlayArtifact | null }) {
       >
         <CameraRig debug={debug} />
         {source && (
-          <Suspense fallback={null}>
-            <ArtifactPlane
-              url={source.url}
+          <>
+            <Suspense fallback={null}>
+              <ArtifactPlane
+                url={source.url}
+                ratio={source.ratio}
+                debug={debug}
+                onHoverChange={setHovered}
+              />
+            </Suspense>
+            {/* Hors du Suspense : l'indicateur n'attend aucune texture, et il
+                ne peut de toute façon pas être survolé avant le plane. */}
+            <FocusIndicator
               ratio={source.ratio}
               debug={debug}
+              active={hovered}
             />
-          </Suspense>
+          </>
         )}
       </Canvas>
       {PlayDebug && <PlayDebug state={debug} />}
