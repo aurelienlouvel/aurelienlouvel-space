@@ -9,8 +9,11 @@ const STORAGE_KEY = "play-debug";
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
 
-/** Les groupes de l'état sont tous des sacs de nombres, le stockage aussi. */
-type NumberGroups = Record<string, Record<string, number>>;
+/** Les groupes de l'état sont des sacs de réglages, le stockage aussi. */
+type SettingGroups = Record<string, Record<string, unknown>>;
+
+/** Les seules chaînes de l'état sont des couleurs, et le pane les veut valides. */
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /**
  * Recharge les valeurs sauvegardées dans l'objet d'état, en place.
@@ -19,6 +22,12 @@ type NumberGroups = Record<string, Record<string, number>>;
  * tweakpane pointent sur les objets de groupe, qui doivent survivre. Au passage
  * une sauvegarde antérieure à l'ajout d'un réglage reste lisible, et une entrée
  * abîmée ne fait que retomber sur la valeur par défaut.
+ *
+ * Le type de la valeur par défaut fait loi : une entrée d'un autre type est le
+ * reste d'une version antérieure du pane, pas une valeur à recharger. Le
+ * contrôle va jusqu'à la forme pour les couleurs, car tweakpane refuse de créer
+ * un binding sur une chaîne qu'il ne sait pas lire — une seule entrée abîmée
+ * emporterait le pane entier.
  */
 function restore(state: PlayDebugState) {
   const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -33,14 +42,16 @@ function restore(state: PlayDebugState) {
   if (typeof stored !== "object" || stored === null) return;
 
   const saved = stored as Record<string, unknown>;
-  for (const [name, group] of Object.entries(state as unknown as NumberGroups)) {
+  const groups = Object.entries(state as unknown as SettingGroups);
+  for (const [name, group] of groups) {
     const savedGroup = saved[name];
     if (typeof savedGroup !== "object" || savedGroup === null) continue;
-    for (const key of Object.keys(group)) {
+    for (const [key, fallback] of Object.entries(group)) {
       const value = (savedGroup as Record<string, unknown>)[key];
-      if (typeof value === "number" && Number.isFinite(value)) {
-        group[key] = value;
-      }
+      if (typeof value !== typeof fallback) continue;
+      if (typeof value === "number" && !Number.isFinite(value)) continue;
+      if (typeof value === "string" && !HEX_COLOR.test(value)) continue;
+      group[key] = value;
     }
   }
 }
@@ -125,6 +136,7 @@ export function PlayDebug({ state }: { state: PlayDebugRef }) {
       step: 0.5,
     });
     brackets.addBinding(bracketsState, "arm", { min: 0, max: 200, step: 1 });
+    brackets.addBinding(bracketsState, "color");
 
     const camera = pane.addFolder({ title: "camera" });
     camera.addBinding(cameraState, "x", { min: -2000, max: 2000, step: 1 });

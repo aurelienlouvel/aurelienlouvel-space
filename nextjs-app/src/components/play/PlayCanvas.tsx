@@ -18,7 +18,12 @@ import { FocusIndicator } from "./FocusIndicator";
  */
 export type PlayDebugState = {
   plane: { x: number; y: number; width: number; radius: number };
-  brackets: { radius: number; thickness: number; arm: number };
+  brackets: {
+    radius: number;
+    thickness: number;
+    arm: number;
+    color: string;
+  };
   camera: { x: number; y: number; zoom: number };
 };
 
@@ -39,6 +44,14 @@ const PLANE_RADIUS = 16;
 const BRACKET_RADIUS = 32;
 const BRACKET_THICKNESS = 2;
 const BRACKET_ARM = 22;
+
+/**
+ * Le `stone-600` de Tailwind, en littéral : three ne sait pas parser
+ * `oklch()`, et une CSS variable n'a de toute façon pas de sens dans le
+ * canvas. Converti depuis `oklch(44.4% 0.011 73.639)`, la valeur du thème
+ * installé — que le site ne redéfinit pas.
+ */
+const BRACKET_COLOR = "#57534d";
 
 /** Texture tirée au double de la largeur du plane, pour les écrans retina. */
 const TEXTURE_WIDTH = PLANE_WIDTH * 2;
@@ -85,6 +98,7 @@ export function PlayCanvas({ artifact }: { artifact: PlayArtifact | null }) {
       radius: BRACKET_RADIUS,
       thickness: BRACKET_THICKNESS,
       arm: BRACKET_ARM,
+      color: BRACKET_COLOR,
     },
     camera: { x: 0, y: 0, zoom: 1 },
   });

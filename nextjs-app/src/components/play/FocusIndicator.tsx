@@ -17,12 +17,6 @@ import {
   uniformsOf,
 } from "./rounded-frame";
 
-/**
- * `--foreground` du site, en littéral : three ne sait pas parser `oklch()`,
- * et une CSS variable n'a de toute façon pas de sens dans le canvas.
- */
-const COLOR = "#0a0a0a";
-
 /** Écart entre le bord de l'image et le bord extérieur des brackets. */
 const PADDING = 16;
 
@@ -171,9 +165,9 @@ function carveBracketsCacheKey() {
  * fois. Le quad suit l'image de près pour que l'antialiasing garde la même
  * résolution quelle que soit sa taille.
  *
- * Arrondi, épaisseur et longueur de bras viennent du debug pane, et gardent la
- * même valeur quelle que soit la taille de l'image — seule la position des
- * coins suit le cadre.
+ * Arrondi, épaisseur, longueur de bras et couleur viennent du debug pane. Les
+ * trois premiers gardent la même valeur quelle que soit la taille de l'image —
+ * seule la position des coins suit le cadre.
  *
  * `ratio` = largeur / hauteur de l'image, comme pour `ArtifactPlane`.
  */
@@ -189,11 +183,23 @@ export function FocusIndicator({
   const meshRef = useRef<Mesh>(null);
   const materialRef = useRef<MeshBasicMaterial>(null);
   const opacityRef = useRef(0);
+  const colorRef = useRef("");
 
   useFrame((_, delta) => {
     const mesh = meshRef.current;
     const material = materialRef.current;
     if (!mesh || !material) return;
+
+    const { plane, brackets } = debug.current;
+
+    // Posée même quand l'indicateur est éteint : le matériau resterait sinon au
+    // blanc de three jusqu'à la première frame visible. Le garde évite de
+    // reparser la chaîne à chaque frame — three la relit caractère par
+    // caractère, et elle ne bouge qu'au picker.
+    if (colorRef.current !== brackets.color) {
+      colorRef.current = brackets.color;
+      material.color.set(brackets.color);
+    }
 
     // Amortissement exponentiel plutôt qu'un pas fixe : le fondu dure le même
     // temps quel que soit le framerate.
@@ -207,7 +213,6 @@ export function FocusIndicator({
     if (!mesh.visible) return;
     material.opacity = opacity;
 
-    const { plane, brackets } = debug.current;
     const width = plane.width;
     const height = width / ratio;
     const margin = oversize(brackets.thickness);
@@ -227,7 +232,6 @@ export function FocusIndicator({
       <planeGeometry args={[1, 1]} />
       <meshBasicMaterial
         ref={materialRef}
-        color={COLOR}
         transparent
         opacity={0}
         defines={FRAME_DEFINES}
