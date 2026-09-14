@@ -6,8 +6,8 @@ import type { PlayDebugRef, PlayDebugState } from "./PlayCanvas";
 
 const STORAGE_KEY = "play-debug";
 
-/** Durée de l'accusé de réception du bouton save. */
-const SAVED_LABEL_MS = 1200;
+/** Durée de l'accusé de réception d'un bouton. */
+const FLASH_MS = 1200;
 
 /** Les groupes de l'état sont tous des sacs de nombres, le stockage aussi. */
 type NumberGroups = Record<string, Record<string, number>>;
@@ -46,6 +46,43 @@ function restore(state: PlayDebugState) {
 }
 
 /**
+ * Ajoute un bouton qui confirme son action en changeant de titre un instant, et
+ * rend de quoi annuler une confirmation restée en attente.
+ *
+ * Le titre de repos est celui passé en argument, jamais celui relu sur le
+ * bouton : deux clics rapprochés le liraient pendant la confirmation, et
+ * l'auraient figé dessus.
+ *
+ * L'action rend le mot de sa confirmation, au besoin plus tard : c'est ce qui
+ * permet au presse-papiers de n'annoncer le succès qu'une fois sa promesse
+ * tenue, et de dire autre chose si elle est rompue.
+ */
+function addAction(
+  pane: Pane,
+  title: string,
+  action: () => string | Promise<string>,
+) {
+  const button = pane.addButton({ title });
+  let revert: ReturnType<typeof setTimeout> | undefined;
+
+  function flash(done: string) {
+    button.title = done;
+    clearTimeout(revert);
+    revert = setTimeout(() => {
+      button.title = title;
+    }, FLASH_MS);
+  }
+
+  button.on("click", () => {
+    // `Promise.resolve` ramène les deux formes d'action au même traitement ; le
+    // tick qu'il coûte à une action synchrone ne se voit pas.
+    void Promise.resolve(action()).then(flash);
+  });
+
+  return () => clearTimeout(revert);
+}
+
+/**
  * Debug pane tweakpane, monté en dev uniquement (cf. `PlayCanvas`).
  *
  * Les bindings écrivent directement dans l'objet d'état, que les `useFrame` du
@@ -54,7 +91,8 @@ function restore(state: PlayDebugState) {
  *
  * Le bouton save fige les valeurs courantes dans `localStorage`, et le pane les
  * recharge au montage. La persistance s'arrête là : en prod le pane n'est pas
- * embarqué, donc le canvas repart toujours des valeurs par défaut du code.
+ * embarqué, donc le canvas repart toujours des valeurs par défaut du code — le
+ * bouton copy sert justement à en sortir les valeurs pour les y reporter.
  */
 export function PlayDebug({ state }: { state: PlayDebugRef }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -93,19 +131,25 @@ export function PlayDebug({ state }: { state: PlayDebugRef }) {
     camera.addBinding(cameraState, "y", { min: -2000, max: 2000, step: 1 });
     camera.addBinding(cameraState, "zoom", { min: 0.1, max: 5, step: 0.01 });
 
-    const save = pane.addButton({ title: "save" });
-    let revert: ReturnType<typeof setTimeout> | undefined;
-    save.on("click", () => {
+    const stopSave = addAction(pane, "save", () => {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.current));
-      save.title = "saved";
-      clearTimeout(revert);
-      revert = setTimeout(() => {
-        save.title = "save";
-      }, SAVED_LABEL_MS);
+      return "saved";
     });
 
+    // Indenté, contrairement à la sauvegarde : celle-ci n'est relue que par du
+    // code, alors que la copie est faite pour être collée dans une discussion.
+    const stopCopy = addAction(pane, "copy", () =>
+      navigator.clipboard
+        .writeText(JSON.stringify(state.current, null, 2))
+        .then(
+          () => "copied",
+          () => "clipboard refused",
+        ),
+    );
+
     return () => {
-      clearTimeout(revert);
+      stopSave();
+      stopCopy();
       pane.dispose();
     };
   }, [state]);
