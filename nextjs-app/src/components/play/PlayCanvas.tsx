@@ -19,9 +19,11 @@ import { FocusIndicator } from "./FocusIndicator";
 export type PlayDebugState = {
   plane: { x: number; y: number; width: number; radius: number };
   brackets: {
+    padding: number;
     radius: number;
-    thickness: number;
+    angle: number;
     arm: number;
+    thickness: number;
     color: string;
   };
   camera: { x: number; y: number; zoom: number };
@@ -37,13 +39,19 @@ const PLANE_WIDTH = 640;
 const PLANE_RADIUS = 16;
 
 /**
- * Brackets à l'ouverture. Le rayon vaut `PLANE_RADIUS` + l'écart des brackets
- * au média : les deux arrondis sont alors concentriques, ce qui est le point de
- * départ le plus propre — mais rien n'oblige à y rester.
+ * Brackets à l'ouverture. Le rayon vaut `PLANE_RADIUS` + `BRACKET_PADDING` :
+ * les deux arrondis sont alors concentriques, ce qui est le point de départ le
+ * plus propre — mais rien n'oblige à y rester.
+ *
+ * L'angle est l'ouverture de l'arc de coin, en degrés. À 90° il couvre tout le
+ * coin et les bras longent les bords de l'image ; en deçà l'arc se raccourcit
+ * et les bras, qui lui restent tangents, s'écartent d'autant.
  */
+const BRACKET_PADDING = 16;
 const BRACKET_RADIUS = 32;
-const BRACKET_THICKNESS = 2;
+const BRACKET_ANGLE = 90;
 const BRACKET_ARM = 22;
+const BRACKET_THICKNESS = 2;
 
 /**
  * Le `stone-600` de Tailwind, en littéral : three ne sait pas parser
@@ -95,9 +103,11 @@ export function PlayCanvas({ artifact }: { artifact: PlayArtifact | null }) {
   const debug = useRef<PlayDebugState>({
     plane: { x: 0, y: 0, width: PLANE_WIDTH, radius: PLANE_RADIUS },
     brackets: {
+      padding: BRACKET_PADDING,
       radius: BRACKET_RADIUS,
-      thickness: BRACKET_THICKNESS,
+      angle: BRACKET_ANGLE,
       arm: BRACKET_ARM,
+      thickness: BRACKET_THICKNESS,
       color: BRACKET_COLOR,
     },
     camera: { x: 0, y: 0, zoom: 1 },

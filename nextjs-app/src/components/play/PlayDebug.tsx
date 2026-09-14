@@ -128,14 +128,18 @@ export function PlayDebug({ state }: { state: PlayDebugRef }) {
     plane.addBinding(planeState, "width", { min: 50, max: 2000, step: 1 });
     plane.addBinding(planeState, "radius", { min: 0, max: 200, step: 1 });
 
+    // Rangés comme se lit la forme : où elle se pose, comment elle tourne, sur
+    // quelle longueur elle se prolonge, de quel trait elle s'écrit.
     const brackets = pane.addFolder({ title: "brackets" });
+    brackets.addBinding(bracketsState, "padding", { min: 0, max: 200, step: 1 });
     brackets.addBinding(bracketsState, "radius", { min: 0, max: 200, step: 1 });
+    brackets.addBinding(bracketsState, "angle", { min: 0, max: 90, step: 1 });
+    brackets.addBinding(bracketsState, "arm", { min: 0, max: 200, step: 1 });
     brackets.addBinding(bracketsState, "thickness", {
       min: 0,
       max: 24,
       step: 0.5,
     });
-    brackets.addBinding(bracketsState, "arm", { min: 0, max: 200, step: 1 });
     brackets.addBinding(bracketsState, "color");
 
     const camera = pane.addFolder({ title: "camera" });
