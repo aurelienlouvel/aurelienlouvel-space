@@ -21,10 +21,13 @@ export function PlayDebug({ state }: { state: PlayDebugRef }) {
     const { plane: planeState, camera: cameraState } = state.current;
     const pane = new Pane({ container, title: "play" });
 
-    const plane = pane.addFolder({ title: "plane" });
+    // Titre `image` et non `plane` : c'est ce que le pane donne à lire, et le
+    // plane n'est qu'un détail d'implémentation côté three.
+    const plane = pane.addFolder({ title: "image" });
     plane.addBinding(planeState, "x", { min: -1000, max: 1000, step: 1 });
     plane.addBinding(planeState, "y", { min: -1000, max: 1000, step: 1 });
     plane.addBinding(planeState, "width", { min: 50, max: 2000, step: 1 });
+    plane.addBinding(planeState, "radius", { min: 0, max: 200, step: 1 });
 
     const camera = pane.addFolder({ title: "camera" });
     camera.addBinding(cameraState, "x", { min: -2000, max: 2000, step: 1 });

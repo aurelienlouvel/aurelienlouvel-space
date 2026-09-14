@@ -16,7 +16,7 @@ import { ArtifactPlane } from "./ArtifactPlane";
  * aux enfants de ne le lire qu'en dehors du rendu, là où muter est légitime.
  */
 export type PlayDebugState = {
-  plane: { x: number; y: number; width: number };
+  plane: { x: number; y: number; width: number; radius: number };
   camera: { x: number; y: number; zoom: number };
 };
 
@@ -27,6 +27,7 @@ export type PlayDebugRef = RefObject<PlayDebugState>;
  * une unité monde vaut un pixel CSS : 640 unités = 640 px à l'écran.
  */
 const PLANE_WIDTH = 640;
+const PLANE_RADIUS = 16;
 
 /** Texture tirée au double de la largeur du plane, pour les écrans retina. */
 const TEXTURE_WIDTH = PLANE_WIDTH * 2;
@@ -68,7 +69,7 @@ function CameraRig({ debug }: { debug: PlayDebugRef }) {
 
 export function PlayCanvas({ artifact }: { artifact: PlayArtifact | null }) {
   const debug = useRef<PlayDebugState>({
-    plane: { x: 0, y: 0, width: PLANE_WIDTH },
+    plane: { x: 0, y: 0, width: PLANE_WIDTH, radius: PLANE_RADIUS },
     camera: { x: 0, y: 0, zoom: 1 },
   });
 
