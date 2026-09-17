@@ -72,7 +72,7 @@ export type FisheyeParams = {
 
 export const FISHEYE_DEFAULTS: FisheyeParams = {
   enabled: true,
-  strength: 0.05,
+  strength: 0.032,
 };
 
 export type PlayDebugState = {
