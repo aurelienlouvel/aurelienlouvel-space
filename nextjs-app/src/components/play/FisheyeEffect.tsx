@@ -30,7 +30,6 @@ void main() {
 const FISHEYE_FRAGMENT_SHADER = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform float uStrength;
-uniform float uAberration;
 uniform vec2 uResolution;
 
 varying vec2 vUv;
@@ -41,26 +40,19 @@ void main() {
   coord.x *= aspect;
 
   float r2 = dot(coord, coord);
+  float rCorner2 = aspect * aspect + 1.0;
 
-  // Distorsion sphérique barrel / fisheye avec légère aberration chromatique aux extrémités
-  float factorG = 1.0 / (1.0 + uStrength * r2);
-  float factorR = 1.0 / (1.0 + (uStrength * (1.0 + uAberration)) * r2);
-  float factorB = 1.0 / (1.0 + (uStrength * (1.0 - uAberration)) * r2);
+  // Projection sphérique convexe (défilement sur un globe) :
+  // Le centre est plus proche et bombé vers le spectateur,
+  // tandis que les bords s'incurvent et s'éloignent vers l'horizon.
+  float factor = (1.0 + uStrength * r2) / (1.0 + uStrength * rCorner2);
 
-  vec2 uvG = vec2(coord.x * factorG / aspect, coord.y * factorG) * 0.5 + 0.5;
-  vec2 uvR = vec2(coord.x * factorR / aspect, coord.y * factorR) * 0.5 + 0.5;
-  vec2 uvB = vec2(coord.x * factorB / aspect, coord.y * factorB) * 0.5 + 0.5;
+  vec2 uv = vec2(coord.x * factor / aspect, coord.y * factor) * 0.5 + 0.5;
 
-  vec4 colG = texture2D(tDiffuse, uvG);
-  vec4 colR = texture2D(tDiffuse, uvR);
-  vec4 colB = texture2D(tDiffuse, uvB);
+  vec4 col = texture2D(tDiffuse, uv);
 
   // Composite propre sur le fond blanc du canvas (#ffffff)
-  vec3 rgb = vec3(
-    mix(1.0, colR.r, colR.a),
-    mix(1.0, colG.g, colG.a),
-    mix(1.0, colB.b, colB.a)
-  );
+  vec3 rgb = mix(vec3(1.0), col.rgb, col.a);
 
   gl_FragColor = vec4(rgb, 1.0);
 }
@@ -74,7 +66,7 @@ function renderFisheyePass(
   postCamera: OrthographicCamera,
   renderTarget: WebGLRenderTarget,
   material: ShaderMaterial,
-  fisheye: { enabled: boolean; strength: number; aberration: number },
+  fisheye: { enabled: boolean; strength: number },
   width: number,
   height: number,
 ) {
@@ -88,12 +80,11 @@ function renderFisheyePass(
   gl.setRenderTarget(renderTarget);
   gl.render(scene, camera);
 
-  // 2. Rendu de la distorsion fisheye plein écran sur le canvas
+  // 2. Rendu de la distorsion globe plein écran sur le canvas
   gl.setRenderTarget(null);
   const u = material.uniforms;
   u.tDiffuse.value = renderTarget.texture;
   u.uStrength.value = fisheye.strength;
-  u.uAberration.value = fisheye.aberration;
   u.uResolution.value.set(width, height);
   gl.render(postScene, postCamera);
 }
@@ -120,7 +111,7 @@ export function FisheyeEffect({ debug }: { debug: PlayDebugRef }) {
     };
   }, [renderTarget]);
 
-  // Matériau shader de post-processing fisheye
+  // Matériau shader de post-processing fisheye convexe
   const material = useMemo(
     () =>
       new ShaderMaterial({
@@ -129,7 +120,6 @@ export function FisheyeEffect({ debug }: { debug: PlayDebugRef }) {
         uniforms: {
           tDiffuse: { value: null },
           uStrength: { value: 0 },
-          uAberration: { value: 0 },
           uResolution: { value: new Vector2(1, 1) },
         },
         depthTest: false,

@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v10";
+const STORAGE_KEY = "play-debug-v11";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -150,15 +150,9 @@ export function PlayDebug({
     fisheye.addBinding(state.current.fisheye, "enabled", { label: "activer" });
     fisheye.addBinding(state.current.fisheye, "strength", {
       min: 0,
-      max: 0.25,
+      max: 0.2,
       step: 0.005,
-      label: "distorsion",
-    });
-    fisheye.addBinding(state.current.fisheye, "aberration", {
-      min: 0,
-      max: 0.08,
-      step: 0.002,
-      label: "aberration",
+      label: "courbure globe",
     });
 
     // ── Layout : Gravité Centrale ─────────────────────────────────

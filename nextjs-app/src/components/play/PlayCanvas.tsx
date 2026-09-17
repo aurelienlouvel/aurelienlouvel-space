@@ -67,13 +67,11 @@ export const PHYSICS_DEFAULTS: PhysicsParams = {
 export type FisheyeParams = {
   enabled: boolean;
   strength: number;
-  aberration: number;
 };
 
 export const FISHEYE_DEFAULTS: FisheyeParams = {
   enabled: true,
-  strength: 0.07,
-  aberration: 0.02,
+  strength: 0.05,
 };
 
 export type PlayDebugState = {
@@ -871,7 +869,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
                     const cx = px * aspect;
                     const cy = py;
                     const r2 = cx * cx + cy * cy;
-                    const factor = 1 / (1 + fish.strength * r2);
+                    const rCorner2 = aspect * aspect + 1.0;
+                    const factor = (1.0 + fish.strength * r2) / (1.0 + fish.strength * rCorner2);
                     state.pointer.set((cx * factor) / aspect, cy * factor);
                   } else {
                     state.pointer.set(px, py);
