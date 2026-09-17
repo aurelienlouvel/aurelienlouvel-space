@@ -36,7 +36,7 @@ function applyHover(
   height: number,
   hovering: boolean,
 ) {
-  if (rc.transition.phase === "burst" || rc.transition.phase === "isolated") return;
+  if (rc.transition.phase !== "idle") return;
   if (hovering) {
     rc.hovered = pointIndex;
     rc.indicatorTarget = { x: world.x, y: world.y, width, height };
@@ -62,7 +62,7 @@ function applySelect(
   width: number,
   height: number,
 ) {
-  if (rc.transition.phase === "burst" || rc.transition.phase === "isolated") return;
+  if (rc.transition.phase !== "idle" && rc.transition.phase !== "selecting") return;
   rc.selected = pointIndex;
   rc.selectedPos = world;
   rc.camera.targetX = world.x;
@@ -76,7 +76,7 @@ function applySelect(
  * 1. Sélection maintenue (Hold) :
  *    - L'artifact sélectionné grossit légèrement (selectScale) sans se déplacer.
  *    - TOUS les autres artifacts s'écartent avec la MÊME amplitude scalaire le long
- *      de leur vecteur radial unitaire depuis le centre de la cible.
+ *      de leur vecteur radial unitaire en coordonnées monde depuis le centre de la cible.
  *    - Conséquence géométrique : l'espacement relatif entre les artifacts voisins reste
  *      strictement identique, sans aucune collision ni glissement.
  * 2. Explosion (Burst) :
@@ -90,19 +90,18 @@ function stepKinematicMeshes(
   transition: TransitionConfig,
   rc: PlayRuntimeState,
   points: LayoutPoint[],
+  groupRefs: (Group | null)[],
   meshRefs: (Mesh | null)[][],
   displacementRef: { current: number },
-  tileW: number,
-  tileH: number,
   delta: number,
 ) {
   if (!phys.enabled) {
     displacementRef.current = 0;
-    for (let i = 0; i < points.length; i++) {
-      const pt = points[i];
-      for (let k = 0; k < COPIES; k++) {
+    for (let k = 0; k < COPIES; k++) {
+      for (let i = 0; i < points.length; i++) {
         const mesh = meshRefs[k]?.[i];
         if (mesh) {
+          const pt = points[i];
           mesh.position.set(pt.x, pt.y, 0);
           mesh.rotation.z = 0;
           mesh.scale.set(pt.width, pt.height, 1);
@@ -155,49 +154,44 @@ function stepKinematicMeshes(
     rc.indicatorTarget.height = targetPt.height * selectScaleFactor;
   }
 
-  for (let i = 0; i < points.length; i++) {
-    const pt = points[i];
-    let curDx = 0;
-    let curDy = 0;
-    let scaleFactor = 1;
+  const selX = rc.selectedPos.x;
+  const selY = rc.selectedPos.y;
 
-    if (i === targetIdx) {
-      // L'élément ciblé ne bouge pas : il grossit uniquement
-      scaleFactor = selectScaleFactor;
-    } else if (currentD > 0.0001 && targetPt) {
-      // Déplacement radial uniforme : calcul du vecteur toroidal depuis la cible
-      let rx = pt.x - targetPt.x;
-      let ry = pt.y - targetPt.y;
+  // Répulsion radiale unifiée en coordonnées monde depuis l'artifact sélectionné
+  for (let k = 0; k < COPIES; k++) {
+    const group = groupRefs[k];
+    const gx = group ? group.position.x : 0;
+    const gy = group ? group.position.y : 0;
 
-      if (tileW > 0) {
-        if (rx > tileW * 0.5) rx -= tileW;
-        else if (rx < -tileW * 0.5) rx += tileW;
-      }
-      if (tileH > 0) {
-        if (ry > tileH * 0.5) ry -= tileH;
-        else if (ry < -tileH * 0.5) ry += tileH;
-      }
-
-      const dist = Math.hypot(rx, ry);
-      if (dist > 0.001) {
-        // Vecteur unitaire directionnel
-        const ux = rx / dist;
-        const uy = ry / dist;
-        curDx = ux * currentD;
-        curDy = uy * currentD;
-      }
-    }
-
-    const meshW = pt.width * scaleFactor;
-    const meshH = pt.height * scaleFactor;
-
-    for (let k = 0; k < COPIES; k++) {
+    for (let i = 0; i < points.length; i++) {
       const mesh = meshRefs[k]?.[i];
-      if (mesh) {
-        mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
-        mesh.rotation.z = 0;
-        mesh.scale.set(meshW, meshH, 1);
+      if (!mesh) continue;
+
+      const pt = points[i];
+      const worldX = gx + pt.x;
+      const worldY = gy + pt.y;
+      const rx = worldX - selX;
+      const ry = worldY - selY;
+      const dist = Math.hypot(rx, ry);
+
+      const isTarget = i === targetIdx && dist < Math.max(pt.width, pt.height) * 0.5;
+
+      let curDx = 0;
+      let curDy = 0;
+      let scale = 1;
+
+      if (isTarget) {
+        scale = selectScaleFactor;
+      } else if (currentD > 0.001) {
+        if (dist > 0.001) {
+          curDx = (rx / dist) * currentD;
+          curDy = (ry / dist) * currentD;
+        }
       }
+
+      mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
+      mesh.rotation.z = 0;
+      mesh.scale.set(pt.width * scale, pt.height * scale, 1);
     }
   }
 }
@@ -284,10 +278,9 @@ export function ArtifactGrid({
       debug.current.transition,
       runtime.current,
       points,
+      groupRefs.current,
       meshRefs.current,
       displacementRef,
-      TILE_W,
-      TILE_H,
       delta,
     );
   });
@@ -309,11 +302,11 @@ export function ArtifactGrid({
     width: number,
     height: number,
   ) {
+    applySelect(runtime.current, pointIndex, world, width, height);
     applyPointerDown(runtime.current, pointIndex, {
       x: points[pointIndex].x,
       y: points[pointIndex].y,
     });
-    applySelect(runtime.current, pointIndex, world, width, height);
   }
 
   function handleSelect(

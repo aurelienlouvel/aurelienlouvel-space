@@ -595,10 +595,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       const origin = tile.points[tile.originIndex];
       rc.selected = tile.originIndex;
       rc.hovered = null;
-      rc.selectedPos = { x: 0, y: 0 };
-      rc.camera = { targetX: 0, targetY: 0, mode: "follow" };
+      const ox = origin ? origin.x : 0;
+      const oy = origin ? origin.y : 0;
+      rc.selectedPos = { x: ox, y: oy };
+      rc.camera = { targetX: ox, targetY: oy, mode: "follow" };
       if (origin) {
-        rc.indicatorTarget = { x: 0, y: 0, width: origin.width, height: origin.height };
+        rc.indicatorTarget = { x: ox, y: oy, width: origin.width, height: origin.height };
       }
     }
   }, [tile]);
