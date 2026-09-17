@@ -102,7 +102,9 @@ type ArtifactPlaneProps = {
   width: number;
   height: number;
   debug: PlayDebugRef;
+  meshRef?: (mesh: Mesh | null) => void;
   onHoverChange: (hovering: boolean, world: { x: number; y: number }) => void;
+  onPointerDown?: (world: { x: number; y: number }) => void;
   onSelect: (world: { x: number; y: number }) => void;
 };
 
@@ -150,20 +152,6 @@ function ArtifactPlaneVideo(props: ArtifactPlaneMediaProps) {
  * Rendu commun à une image et une vidéo : taille, position, découpe en
  * rectangle arrondi, survol et clic — tout ce qui ne dépend pas de la façon
  * dont `texture` a été obtenue.
- *
- * Taille et position arrivent en props fixes, résolues une fois par
- * l'algorithme de mise en page (`buildScatterTile`, cf. `scatter-layout.ts`)
- * — posées telles quelles sur le mesh (`position={[x, y, 0]}`), jamais
- * retouchées par frame : seule la caméra bouge. `radius`
- * reste un réglage live du debug pane, partagé par toutes les instances,
- * d'où le seul `useFrame` restant ici.
- *
- * Survol et clic remontent la même position monde (`worldPosition`, lue sur
- * le mesh via `getWorldPosition` — donc celle de sa copie effectivement
- * survolée/cliquée parmi les 3×3 du tuilage, cf. `ArtifactGrid`), pas les
- * props `x`/`y` telles quelles : celles-ci sont relatives au groupe parent
- * (une des 9 copies), jamais la position monde absolue dont `ArtifactGrid`
- * a besoin.
  */
 function ArtifactPlaneMesh({
   x,
@@ -172,10 +160,12 @@ function ArtifactPlaneMesh({
   height,
   debug,
   texture,
+  meshRef,
   onHoverChange,
+  onPointerDown,
   onSelect,
 }: ArtifactPlaneMediaProps & { texture: Texture }) {
-  const meshRef = useRef<Mesh>(null);
+  const localMeshRef = useRef<Mesh | null>(null);
   const materialRef = useRef<MeshBasicMaterial>(null);
 
   useFrame(() => {
@@ -188,17 +178,29 @@ function ArtifactPlaneMesh({
 
   function worldPosition() {
     const vector = new Vector3();
-    meshRef.current?.getWorldPosition(vector);
+    localMeshRef.current?.getWorldPosition(vector);
     return { x: vector.x, y: vector.y };
+  }
+
+  function handleRef(mesh: Mesh | null) {
+    localMeshRef.current = mesh;
+    meshRef?.(mesh);
   }
 
   return (
     <mesh
-      ref={meshRef}
+      ref={handleRef}
       position={[x, y, 0]}
       scale={[width, height, 1]}
       onPointerOver={() => onHoverChange(true, worldPosition())}
       onPointerOut={() => onHoverChange(false, worldPosition())}
+      onPointerDown={(e) => {
+        const btn = e.button ?? e.nativeEvent?.button;
+        if (btn === 0) {
+          e.stopPropagation();
+          onPointerDown?.(worldPosition());
+        }
+      }}
       onClick={() => onSelect(worldPosition())}
     >
       <planeGeometry args={[1, 1]} />

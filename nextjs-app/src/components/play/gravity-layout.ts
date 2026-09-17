@@ -32,18 +32,20 @@ export type GravityParams = {
   repeatGap: number; // Marge minimale de séparation entre deux exemplaires identiques
   iterations: number;
   seed: number;
+  targetAspect: number; // Ratio largeur/hauteur cible du rectangle (ex: 1.6)
 };
 
 export const GRAVITY_DEFAULTS: GravityParams = {
   maxWidth: 480,
   maxHeight: 640,
-  gap: 40,
-  scaleVariance: 0.25,
+  gap: 240,
+  scaleVariance: 0.1,
   repeat: 3,
   antiNeighbor: true,
-  repeatGap: 100,
-  iterations: 500, // <30ms en live-tweak, réglable jusqu'à 100 000
+  repeatGap: 260,
+  iterations: 6000,
   seed: 1,
+  targetAspect: 1.6,
 };
 
 export type PlacedRect = {
@@ -111,6 +113,7 @@ export function packCenterGravity<T extends { w: number; h: number; artifactInde
   gap: number,
   antiNeighbor = true,
   repeatGap = 100,
+  targetAspect = 1.6,
 ): (T & { x: number; y: number })[] {
   const placed: (T & { x: number; y: number })[] = [];
   const minSameGap = gap + (antiNeighbor ? repeatGap : 0);
@@ -121,6 +124,15 @@ export function packCenterGravity<T extends { w: number; h: number; artifactInde
     let bestScore = Infinity;
     let fallbackPoint: { x: number; y: number } | null = null;
     let fallbackScore = Infinity;
+
+    // Calcul de l'enveloppe actuelle
+    let maxX = 0;
+    let maxY = 0;
+    for (let j = 0; j < placed.length; j++) {
+      const p = placed[j];
+      if (p.x + p.w > maxX) maxX = p.x + p.w;
+      if (p.y + p.h > maxY) maxY = p.y + p.h;
+    }
 
     // Grille de test basée sur les rectangles déjà posés (garantit l'alignement sur le gap)
     const xs = [0];
@@ -136,10 +148,19 @@ export function packCenterGravity<T extends { w: number; h: number; artifactInde
       for (let k = 0; k < ys.length; k++) {
         const y = ys[k];
         if (!checkCollision(x, y, item.w, item.h, placed, gap)) {
-          // Distance au carré du centre vers l'origine (0,0)
-          const cx = x + item.w / 2;
-          const cy = y + item.h / 2;
-          const score = cx * cx + cy * cy;
+          // Score vers une enveloppe rectangulaire compacte :
+          // 1. Expansion de l'enveloppe cible (largeur / ratio vs hauteur)
+          // 2. Remplissage des coins et bords intérieurs (évite les coins vides)
+          // 3. Compacité générale vers l'origine
+          const newMaxX = Math.max(maxX, x + item.w);
+          const newMaxY = Math.max(maxY, y + item.h);
+          const normX = newMaxX / targetAspect;
+          const normY = newMaxY;
+          const envelope = Math.max(normX, normY);
+          const area = newMaxX * newMaxY;
+          const cx = (x + item.w * 0.5) / targetAspect;
+          const cy = y + item.h * 0.5;
+          const score = envelope * 100000 + area * 0.01 + (cx + cy);
 
           // Candidat valide sous collision simple (filet de sécurité)
           if (score < fallbackScore) {
@@ -162,11 +183,11 @@ export function packCenterGravity<T extends { w: number; h: number; artifactInde
     if (chosen) {
       placed.push({ ...item, x: chosen.x, y: chosen.y });
     } else {
-      let maxX = 0;
+      let curMaxX = 0;
       for (let j = 0; j < placed.length; j++) {
-        maxX = Math.max(maxX, placed[j].x + placed[j].w + gap);
+        curMaxX = Math.max(curMaxX, placed[j].x + placed[j].w + gap);
       }
-      placed.push({ ...item, x: maxX, y: 0 });
+      placed.push({ ...item, x: curMaxX, y: 0 });
     }
   }
 
@@ -247,6 +268,7 @@ function runMonteCarloPacking(
   antiNeighbor: boolean,
   iterations: number,
   rng: () => number,
+  targetAspect = 1.6,
 ): {
   placed: (GravityItem & { x: number; y: number })[];
   density: number;
@@ -297,11 +319,13 @@ function runMonteCarloPacking(
 
   const eps = 0.001;
   const minSameGap = gap + (antiNeighbor ? repeatGap : 0);
+  let bestCorners = -1;
   let bestDensity = -1;
   let bestBbW = 0;
   let bestBbH = 0;
 
-  const order = items.slice();
+  // L'itération 0 commence par un tri décroissant par aire pour un socle robuste
+  const order = items.slice().sort((a, b) => b.w * b.h - a.w * a.h);
   const totalRuns = Math.max(1, Math.round(iterations));
   const densities = new Float64Array(totalRuns);
 
@@ -368,9 +392,18 @@ function runMonteCarloPacking(
           }
 
           if (!collide) {
-            const cx = x + iw * 0.5;
+            // Score vers un rectangle équilibré :
+            // 1. Éviter d'étirer inutilement la bounding box au-delà du ratio cible
+            // 2. Remplir prioritairement les trous, coins et renfoncements intérieurs
+            const newMaxX = Math.max(maxX, x + iw);
+            const newMaxY = Math.max(maxY, y + ih);
+            const normX = newMaxX / targetAspect;
+            const normY = newMaxY;
+            const envelope = Math.max(normX, normY);
+            const area = newMaxX * newMaxY;
+            const cx = (x + iw * 0.5) / targetAspect;
             const cy = y + ih * 0.5;
-            const score = cx * cx + cy * cy;
+            const score = envelope * 100000 + area * 0.01 + (cx + cy);
 
             // Fallback en cas d'absence de place anti-voisin
             if (score < fbScore) {
@@ -410,7 +443,25 @@ function runMonteCarloPacking(
     const density = totalArea / (bbW * bbH || 1);
     densities[iter] = density;
 
-    if (density > bestDensity) {
+    // Détection de la couverture des 4 coins (BL, BR, TL, TR) pour interdire les angles vides
+    let bl = 0, br = 0, tl = 0, tr = 0;
+    for (let p = 0; p < n; p++) {
+      const x0 = placedX[p];
+      const y0 = placedY[p];
+      const x1 = x0 + placedW[p];
+      const y1 = y0 + placedH[p];
+      if (x0 < 0.25 * bbW && y0 < 0.25 * bbH) bl++;
+      if (x1 > 0.75 * bbW && y0 < 0.25 * bbH) br++;
+      if (x0 < 0.25 * bbW && y1 > 0.75 * bbH) tl++;
+      if (x1 > 0.75 * bbW && y1 > 0.75 * bbH) tr++;
+    }
+    const corners = (bl > 0 ? 1 : 0) + (br > 0 ? 1 : 0) + (tl > 0 ? 1 : 0) + (tr > 0 ? 1 : 0);
+
+    // Critère de sélection : privilégie les layouts aux 4 angles pleins, puis la densité maximale
+    const isBetter = corners > bestCorners || (corners === bestCorners && density > bestDensity);
+
+    if (isBetter) {
+      bestCorners = corners;
       bestDensity = density;
       bestBbW = bbW;
       bestBbH = bbH;
@@ -468,7 +519,6 @@ export function buildGravityTile(
   params: GravityParams,
   aspect: number,
 ): LayoutTile {
-  void aspect;
   const t0 = performance.now();
   const n = ratios.length;
   if (n === 0) return { points: [], neighbors: [], originIndex: -1, TILE_W: 0, TILE_H: 0 };
@@ -476,6 +526,8 @@ export function buildGravityTile(
   const rng = createRng(params.seed);
   const repeat = Math.max(1, Math.round(params.repeat));
   const variance = Math.max(0, Math.min(1, params.scaleVariance ?? 0));
+  const targetAspect =
+    params.targetAspect && params.targetAspect > 0 ? params.targetAspect : aspect > 0 ? aspect : 1.6;
 
   // Pré-dimensionnement : chaque répétition d'un même artifact a obligatoirement
   // une échelle différente grâce à une stratification aléatoire par compartiment
@@ -519,7 +571,7 @@ export function buildGravityTile(
     }
   }
 
-  // Optimisation Monte-Carlo avec règle anti-voisins
+  // Optimisation Monte-Carlo avec enveloppe rectangulaire, coins pleins et règle anti-voisins
   const { placed, stats } = runMonteCarloPacking(
     items,
     params.gap,
@@ -527,6 +579,7 @@ export function buildGravityTile(
     params.antiNeighbor ?? true,
     params.iterations,
     rng,
+    targetAspect,
   );
 
   // Mesure et assignation du temps de calcul réel
@@ -595,6 +648,7 @@ export function createCenterGravityInstancedMesh(options: {
   antiNeighbor?: boolean;
   repeatGap?: number;
   scaleVariance?: number;
+  targetAspect?: number;
   iterations?: number;
   seed?: number;
   material?: THREE.Material;
@@ -610,6 +664,7 @@ export function createCenterGravityInstancedMesh(options: {
     antiNeighbor = true,
     repeatGap = 100,
     scaleVariance = 0,
+    targetAspect = 1.6,
     iterations = 10000,
     seed = 1,
     material = new THREE.MeshBasicMaterial({ color: 0xffffff }),
@@ -635,6 +690,7 @@ export function createCenterGravityInstancedMesh(options: {
     antiNeighbor,
     iterations,
     rng,
+    targetAspect,
   );
 
   const computeTimeMs = performance.now() - t0;

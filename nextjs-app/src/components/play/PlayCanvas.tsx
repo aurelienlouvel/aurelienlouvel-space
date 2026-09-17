@@ -33,6 +33,44 @@ import { PlayLoader } from "./PlayLoader";
  * Il voyage dans une `RefObject` plutôt qu'en valeur nue : c'est ce qui permet
  * aux enfants de ne le lire qu'en dehors du rendu, là où muter est légitime.
  */
+export type PhysicsParams = {
+  enabled: boolean;
+  strength: number;
+  radius: number;
+  spring: number;
+  damping: number;
+  restitution: number;
+  friction: number;
+  lockRotation: boolean;
+  mass: number;
+};
+
+export const PHYSICS_DEFAULTS: PhysicsParams = {
+  enabled: true,
+  strength: 2400,
+  radius: 2600,
+  spring: 0.7,
+  damping: 12,
+  restitution: 0.6,
+  friction: 0.15,
+  lockRotation: true,
+  mass: 1,
+};
+
+export type TransitionParams = {
+  duration: number;
+  zoomScale: number;
+  exponent: number;
+  repulsionBoost: number;
+};
+
+export const TRANSITION_DEFAULTS: TransitionParams = {
+  duration: 1.5,
+  zoomScale: 1.2,
+  exponent: 2.8,
+  repulsionBoost: 2.5,
+};
+
 export type PlayDebugState = {
   plane: { radius: number };
   brackets: {
@@ -47,13 +85,15 @@ export type PlayDebugState = {
   camera: { zoom: number };
   gravity: GravityParams;
   pan: { dragThreshold: number; velocityWindowMs: number; friction: number };
+  physics: PhysicsParams;
+  transition: TransitionParams;
 };
 
 export type PlayDebugRef = RefObject<PlayDebugState>;
 
 /**
- * État runtime : sélection / survol / caméra / indicateur — écrit par les
- * interactions (clic, survol, pan, flèches), lu par les `useFrame`.
+ * État runtime : sélection / survol / caméra / indicateur / transition — écrit par les
+ * interactions (clic, survol, pan, flèches, entrée), lu par les `useFrame`.
  */
 export type PlayRuntimeState = {
   selected: number;
@@ -65,6 +105,18 @@ export type PlayRuntimeState = {
   hovered: number | null;
   camera: { targetX: number; targetY: number; mode: "follow" | "settle" };
   indicatorTarget: { x: number; y: number; width: number; height: number };
+  repulsor: {
+    active: boolean;
+    pointIndex: number;
+    x: number;
+    y: number;
+  };
+  transition: {
+    holding: boolean;
+    progress: number;
+    expo: number;
+    trigger: "pointer" | "key" | null;
+  };
 };
 
 export type PlayRuntimeRef = RefObject<PlayRuntimeState>;
@@ -77,7 +129,7 @@ const BRACKET_PADDING = 20;
 const BRACKET_RADIUS = 48;
 const BRACKET_ANGLE = 90;
 const BRACKET_ARM = 8;
-const BRACKET_THICKNESS = 4;
+const BRACKET_THICKNESS = 3;
 const BRACKET_COLOR = "#a6a09b";
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
@@ -85,7 +137,7 @@ const INDICATOR_FADE_SPEED = 14;
 const INDICATOR_MOVE_SPEED = 10;
 
 // ── Ouverture — caméra ────────────────────────────────────────────────────
-const CAMERA_ZOOM = 1;
+const CAMERA_ZOOM = 0.8;
 const CAMERA_SETTLE_SPEED = 8;
 const DEFAULT_NEIGHBOR_K = 6;
 
@@ -109,27 +161,52 @@ const ARROW_DIRECTIONS: Record<string, readonly [number, number]> = {
 const DIRECTION_CONE_COS = Math.cos((60 * Math.PI) / 180);
 
 /**
- * Tweakpane reste hors du bundle de prod et hors du SSR.
+ * Tweakpane reste hors du SSR et chargé uniquement à la demande si #debug est présent.
  */
-const PlayDebug =
-  process.env.NODE_ENV === "development"
-    ? dynamic(() => import("./PlayDebug").then((m) => m.PlayDebug), {
-        ssr: false,
-      })
-    : null;
+const PlayDebug = dynamic(() => import("./PlayDebug").then((m) => m.PlayDebug), {
+  ssr: false,
+});
 
 function stepCamera(
   camera: OrthographicCamera,
-  rc: PlayRuntimeState["camera"],
+  rc: PlayRuntimeState,
   velocity: { x: number; y: number },
   friction: number,
-  zoom: number,
+  baseZoom: number,
+  transition: TransitionParams,
   delta: number,
 ) {
-  if (rc.mode === "follow") {
+  // Charge de transition (maintien du clic ou d'Entrée)
+  const tr = rc.transition;
+  if (tr.holding) {
+    tr.progress = Math.min(1, tr.progress + delta / Math.max(0.1, transition.duration));
+  } else if (tr.progress > 0) {
+    tr.progress = Math.max(0, tr.progress - delta / Math.max(0.05, transition.duration * 0.4));
+  }
+  if (tr.progress < 0.0001) tr.progress = 0;
+
+  // Courbe exponentielle : lente au début, accélération marquée vers la fin
+  tr.expo = Math.pow(tr.progress, transition.exponent);
+
+  // Zoom exponentiel vers zoomScale (ex: 1.2 = 120% du zoom de base)
+  const targetZoom = baseZoom * (1 + (transition.zoomScale - 1) * tr.expo);
+  const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+  if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+    camera.zoom = smoothedZoom;
+    camera.updateProjectionMatrix();
+  }
+
+  // Pendant le maintien ou la transition, la caméra s'aligne en douceur sur l'élément
+  if (tr.progress > 0 || tr.holding) {
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    return;
+  }
+
+  if (rc.camera.mode === "follow") {
     if (velocity.x !== 0 || velocity.y !== 0) {
-      rc.targetX += velocity.x * delta * 1000;
-      rc.targetY += velocity.y * delta * 1000;
+      rc.camera.targetX += velocity.x * delta * 1000;
+      rc.camera.targetY += velocity.y * delta * 1000;
       const decay = Math.exp(friction * delta);
       velocity.x *= decay;
       velocity.y *= decay;
@@ -138,16 +215,11 @@ function stepCamera(
         velocity.y = 0;
       }
     }
-    camera.position.x = rc.targetX;
-    camera.position.y = rc.targetY;
+    camera.position.x = rc.camera.targetX;
+    camera.position.y = rc.camera.targetY;
   } else {
-    camera.position.x = dampTowards(camera.position.x, rc.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.targetY, CAMERA_SETTLE_SPEED, delta);
-  }
-
-  if (camera.zoom !== zoom) {
-    camera.zoom = zoom;
-    camera.updateProjectionMatrix();
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
   }
 }
 
@@ -163,10 +235,11 @@ function CameraRig({
   useFrame((state, delta) => {
     stepCamera(
       state.camera as OrthographicCamera,
-      runtime.current.camera,
+      runtime.current,
       velocity.current,
       debug.current.pan.friction,
       debug.current.camera.zoom,
+      debug.current.transition,
       delta,
     );
   });
@@ -193,6 +266,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       velocityWindowMs: VELOCITY_WINDOW_MS,
       friction: INERTIA_FRICTION,
     },
+    physics: { ...PHYSICS_DEFAULTS },
+    transition: { ...TRANSITION_DEFAULTS },
   });
 
   const [gravityParams, setGravityParams] = useState<GravityParams>(() => ({
@@ -202,7 +277,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     setGravityParams({ ...debug.current.gravity });
   }, []);
 
-  const [viewport, setViewport] = useState(() => ({ width: 1920, height: 1080 }));
+  const [viewport, setViewport] = useState(() => {
+    if (typeof window !== "undefined") {
+      return { width: window.innerWidth, height: window.innerHeight };
+    }
+    return { width: 1920, height: 1080 };
+  });
   useEffect(() => {
     function measure() {
       setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -220,12 +300,75 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     };
   }, []);
 
+  const [showDebug, setShowDebug] = useState(false);
+  useEffect(() => {
+    function checkHash() {
+      setShowDebug(window.location.hash === "#debug");
+    }
+    checkHash();
+    window.addEventListener("hashchange", checkHash);
+    return () => window.removeEventListener("hashchange", checkHash);
+  }, []);
+
+  const [dynamicRatios, setDynamicRatios] = useState<Record<string, number>>({});
+
   const media = useMemo(() => artifacts.map(resolveArtifactMedia), [artifacts]);
-  const ratios = useMemo(() => media.map((m) => m.ratio), [media]);
+
+  // Détection dynamique du ratio réel des vidéos pour rattraper immédiatement
+  // tout nouvel asset vidéo dont le ratio différerait ou ne serait pas encore en cache.
+  useEffect(() => {
+    media.forEach((m) => {
+      if (m.kind === "video" && m.url) {
+        const v = document.createElement("video");
+        v.preload = "metadata";
+        v.src = m.url;
+        v.onloadedmetadata = () => {
+          if (v.videoWidth && v.videoHeight) {
+            const actualRatio = v.videoWidth / v.videoHeight;
+            if (Math.abs(m.ratio - actualRatio) > 0.02) {
+              setDynamicRatios((prev) => {
+                if (prev[m.url] && Math.abs(prev[m.url] - actualRatio) < 0.01) return prev;
+                return { ...prev, [m.url]: actualRatio };
+              });
+            }
+          }
+        };
+      }
+    });
+  }, [media]);
+
+  const ratios = useMemo(
+    () =>
+      media.map((m) => {
+        if (m.kind === "video" && dynamicRatios[m.url]) {
+          return dynamicRatios[m.url];
+        }
+        return m.ratio;
+      }),
+    [media, dynamicRatios],
+  );
   const mediaKinds = useMemo(() => media.map((m) => m.kind), [media]);
 
-  const tile = useMemo<LayoutTile>(() => {
-    return buildGravityTile(ratios, gravityParams, viewport.width / viewport.height);
+  const [tile, setTile] = useState<LayoutTile | null>(null);
+  const [isCalculated, setIsCalculated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      const computedTile = buildGravityTile(
+        ratios,
+        gravityParams,
+        viewport.width / viewport.height,
+      );
+      setTile(computedTile);
+      setIsCalculated(true);
+    }, 16);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [ratios, gravityParams, viewport]);
 
   const textureUrls = useMemo(
@@ -241,34 +384,50 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   );
 
   const runtime = useRef<PlayRuntimeState>({
-    selected: tile.originIndex,
+    selected: 0,
     selectedPos: { x: 0, y: 0 },
     hovered: null,
     camera: { targetX: 0, targetY: 0, mode: "follow" },
     indicatorTarget: {
       x: 0,
       y: 0,
-      width: tile.points[tile.originIndex]?.width ?? gravityParams.maxWidth,
-      height: tile.points[tile.originIndex]?.height ?? gravityParams.maxHeight,
+      width: gravityParams.maxWidth,
+      height: gravityParams.maxHeight,
+    },
+    repulsor: {
+      active: false,
+      pointIndex: -1,
+      x: 0,
+      y: 0,
+    },
+    transition: {
+      holding: false,
+      progress: 0,
+      expo: 0,
+      trigger: null,
     },
   });
   const velocity = useRef({ x: 0, y: 0 });
   const dragMoved = useRef(false);
+  const initializedTileRef = useRef(false);
 
   useEffect(() => {
+    if (!tile || tile.points.length === 0) return;
     const rc = runtime.current;
-    if (tile.points.length === 0) return;
-    if (rc.selected < 0 || rc.selected >= tile.points.length) {
+    if (!initializedTileRef.current || rc.selected < 0 || rc.selected >= tile.points.length) {
+      initializedTileRef.current = true;
       const origin = tile.points[tile.originIndex];
       rc.selected = tile.originIndex;
       rc.hovered = null;
       rc.selectedPos = { x: 0, y: 0 };
       rc.camera = { targetX: 0, targetY: 0, mode: "follow" };
-      rc.indicatorTarget = { x: 0, y: 0, width: origin.width, height: origin.height };
+      if (origin) {
+        rc.indicatorTarget = { x: 0, y: 0, width: origin.width, height: origin.height };
+      }
     }
   }, [tile]);
 
-  // ── Préchargement DOM des textures ───────────────────────────────────────
+  // ── Préchargement DOM des textures (images et vidéos) ────────────────────
   const [loaded, setLoaded] = useState(0);
   const total = textureUrls.length;
 
@@ -276,7 +435,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     if (total === 0) return;
     let cancelled = false;
     let count = 0;
-    const images: HTMLImageElement[] = [];
+    const elements: (HTMLImageElement | HTMLVideoElement)[] = [];
 
     function bump() {
       if (cancelled) return;
@@ -286,25 +445,47 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     textureUrls.forEach((url, i) => {
       if (mediaKinds[i] === "video") {
-        bump();
+        const video = document.createElement("video");
+        video.preload = "auto";
+        video.src = url;
+        let fired = false;
+        const onDone = () => {
+          if (fired) return;
+          fired = true;
+          bump();
+        };
+        video.onloadeddata = onDone;
+        video.onerror = onDone;
+        setTimeout(onDone, 2500);
+        elements.push(video);
         return;
       }
       const img = new Image();
       img.onload = img.onerror = bump;
       img.src = url;
-      images.push(img);
+      elements.push(img);
     });
 
     return () => {
       cancelled = true;
-      for (const img of images) {
-        img.onload = null;
-        img.onerror = null;
+      for (const el of elements) {
+        if (el instanceof HTMLImageElement) {
+          el.onload = null;
+          el.onerror = null;
+        } else if (el instanceof HTMLVideoElement) {
+          el.onloadeddata = null;
+          el.onerror = null;
+        }
       }
     };
   }, [textureUrls, mediaKinds, total]);
 
-  const loading = total > 0 && loaded < total;
+  const isReady =
+    isCalculated &&
+    tile !== null &&
+    tile.points.length > 0 &&
+    total > 0 &&
+    loaded >= total;
 
   // ── Pan : molette + drag, avec inertie à la relâche ──────────────────────
   useEffect(() => {
@@ -317,6 +498,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     function onWheel(e: WheelEvent) {
       e.preventDefault();
+
+      // Le contrôle du zoom est interdit à l'utilisateur (pinch trackpad Mac ou Cmd+scroll)
+      if (e.ctrlKey || e.metaKey) {
+        return;
+      }
+
+      // ── Pan : défilement standard au trackpad / molette ─────────────────────
       velocity.current.x = 0;
       velocity.current.y = 0;
       const rc = runtime.current;
@@ -339,6 +527,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onPointerMove(e: PointerEvent) {
+      if (runtime.current.transition.holding || runtime.current.repulsor.active) return;
       if (!dragging) return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
@@ -390,10 +579,10 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     };
   }, []);
 
-  // ── Flèches : déplace la sélection vers son voisin le plus proche ────────
+  // ── Flèches & Entrée : navigation spatiale et transition au maintien ────────
   useEffect(() => {
+    if (!tile || tile.points.length === 0) return;
     const { points, neighbors } = tile;
-    if (points.length === 0) return;
 
     function bestInCone(pool: NeighborEntry[], dir: readonly [number, number]) {
       for (const n of pool) {
@@ -405,14 +594,35 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onKeyDown(e: KeyboardEvent) {
-      const dir = ARROW_DIRECTIONS[e.key];
-      if (!dir) return;
       if (
         e.target instanceof HTMLElement &&
         (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")
       ) {
         return;
       }
+
+      // Maintien de la touche Entrée : lance la transition d'ouverture (zoom expo + répulsion)
+      if (e.key === "Enter") {
+        if (e.repeat) return;
+        e.preventDefault();
+        const rc = runtime.current;
+        const selPt = points[rc.selected];
+        if (!selPt) return;
+
+        rc.repulsor.active = true;
+        rc.repulsor.pointIndex = rc.selected;
+        rc.repulsor.x = selPt.x;
+        rc.repulsor.y = selPt.y;
+        rc.transition.holding = true;
+        rc.transition.trigger = "key";
+        rc.camera.mode = "settle";
+        rc.camera.targetX = rc.selectedPos.x;
+        rc.camera.targetY = rc.selectedPos.y;
+        return;
+      }
+
+      const dir = ARROW_DIRECTIONS[e.key];
+      if (!dir) return;
       e.preventDefault();
 
       const rc = runtime.current;
@@ -434,41 +644,58 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       rc.indicatorTarget = { x: worldX, y: worldY, width: point.width, height: point.height };
     }
 
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.key === "Enter") {
+        const rc = runtime.current;
+        if (rc.transition.trigger === "key") {
+          rc.transition.holding = false;
+          rc.transition.trigger = null;
+        }
+      }
+    }
+
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
   }, [tile]);
 
   return (
     <div data-lenis-prevent className="fixed inset-0 bg-white">
-      {loading ? (
-        <PlayLoader loaded={loaded} total={total} />
-      ) : (
-        <Canvas
-          flat
-          orthographic
-          dpr={[1, 2]}
-          camera={{ position: [0, 0, 100], zoom: CAMERA_ZOOM, near: 0.1, far: 1000 }}
-        >
-          <CameraRig debug={debug} runtime={runtime} velocity={velocity} />
-          {tile.points.length > 0 && (
-            <>
-              <ArtifactGrid
-                textureUrls={textureUrls}
-                mediaKinds={mediaKinds}
-                tile={tile}
-                debug={debug}
-                runtime={runtime}
-                dragMoved={dragMoved}
-              />
-              <FocusIndicator debug={debug} runtime={runtime} />
-            </>
-          )}
-        </Canvas>
-      )}
-      {PlayDebug && (
+      <PlayLoader loaded={loaded} total={total} isReady={isReady} />
+
+      <div
+        className={`h-full w-full transition-opacity duration-700 ease-out ${
+          isReady ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      >
+        {isCalculated && tile && tile.points.length > 0 && (
+          <Canvas
+            flat
+            orthographic
+            dpr={[1, 2]}
+            camera={{ position: [0, 0, 100], zoom: CAMERA_ZOOM, near: 0.1, far: 1000 }}
+          >
+            <CameraRig debug={debug} runtime={runtime} velocity={velocity} />
+            <ArtifactGrid
+              textureUrls={textureUrls}
+              mediaKinds={mediaKinds}
+              tile={tile}
+              debug={debug}
+              runtime={runtime}
+              dragMoved={dragMoved}
+            />
+            <FocusIndicator debug={debug} runtime={runtime} />
+          </Canvas>
+        )}
+      </div>
+
+      {showDebug && (
         <PlayDebug
           state={debug}
-          stats={tile.stats}
+          stats={tile?.stats}
           onLayoutChange={handleLayoutChange}
         />
       )}

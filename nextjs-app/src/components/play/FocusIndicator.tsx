@@ -262,7 +262,7 @@ export function FocusIndicator({
   });
 
   return (
-    <mesh ref={meshRef} visible={false}>
+    <mesh ref={meshRef} visible={false} raycast={() => null}>
       <planeGeometry args={[1, 1]} />
       <meshBasicMaterial
         ref={materialRef}

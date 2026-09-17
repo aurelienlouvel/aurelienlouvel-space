@@ -16,6 +16,7 @@
  *   vidéo) et reporter les ratios ci-dessous.
  */
 export const THUMBNAIL_RATIOS: Record<string, number> = {
+  // Thumbnails /work (png/gif/mp4/webm)
   "file-12837bc3884b239c6072117e9b9b08e664c51363-png": 1.3333,
   "file-2af8af6af51e6189b3b1374b2a9a948d6b219220-gif": 1.3333,
   "file-3c999aefccb81b4193e0394636e12894295745bb-png": 0.9922,
@@ -32,11 +33,24 @@ export const THUMBNAIL_RATIOS: Record<string, number> = {
   "file-9c4990b25a3ef1d5d55ac948322542ed933c47bc-png": 0.9922,
   "file-c8b3d584bcd25fd5d1565664a21cdf8020477472-webm": 1,
   "file-9767bb7722bb5161c36923f0fb66b773b3555118-webm": 1.2,
+  "file-00eb70a434467d139c74b3cf03afef9bc221a392-webm": 1,
+  "file-ad0b35507c859f006ce31eb90e6bf4d13aa4c6a0-webm": 1,
+  "file-110731a3a96868ecbfa3b7fed09bc60617f08bf0-mp4": 1,
+  "file-237a3ae9cd80e0c460c3e232ad6f32c68da665ea-mp4": 0.7139,
+  "file-4c8982fb0bd18d83c8c748a2ecd6bae1e646cbd2-mp4": 0.7139,
+  "file-559516bd296b6ab28fe888ce52cf527cd0faef42-mp4": 1,
+  "file-cb153a47a2209d7f43a657f3364b95828cca8954-mp4": 0.5625,
+  "file-d2153a304858f0d417c9927589d2e4762c007845-mp4": 1.5,
+  "file-37ef89c5c84e6ec7ce409c95f4375ba38604d7c8-png": 1.7067,
+  "file-b37b3d7e2ca42b53ca524e51ef95d98e50b87d34-png": 1,
+
   // Artifacts /play tout-vidéo (cf. `artifact-media.ts`) — mesurés via ffprobe.
   "file-c433f2eec59a07339702521f9e6619c77ceb775a-mp4": 1.5, // beuleu-shooter.js, 1620×1080
   "file-5cada71ae139c967ce0e98354999825228ffa23b-mp4": 1, // cadillac.blend, 960×960
   "file-4b3f84736bc6ceb3786f3dc12015bad933079fab-webm": 0.46, // unlock.app, 804×1748 (portrait)
+  "file-c4a976d0d5776071079255ab1e75b398df2b6ee8-webm": 0.46, // unlock-proto.webm, 804×1748 (portrait)
   "file-defbff963e967b97ead0c795ffafe7aeb3e2c6c9-mp4": 1.5, // #efface, 1620×1080
+  "file-97eaee8bb1165b4ad88701ae8f03cb73d3de8356-webm": 0.5625, // laylow-moty.app, 720×1280 (portrait 9:16)
 };
 
 /** Fallback pour un thumbnail non mesuré (nouveau média) — paysage doux. */

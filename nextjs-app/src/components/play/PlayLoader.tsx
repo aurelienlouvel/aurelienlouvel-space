@@ -13,27 +13,38 @@ import { AnimatePresence, motion } from "motion/react";
  * pas de pop-in progressif des artifacts, l'un des choix actés avec
  * l'utilisateur pour cette mise en scène.
  */
-export function PlayLoader({ loaded, total }: { loaded: number; total: number }) {
+export function PlayLoader({
+  loaded,
+  total,
+  isReady = false,
+}: {
+  loaded: number;
+  total: number;
+  isReady?: boolean;
+}) {
   const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
 
   return (
     <AnimatePresence>
-      <motion.div
-        className="fixed inset-0 flex items-center justify-center bg-white"
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.4 }}
-      >
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-[3px] w-16 overflow-hidden rounded-full bg-stone-200">
-            <motion.div
-              className="h-full rounded-full bg-stone-400"
-              animate={{ width: `${percent}%` }}
-              transition={{ duration: 0.2 }}
-            />
+      {!isReady && (
+        <motion.div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-white pointer-events-none"
+          initial={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.4 }}
+        >
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-[3px] w-16 overflow-hidden rounded-full bg-stone-200">
+              <motion.div
+                className="h-full rounded-full bg-stone-400"
+                animate={{ width: `${percent}%` }}
+                transition={{ duration: 0.2 }}
+              />
+            </div>
+            <span className="text-xs tabular-nums text-stone-400">{percent}%</span>
           </div>
-          <span className="text-xs tabular-nums text-stone-400">{percent}%</span>
-        </div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

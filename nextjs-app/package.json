@@ -15,6 +15,7 @@
     "@portabletext/react": "^6.2.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
+    "@react-three/rapier": "^2.2.0",
     "@sanity/image-url": "^2.1.1",
     "@tailwindcss/typography": "^0.5.19",
     "class-variance-authority": "^0.7.1",

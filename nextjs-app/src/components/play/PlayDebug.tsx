@@ -5,7 +5,7 @@ import { Pane } from "tweakpane";
 import type { PlayDebugRef, PlayDebugState } from "./PlayCanvas";
 import type { LayoutStats } from "./layout-types";
 
-const STORAGE_KEY = "play-debug";
+const STORAGE_KEY = "play-debug-v6";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -48,22 +48,19 @@ function addAction(
   title: string,
   action: () => string | Promise<string>,
 ) {
-  const button = pane.addButton({ title });
-  let revert: ReturnType<typeof setTimeout> | undefined;
+  const btn = pane.addButton({ title });
+  let resetTimer: ReturnType<typeof setTimeout> | undefined;
 
-  function flash(done: string) {
-    button.title = done;
-    clearTimeout(revert);
-    revert = setTimeout(() => {
-      button.title = title;
+  btn.on("click", async () => {
+    const message = await action();
+    btn.title = message;
+    clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => {
+      btn.title = title;
     }, FLASH_MS);
-  }
-
-  button.on("click", () => {
-    void Promise.resolve(action()).then(flash);
   });
 
-  return () => clearTimeout(revert);
+  return () => clearTimeout(resetTimer);
 }
 
 /**
@@ -82,22 +79,23 @@ export function PlayDebug({
   const paneRef = useRef<Pane | null>(null);
 
   const statsObj = useRef({
-    computeTime: "0 ms",
-    density: "0%",
-    occupiedArea: "0 px²",
-    boundingBoxArea: "0 px²",
-    perfectLayouts: "0 / 0",
+    computeTime: "-",
+    density: "-",
+    occupiedArea: "-",
+    boundingBoxArea: "-",
+    perfectLayouts: "-",
   });
 
   // Synchronisation dynamique des statistiques calculées sans recréer le pane
   useEffect(() => {
-    if (!stats) return;
-    statsObj.current.computeTime = stats.computeTimeFormatted;
-    statsObj.current.density = stats.densityPercent;
-    statsObj.current.occupiedArea = stats.occupiedAreaFormatted;
-    statsObj.current.boundingBoxArea = stats.boundingBoxAreaFormatted;
-    statsObj.current.perfectLayouts = `${stats.perfectCount} / ${stats.totalIterations}`;
-    paneRef.current?.refresh();
+    if (stats) {
+      statsObj.current.computeTime = stats.computeTimeFormatted;
+      statsObj.current.density = stats.densityPercent;
+      statsObj.current.occupiedArea = stats.occupiedAreaFormatted;
+      statsObj.current.boundingBoxArea = stats.boundingBoxAreaFormatted;
+      statsObj.current.perfectLayouts = `${stats.perfectCount} / ${stats.totalIterations}`;
+      paneRef.current?.refresh();
+    }
   }, [stats]);
 
   useEffect(() => {
@@ -112,6 +110,8 @@ export function PlayDebug({
       camera: cameraState,
       gravity: gravityState,
       pan: panState,
+      physics: physicsState,
+      transition: transitionState,
     } = state.current;
 
     const pane = new Pane({ container, title: "play" });
@@ -153,6 +153,14 @@ export function PlayDebug({
       .on("change", onLayoutChange);
     layout
       .addBinding(gravityState, "gap", { min: 0, max: 400, step: 4 })
+      .on("change", onLayoutChange);
+    layout
+      .addBinding(gravityState, "targetAspect", {
+        min: 0.5,
+        max: 3.0,
+        step: 0.05,
+        label: "ratio rectangle",
+      })
       .on("change", onLayoutChange);
     layout
       .addBinding(gravityState, "scaleVariance", {
@@ -218,6 +226,82 @@ export function PlayDebug({
     pan.addBinding(panState, "dragThreshold", { min: 0, max: 40, step: 1 });
     pan.addBinding(panState, "velocityWindowMs", { min: 10, max: 300, step: 5 });
     pan.addBinding(panState, "friction", { min: -10, max: -0.2, step: 0.1 });
+
+    // ── Physique : Répulsion Rapier ──────────────────────────────
+    const physics = pane.addFolder({ title: "physique (rapier)" });
+    physics.addBinding(physicsState, "enabled", { label: "activer" });
+    physics.addBinding(physicsState, "strength", {
+      min: 100,
+      max: 15000,
+      step: 100,
+      label: "force répulsion",
+    });
+    physics.addBinding(physicsState, "radius", {
+      min: 200,
+      max: 5000,
+      step: 50,
+      label: "rayon répulsion",
+    });
+    physics.addBinding(physicsState, "spring", {
+      min: 0.1,
+      max: 20,
+      step: 0.1,
+      label: "force rappel",
+    });
+    physics.addBinding(physicsState, "damping", {
+      min: 0.1,
+      max: 35,
+      step: 0.5,
+      label: "amortissement",
+    });
+    physics.addBinding(physicsState, "restitution", {
+      min: 0,
+      max: 1,
+      step: 0.05,
+      label: "élasticité / rebond",
+    });
+    physics.addBinding(physicsState, "friction", {
+      min: 0,
+      max: 1,
+      step: 0.05,
+      label: "friction contact",
+    });
+    physics.addBinding(physicsState, "lockRotation", {
+      label: "verrouiller rotation",
+    });
+    physics.addBinding(physicsState, "mass", {
+      min: 0.1,
+      max: 10,
+      step: 0.1,
+      label: "masse tuiles",
+    });
+
+    // ── Transition (maintien clic / Entrée) ──────────────────────
+    const transition = pane.addFolder({ title: "transition (maintien)" });
+    transition.addBinding(transitionState, "duration", {
+      min: 0.5,
+      max: 4,
+      step: 0.1,
+      label: "durée (s)",
+    });
+    transition.addBinding(transitionState, "zoomScale", {
+      min: 1,
+      max: 2.5,
+      step: 0.05,
+      label: "zoom expo (ratio)",
+    });
+    transition.addBinding(transitionState, "exponent", {
+      min: 1,
+      max: 6,
+      step: 0.2,
+      label: "courbure expo",
+    });
+    transition.addBinding(transitionState, "repulsionBoost", {
+      min: 1,
+      max: 6,
+      step: 0.2,
+      label: "boost répulsion",
+    });
 
     const stopSave = addAction(pane, "save", () => {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.current));
