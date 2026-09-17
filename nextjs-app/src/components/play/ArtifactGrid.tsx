@@ -10,7 +10,15 @@ import {
   type RapierRigidBody,
 } from "@react-three/rapier";
 import type { MediaKind } from "./artifact-media";
-import type { PlayDebugRef, PlayRuntimeRef, PlayRuntimeState } from "./PlayCanvas";
+import {
+  applyPointerDown,
+  applyPointerUp,
+  type PhysicsParams,
+  type PlayDebugRef,
+  type PlayRuntimeRef,
+  type PlayRuntimeState,
+} from "./PlayCanvas";
+import type { TransitionConfig } from "./transition-presets";
 import type { LayoutPoint, LayoutTile } from "./layout-types";
 import { ArtifactPlane } from "./ArtifactPlane";
 
@@ -33,6 +41,7 @@ function applyHover(
   height: number,
   hovering: boolean,
 ) {
+  if (rc.transition.phase === "burst" || rc.transition.phase === "isolated") return;
   if (hovering) {
     rc.hovered = pointIndex;
     rc.indicatorTarget = { x: world.x, y: world.y, width, height };
@@ -58,6 +67,7 @@ function applySelect(
   width: number,
   height: number,
 ) {
+  if (rc.transition.phase === "burst" || rc.transition.phase === "isolated") return;
   rc.selected = pointIndex;
   rc.selectedPos = world;
   rc.camera.targetX = world.x;
@@ -66,50 +76,19 @@ function applySelect(
   rc.indicatorTarget = { x: world.x, y: world.y, width, height };
 }
 
-function applyPointerDown(
-  rc: PlayRuntimeState,
-  pointIndex: number,
-  canonicalPos: { x: number; y: number },
-) {
-  rc.repulsor.active = true;
-  rc.repulsor.pointIndex = pointIndex;
-  rc.repulsor.x = canonicalPos.x;
-  rc.repulsor.y = canonicalPos.y;
-  rc.transition.holding = true;
-  rc.transition.trigger = "pointer";
-}
-
-function applyPointerUp(rc: PlayRuntimeState) {
-  if (rc.transition.trigger === "pointer") {
-    rc.transition.holding = false;
-    rc.transition.trigger = null;
-  }
-  if (rc.transition.progress === 0) {
-    rc.repulsor.active = false;
-    rc.repulsor.pointIndex = -1;
-  }
-}
-
 /**
  * Exécute le pas physique Rapier et répercute les déplacements physiques
  * sur l'ensemble des 9 copies de la mosaïque infinie :
  * 1. Force de rappel élastique (ressort vers position canonique de layout)
- * 2. Répulsion physique radiale depuis l'artifact cliqué/maintenu
+ * 2. Répulsion physique radiale :
+ *    - Temps 1 (sélection) : tension progressive douce
+ *    - Temps 2 (burst) : onde de choc massive expulsant tous les autres médias
  * 3. Amortissement et stabilisation angulaire
  * 4. Synchronisation instantanée des 9 copies virtuelles
  */
 function stepPhysicsAndMeshes(
-  phys: {
-    enabled: boolean;
-    strength: number;
-    radius: number;
-    spring: number;
-    damping: number;
-    restitution: number;
-    friction: number;
-    lockRotation: boolean;
-    mass: number;
-  },
+  phys: PhysicsParams,
+  transition: TransitionConfig,
   rc: PlayRuntimeState,
   points: LayoutPoint[],
   rbs: (RapierRigidBody | null)[],
@@ -126,6 +105,7 @@ function stepPhysicsAndMeshes(
         if (mesh) {
           mesh.position.set(pt.x, pt.y, 0);
           mesh.rotation.z = 0;
+          mesh.scale.set(pt.width, pt.height, 1);
         }
       }
     }
@@ -134,7 +114,13 @@ function stepPhysicsAndMeshes(
 
   const dt = Math.min(delta, 0.04);
   const repulsor = rc.repulsor;
-  const isRepulsing = repulsor.active || rc.transition.progress > 0;
+  const isSelecting = rc.transition.phase === "selecting";
+  const isBursting = rc.transition.phase === "burst" || rc.transition.phase === "isolated";
+  const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
+
+  const selectScaleFactor = isSelecting
+    ? 1 + (transition.selectScale - 1) * rc.transition.easedSelectProgress
+    : 1;
 
   for (let i = 0; i < points.length; i++) {
     const rb = rbs[i];
@@ -149,31 +135,34 @@ function stepPhysicsAndMeshes(
     const curDx = trans.x - pt.x;
     const curDy = trans.y - pt.y;
 
-    // Si sélectionné, l'indicateur suit le déplacement physique
+    // Si sélectionné, l'indicateur suit le déplacement physique et le scale
     if (i === rc.selected) {
       rc.indicatorTarget.x = rc.selectedPos.x + curDx;
       rc.indicatorTarget.y = rc.selectedPos.y + curDy;
-      rc.indicatorTarget.width = pt.width;
-      rc.indicatorTarget.height = pt.height;
+      rc.indicatorTarget.width = pt.width * selectScaleFactor;
+      rc.indicatorTarget.height = pt.height * selectScaleFactor;
     }
 
-    // Répercussion du déplacement et de la rotation sur les 9 copies de la mosaïque
+    // Répercussion du déplacement, de la rotation et du scale sur les 9 copies de la mosaïque
     let rotZ = 0;
     if (!phys.lockRotation) {
       const rot = rb.rotation();
       rotZ = 2 * Math.atan2(rot.z, rot.w);
     }
 
+    const meshScale = i === targetIdx && isSelecting ? selectScaleFactor : 1;
+
     for (let k = 0; k < COPIES; k++) {
       const mesh = meshRefs[k]?.[i];
       if (mesh) {
         mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
         mesh.rotation.z = rotZ;
+        mesh.scale.set(pt.width * meshScale, pt.height * meshScale, 1);
       }
     }
 
     // Si c'est la tuile cliquée/maintenue, elle reste ancrée fermement à sa place
-    if (isRepulsing && i === repulsor.pointIndex) {
+    if ((isSelecting || isBursting) && i === targetIdx) {
       rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
       rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
       rb.setTranslation({ x: pt.x, y: pt.y, z: 0 }, true);
@@ -181,13 +170,18 @@ function stepPhysicsAndMeshes(
     }
 
     // 1. Force de rappel élastique vers la position initiale dans le layout
-    const pullX = pt.x - trans.x;
-    const pullY = pt.y - trans.y;
-    let fx = pullX * phys.spring * 60 * phys.mass;
-    let fy = pullY * phys.spring * 60 * phys.mass;
+    // (désactivée en mode burst/isolé pour ne pas entraver l'expulsion hors champ)
+    let fx = 0;
+    let fy = 0;
+    if (!isBursting) {
+      const pullX = pt.x - trans.x;
+      const pullY = pt.y - trans.y;
+      fx = pullX * phys.spring * 60 * phys.mass;
+      fy = pullY * phys.spring * 60 * phys.mass;
+    }
 
-    // 2. Répulsion physique radiale depuis le repulsor (avec raccord torique pour les bords)
-    if (isRepulsing) {
+    // 2. Répulsion physique radiale depuis le repulsor
+    if (isSelecting) {
       let rx = trans.x - repulsor.x;
       let ry = trans.y - repulsor.y;
 
@@ -205,17 +199,54 @@ function stepPhysicsAndMeshes(
       if (dist < phys.radius && dist > 0.01) {
         const t = 1 - dist / phys.radius;
         const falloff = t * t;
-        // Courbe exponentielle : commence doux, s'amplifie au fur et à mesure du maintien
-        const expoFactor = 0.15 + 0.85 * rc.transition.expo;
-        const forceMag = phys.strength * falloff * 50 * phys.mass * expoFactor;
+        const forceMag =
+          transition.selectRepulse * falloff * 50 * phys.mass * rc.transition.easedSelectProgress;
+
+        fx += (rx / dist) * forceMag;
+        fy += (ry / dist) * forceMag;
+      }
+    } else if (isBursting) {
+      let rx = trans.x - repulsor.x;
+      let ry = trans.y - repulsor.y;
+
+      if (tileW > 0) {
+        if (rx > tileW * 0.5) rx -= tileW;
+        else if (rx < -tileW * 0.5) rx += tileW;
+      }
+      if (tileH > 0) {
+        if (ry > tileH * 0.5) ry -= tileH;
+        else if (ry < -tileH * 0.5) ry += tileH;
+      }
+
+      let dist = Math.hypot(rx, ry);
+      if (dist < 0.01) {
+        rx = (Math.random() - 0.5) * 10;
+        ry = (Math.random() - 0.5) * 10;
+        dist = Math.hypot(rx, ry) || 1;
+      }
+
+      // Expulsion calibrée : pousse les tuiles hors champ avec atténuation aux grandes distances
+      const burstRadius = 3500;
+      if (dist < burstRadius) {
+        const falloff = 1 - dist / burstRadius;
+        const burstFactor = Math.max(0.3, rc.transition.easedBurstProgress);
+        const forceMag = transition.burstRepulse * falloff * 0.4 * phys.mass * burstFactor;
 
         fx += (rx / dist) * forceMag;
         fy += (ry / dist) * forceMag;
       }
     }
 
-    // 3. Application de l'impulsion physique
+    // 3. Application de l'impulsion physique avec limitation de vélocité
     rb.applyImpulse({ x: fx * dt, y: fy * dt, z: 0 }, true);
+
+    const vel = rb.linvel();
+    const speed = Math.hypot(vel.x, vel.y);
+    const maxSpeed = isBursting ? 3500 : 1500;
+    if (speed > maxSpeed) {
+      const s = maxSpeed / speed;
+      rb.setLinvel({ x: vel.x * s, y: vel.y * s, z: 0 }, true);
+    }
 
     // 4. Maintien de l'alignement en rotation
     if (phys.lockRotation) {
@@ -289,7 +320,8 @@ export function ArtifactGrid({
   useFrame((_, delta) => {
     if (
       !runtime.current.transition.holding &&
-      runtime.current.transition.progress === 0 &&
+      runtime.current.transition.selectProgress === 0 &&
+      runtime.current.transition.phase === "idle" &&
       runtime.current.repulsor.active
     ) {
       applyPointerUp(runtime.current);
@@ -312,6 +344,7 @@ export function ArtifactGrid({
 
     stepPhysicsAndMeshes(
       debug.current.physics,
+      debug.current.transition,
       runtime.current,
       points,
       rigidBodiesRef.current,

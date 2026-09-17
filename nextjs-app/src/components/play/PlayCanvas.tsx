@@ -24,6 +24,12 @@ import {
 } from "./gravity-layout";
 import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types";
 import { PlayLoader } from "./PlayLoader";
+import { SelectProgressOverlay } from "./SelectProgressOverlay";
+import {
+  type TransitionConfig,
+  DEFAULT_TRANSITION_CONFIG,
+  evaluateEasing,
+} from "./transition-presets";
 
 /**
  * État réglable depuis le debug pane (dev only) : tweakpane écrit dedans, les
@@ -57,20 +63,6 @@ export const PHYSICS_DEFAULTS: PhysicsParams = {
   mass: 1,
 };
 
-export type TransitionParams = {
-  duration: number;
-  zoomScale: number;
-  exponent: number;
-  repulsionBoost: number;
-};
-
-export const TRANSITION_DEFAULTS: TransitionParams = {
-  duration: 1.5,
-  zoomScale: 1.2,
-  exponent: 2.8,
-  repulsionBoost: 2.5,
-};
-
 export type PlayDebugState = {
   plane: { radius: number };
   brackets: {
@@ -86,14 +78,14 @@ export type PlayDebugState = {
   gravity: GravityParams;
   pan: { dragThreshold: number; velocityWindowMs: number; friction: number };
   physics: PhysicsParams;
-  transition: TransitionParams;
+  transition: TransitionConfig;
 };
 
 export type PlayDebugRef = RefObject<PlayDebugState>;
 
 /**
- * État runtime : sélection / survol / caméra / indicateur / transition — écrit par les
- * interactions (clic, survol, pan, flèches, entrée), lu par les `useFrame`.
+ * État runtime : sélection / survol / caméra / indicateur / transition 2 temps —
+ * écrit par les interactions (clic, survol, pan, flèches, entrée), lu par les `useFrame`.
  */
 export type PlayRuntimeState = {
   selected: number;
@@ -112,14 +104,134 @@ export type PlayRuntimeState = {
     y: number;
   };
   transition: {
+    phase: "idle" | "selecting" | "burst" | "isolated";
+    selectProgress: number;
+    easedSelectProgress: number;
+    burstProgress: number;
+    easedBurstProgress: number;
+    targetIndex: number;
     holding: boolean;
-    progress: number;
-    expo: number;
     trigger: "pointer" | "key" | null;
   };
 };
 
 export type PlayRuntimeRef = RefObject<PlayRuntimeState>;
+
+export function applyPointerDown(
+  rc: PlayRuntimeState,
+  pointIndex: number,
+  canonicalPos: { x: number; y: number },
+) {
+  if (rc.transition.phase === "isolated") {
+    applyResetTransition(rc);
+    return;
+  }
+  if (rc.transition.phase !== "idle") return;
+
+  rc.repulsor.active = true;
+  rc.repulsor.pointIndex = pointIndex;
+  rc.repulsor.x = canonicalPos.x;
+  rc.repulsor.y = canonicalPos.y;
+  rc.transition.phase = "selecting";
+  rc.transition.targetIndex = pointIndex;
+  rc.transition.holding = true;
+  rc.transition.trigger = "pointer";
+  rc.transition.selectProgress = 0;
+  rc.transition.easedSelectProgress = 0;
+}
+
+export function applyPointerUp(rc: PlayRuntimeState) {
+  if (rc.transition.trigger === "pointer") {
+    rc.transition.holding = false;
+    rc.transition.trigger = null;
+  }
+}
+
+export function applyResetTransition(rc: PlayRuntimeState) {
+  rc.transition.phase = "idle";
+  rc.transition.holding = false;
+  rc.transition.selectProgress = 0;
+  rc.transition.easedSelectProgress = 0;
+  rc.transition.burstProgress = 0;
+  rc.transition.easedBurstProgress = 0;
+  rc.transition.trigger = null;
+  rc.transition.targetIndex = -1;
+  rc.repulsor.active = false;
+  rc.repulsor.pointIndex = -1;
+  rc.camera.mode = "settle";
+}
+
+function applyKeyDownEnter(
+  rc: PlayRuntimeState,
+  points: readonly { x: number; y: number }[],
+) {
+  if (rc.transition.phase === "isolated") {
+    applyResetTransition(rc);
+    return;
+  }
+  if (rc.transition.phase !== "idle") return;
+  const selPt = points[rc.selected];
+  if (!selPt) return;
+
+  rc.repulsor.active = true;
+  rc.repulsor.pointIndex = rc.selected;
+  rc.repulsor.x = selPt.x;
+  rc.repulsor.y = selPt.y;
+  rc.transition.phase = "selecting";
+  rc.transition.targetIndex = rc.selected;
+  rc.transition.holding = true;
+  rc.transition.trigger = "key";
+  rc.transition.selectProgress = 0;
+  rc.transition.easedSelectProgress = 0;
+  rc.camera.mode = "settle";
+  rc.camera.targetX = rc.selectedPos.x;
+  rc.camera.targetY = rc.selectedPos.y;
+}
+
+function applyKeyUpEnter(rc: PlayRuntimeState) {
+  if (rc.transition.trigger === "key") {
+    rc.transition.holding = false;
+    rc.transition.trigger = null;
+  }
+}
+
+function applyPanWheel(
+  rc: PlayRuntimeState,
+  deltaX: number,
+  deltaY: number,
+  zoom: number,
+) {
+  if (rc.transition.phase !== "idle") return;
+  rc.camera.mode = "follow";
+  rc.camera.targetX += deltaX / zoom;
+  rc.camera.targetY -= deltaY / zoom;
+}
+
+function applyPanPointerMove(
+  rc: PlayRuntimeState,
+  dx: number,
+  dy: number,
+  zoom: number,
+) {
+  rc.camera.mode = "follow";
+  rc.camera.targetX -= dx / zoom;
+  rc.camera.targetY += dy / zoom;
+}
+
+function applyArrowNavigation(
+  rc: PlayRuntimeState,
+  match: { dx: number; dy: number; index: number },
+  point: { width: number; height: number },
+) {
+  const worldX = rc.selectedPos.x + match.dx;
+  const worldY = rc.selectedPos.y + match.dy;
+  rc.selected = match.index;
+  rc.selectedPos = { x: worldX, y: worldY };
+  rc.camera.targetX = worldX;
+  rc.camera.targetY = worldY;
+  rc.camera.mode = "settle";
+  rc.indicatorTarget = { x: worldX, y: worldY, width: point.width, height: point.height };
+}
 
 // ── Ouverture — image ────────────────────────────────────────────────────
 const PLANE_RADIUS = 32;
@@ -129,7 +241,7 @@ const BRACKET_PADDING = 20;
 const BRACKET_RADIUS = 48;
 const BRACKET_ANGLE = 90;
 const BRACKET_ARM = 8;
-const BRACKET_THICKNESS = 3;
+const BRACKET_THICKNESS = 4;
 const BRACKET_COLOR = "#a6a09b";
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
@@ -173,34 +285,94 @@ function stepCamera(
   velocity: { x: number; y: number },
   friction: number,
   baseZoom: number,
-  transition: TransitionParams,
+  config: TransitionConfig,
   delta: number,
 ) {
-  // Charge de transition (maintien du clic ou d'Entrée)
   const tr = rc.transition;
-  if (tr.holding) {
-    tr.progress = Math.min(1, tr.progress + delta / Math.max(0.1, transition.duration));
-  } else if (tr.progress > 0) {
-    tr.progress = Math.max(0, tr.progress - delta / Math.max(0.05, transition.duration * 0.4));
-  }
-  if (tr.progress < 0.0001) tr.progress = 0;
 
-  // Courbe exponentielle : lente au début, accélération marquée vers la fin
-  tr.expo = Math.pow(tr.progress, transition.exponent);
+  // ── Temps 1 : Sélection progressive maintenue (Hold to Select) ─────────
+  if (tr.phase === "selecting") {
+    if (tr.holding) {
+      tr.selectProgress = Math.min(
+        1,
+        tr.selectProgress + delta / Math.max(0.1, config.selectDuration),
+      );
+      if (tr.selectProgress >= 1) {
+        tr.selectProgress = 1;
+        tr.phase = "burst";
+        tr.burstProgress = 0;
+        tr.easedBurstProgress = 0;
+      }
+    } else {
+      tr.selectProgress = Math.max(
+        0,
+        tr.selectProgress - delta / Math.max(0.05, config.selectDuration * 0.4),
+      );
+      if (tr.selectProgress <= 0.02) {
+        tr.selectProgress = 0;
+        tr.phase = "idle";
+        rc.repulsor.active = false;
+        rc.repulsor.pointIndex = -1;
+      }
+    }
+    tr.easedSelectProgress = evaluateEasing(config.selectEasing, tr.selectProgress);
 
-  // Zoom exponentiel vers zoomScale (ex: 1.2 = 120% du zoom de base)
-  const targetZoom = baseZoom * (1 + (transition.zoomScale - 1) * tr.expo);
-  const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
-  if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
-    camera.zoom = smoothedZoom;
-    camera.updateProjectionMatrix();
-  }
+    const targetZoom = baseZoom * (1 + (config.selectZoom - 1) * tr.easedSelectProgress);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
 
-  // Pendant le maintien ou la transition, la caméra s'aligne en douceur sur l'élément
-  if (tr.progress > 0 || tr.holding) {
     camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
     camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
     return;
+  }
+
+  // ── Temps 2 : Explosion / Burst (Maxi zoom + Maxi répulsion) ───────────
+  if (tr.phase === "burst") {
+    tr.burstProgress = Math.min(
+      1,
+      tr.burstProgress + delta / Math.max(0.1, config.burstDuration),
+    );
+    tr.easedBurstProgress = evaluateEasing(config.burstEasing, tr.burstProgress);
+    if (tr.burstProgress >= 1) {
+      tr.burstProgress = 1;
+      tr.phase = "isolated";
+    }
+
+    const startZoom = baseZoom * config.selectZoom;
+    const endZoom = baseZoom * config.burstZoom;
+    const targetZoom = startZoom + (endZoom - startZoom) * tr.easedBurstProgress;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    return;
+  }
+
+  // ── Mode Isolé (Maintenu centré et zoomé jusqu'à Escape / Clic) ─────────
+  if (tr.phase === "isolated") {
+    const targetZoom = baseZoom * config.burstZoom;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    return;
+  }
+
+  // ── Phase Idle : Retour au zoom de base et pan inertiel ────────────────
+  if (Math.abs(camera.zoom - baseZoom) > 0.0005) {
+    camera.zoom = dampTowards(camera.zoom, baseZoom, 8, delta);
+    camera.updateProjectionMatrix();
   }
 
   if (rc.camera.mode === "follow") {
@@ -267,7 +439,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       friction: INERTIA_FRICTION,
     },
     physics: { ...PHYSICS_DEFAULTS },
-    transition: { ...TRANSITION_DEFAULTS },
+    transition: { ...DEFAULT_TRANSITION_CONFIG },
   });
 
   const [gravityParams, setGravityParams] = useState<GravityParams>(() => ({
@@ -401,9 +573,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       y: 0,
     },
     transition: {
+      phase: "idle",
+      selectProgress: 0,
+      easedSelectProgress: 0,
+      burstProgress: 0,
+      easedBurstProgress: 0,
+      targetIndex: -1,
       holding: false,
-      progress: 0,
-      expo: 0,
       trigger: null,
     },
   });
@@ -507,15 +683,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       // ── Pan : défilement standard au trackpad / molette ─────────────────────
       velocity.current.x = 0;
       velocity.current.y = 0;
-      const rc = runtime.current;
-      rc.camera.mode = "follow";
-      const zoom = debug.current.camera.zoom;
-      rc.camera.targetX += e.deltaX / zoom;
-      rc.camera.targetY -= e.deltaY / zoom;
+      applyPanWheel(runtime.current, e.deltaX, e.deltaY, debug.current.camera.zoom);
     }
 
     function onPointerDown(e: PointerEvent) {
       if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (runtime.current.transition.phase === "isolated") {
+        applyResetTransition(runtime.current);
+        return;
+      }
       dragging = true;
       dragMoved.current = false;
       startX = lastX = e.clientX;
@@ -527,7 +703,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onPointerMove(e: PointerEvent) {
-      if (runtime.current.transition.holding || runtime.current.repulsor.active) return;
+      if (runtime.current.transition.phase === "burst" || runtime.current.transition.phase === "isolated") return;
       if (!dragging) return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
@@ -544,12 +720,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           return;
         }
         dragMoved.current = true;
-        runtime.current.camera.mode = "follow";
+        if (runtime.current.transition.phase === "selecting") {
+          applyResetTransition(runtime.current);
+        }
       }
 
       const zoom = debug.current.camera.zoom;
-      runtime.current.camera.targetX -= dx / zoom;
-      runtime.current.camera.targetY += dy / zoom;
+      applyPanPointerMove(runtime.current, dx, dy, zoom);
     }
 
     function onPointerUp() {
@@ -579,7 +756,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     };
   }, []);
 
-  // ── Flèches & Entrée : navigation spatiale et transition au maintien ────────
+  // ── Flèches, Entrée & Escape : navigation spatiale et transition 2 temps ───
   useEffect(() => {
     if (!tile || tile.points.length === 0) return;
     const { points, neighbors } = tile;
@@ -601,23 +778,20 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         return;
       }
 
-      // Maintien de la touche Entrée : lance la transition d'ouverture (zoom expo + répulsion)
+      // Touche Escape : annule immédiatement la transition ou quitte l'isolation
+      if (e.key === "Escape") {
+        if (runtime.current.transition.phase !== "idle") {
+          e.preventDefault();
+          applyResetTransition(runtime.current);
+          return;
+        }
+      }
+
+      // Maintien de la touche Entrée : lance la transition 2 temps (Hold -> Burst)
       if (e.key === "Enter") {
         if (e.repeat) return;
         e.preventDefault();
-        const rc = runtime.current;
-        const selPt = points[rc.selected];
-        if (!selPt) return;
-
-        rc.repulsor.active = true;
-        rc.repulsor.pointIndex = rc.selected;
-        rc.repulsor.x = selPt.x;
-        rc.repulsor.y = selPt.y;
-        rc.transition.holding = true;
-        rc.transition.trigger = "key";
-        rc.camera.mode = "settle";
-        rc.camera.targetX = rc.selectedPos.x;
-        rc.camera.targetY = rc.selectedPos.y;
+        applyKeyDownEnter(runtime.current, points);
         return;
       }
 
@@ -626,6 +800,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       e.preventDefault();
 
       const rc = runtime.current;
+      if (rc.transition.phase !== "idle") return;
       const candidates = neighbors[rc.selected];
       if (!candidates || candidates.length === 0) return;
 
@@ -634,23 +809,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       if (!match) return;
 
       const point = points[match.index];
-      const worldX = rc.selectedPos.x + match.dx;
-      const worldY = rc.selectedPos.y + match.dy;
-      rc.selected = match.index;
-      rc.selectedPos = { x: worldX, y: worldY };
-      rc.camera.targetX = worldX;
-      rc.camera.targetY = worldY;
-      rc.camera.mode = "settle";
-      rc.indicatorTarget = { x: worldX, y: worldY, width: point.width, height: point.height };
+      applyArrowNavigation(rc, match, point);
     }
 
     function onKeyUp(e: KeyboardEvent) {
       if (e.key === "Enter") {
-        const rc = runtime.current;
-        if (rc.transition.trigger === "key") {
-          rc.transition.holding = false;
-          rc.transition.trigger = null;
-        }
+        applyKeyUpEnter(runtime.current);
       }
     }
 
@@ -687,6 +851,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               runtime={runtime}
               dragMoved={dragMoved}
             />
+            <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
             <FocusIndicator debug={debug} runtime={runtime} />
           </Canvas>
         )}

@@ -4,8 +4,12 @@ import { useEffect, useRef } from "react";
 import { Pane } from "tweakpane";
 import type { PlayDebugRef, PlayDebugState } from "./PlayCanvas";
 import type { LayoutStats } from "./layout-types";
+import {
+  TRANSITION_PRESETS,
+  type TransitionPresetName,
+} from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v6";
+const STORAGE_KEY = "play-debug-v8";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -276,31 +280,111 @@ export function PlayDebug({
       label: "masse tuiles",
     });
 
-    // ── Transition (maintien clic / Entrée) ──────────────────────
-    const transition = pane.addFolder({ title: "transition (maintien)" });
-    transition.addBinding(transitionState, "duration", {
-      min: 0.5,
-      max: 4,
+    // ── Transition 2 temps (Hold -> Burst) ───────────────────────
+    const transition = pane.addFolder({ title: "transition (2 temps)" });
+
+    const presetBinding = transition.addBinding(transitionState, "preset", {
+      options: {
+        Cinematic: "cinematic",
+        Snappy: "snappy",
+        Dramatic: "dramatic",
+        Custom: "custom",
+      },
+      label: "preset",
+    });
+
+    // Phase 1 : Hold to Select
+    const phase1 = transition.addFolder({ title: "1. sélection (hold)" });
+    phase1.addBinding(transitionState, "selectDuration", {
+      min: 0.3,
+      max: 3.0,
       step: 0.1,
       label: "durée (s)",
     });
-    transition.addBinding(transitionState, "zoomScale", {
-      min: 1,
-      max: 2.5,
-      step: 0.05,
-      label: "zoom expo (ratio)",
+    phase1.addBinding(transitionState, "selectZoom", {
+      min: 1.0,
+      max: 1.5,
+      step: 0.01,
+      label: "zoom caméra",
     });
-    transition.addBinding(transitionState, "exponent", {
-      min: 1,
-      max: 6,
-      step: 0.2,
-      label: "courbure expo",
+    phase1.addBinding(transitionState, "selectScale", {
+      min: 1.0,
+      max: 1.25,
+      step: 0.01,
+      label: "scale média",
     });
-    transition.addBinding(transitionState, "repulsionBoost", {
-      min: 1,
-      max: 6,
-      step: 0.2,
-      label: "boost répulsion",
+    phase1.addBinding(transitionState, "selectRepulse", {
+      min: 0,
+      max: 3000,
+      step: 50,
+      label: "tension répulsion",
+    });
+    phase1.addBinding(transitionState, "selectEasing", {
+      options: {
+        linear: "linear",
+        easeInQuad: "easeInQuad",
+        easeOutQuad: "easeOutQuad",
+        easeInCubic: "easeInCubic",
+        easeInOutCubic: "easeInOutCubic",
+        easeOutExpo: "easeOutExpo",
+        easeOutQuint: "easeOutQuint",
+      },
+      label: "courbe easing",
+    });
+
+    // Phase 2 : Burst & Isolation
+    const phase2 = transition.addFolder({ title: "2. burst (isolation)" });
+    phase2.addBinding(transitionState, "burstDuration", {
+      min: 0.3,
+      max: 3.0,
+      step: 0.1,
+      label: "durée (s)",
+    });
+    phase2.addBinding(transitionState, "burstZoom", {
+      min: 1.5,
+      max: 6.0,
+      step: 0.1,
+      label: "maxi zoom",
+    });
+    phase2.addBinding(transitionState, "burstRepulse", {
+      min: 10000,
+      max: 300000,
+      step: 5000,
+      label: "maxi répulsion",
+    });
+    phase2.addBinding(transitionState, "burstEasing", {
+      options: {
+        linear: "linear",
+        easeInQuad: "easeInQuad",
+        easeOutQuad: "easeOutQuad",
+        easeInCubic: "easeInCubic",
+        easeInOutCubic: "easeInOutCubic",
+        easeOutExpo: "easeOutExpo",
+        easeOutQuint: "easeOutQuint",
+      },
+      label: "courbe easing",
+    });
+
+    presetBinding.on("change", (ev) => {
+      const presetKey = ev.value as TransitionPresetName;
+      if (presetKey !== "custom" && TRANSITION_PRESETS[presetKey]) {
+        Object.assign(transitionState, TRANSITION_PRESETS[presetKey]);
+        transitionState.preset = presetKey;
+        pane.refresh();
+      }
+    });
+
+    phase1.on("change", () => {
+      if (transitionState.preset !== "custom") {
+        transitionState.preset = "custom";
+        pane.refresh();
+      }
+    });
+    phase2.on("change", () => {
+      if (transitionState.preset !== "custom") {
+        transitionState.preset = "custom";
+        pane.refresh();
+      }
     });
 
     const stopSave = addAction(pane, "save", () => {
