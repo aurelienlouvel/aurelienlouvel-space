@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v12";
+const STORAGE_KEY = "play-debug-v13";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;

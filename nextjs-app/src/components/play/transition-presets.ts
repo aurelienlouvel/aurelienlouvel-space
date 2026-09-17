@@ -90,8 +90,8 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   selectScale: 1,
   selectRepulse: 200,
   selectEasing: "easeOutQuint",
-  burstDuration: 1.2,
-  burstZoom: 2,
-  burstRepulse: 160000,
-  burstEasing: "easeOutQuint",
+  burstDuration: 0.6,
+  burstZoom: 1.8,
+  burstRepulse: 40000,
+  burstEasing: "easeInQuad",
 };
