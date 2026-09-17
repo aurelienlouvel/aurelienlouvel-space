@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v8";
+const STORAGE_KEY = "play-debug-v9";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -231,53 +231,14 @@ export function PlayDebug({
     pan.addBinding(panState, "velocityWindowMs", { min: 10, max: 300, step: 5 });
     pan.addBinding(panState, "friction", { min: -10, max: -0.2, step: 0.1 });
 
-    // ── Physique : Répulsion Rapier ──────────────────────────────
-    const physics = pane.addFolder({ title: "physique (rapier)" });
+    // ── Déplacement cinématique : Répulsion uniforme ────────────
+    const physics = pane.addFolder({ title: "cinématique (répulsion)" });
     physics.addBinding(physicsState, "enabled", { label: "activer" });
-    physics.addBinding(physicsState, "strength", {
-      min: 100,
-      max: 15000,
-      step: 100,
-      label: "force répulsion",
-    });
-    physics.addBinding(physicsState, "radius", {
-      min: 200,
-      max: 5000,
-      step: 50,
-      label: "rayon répulsion",
-    });
-    physics.addBinding(physicsState, "spring", {
-      min: 0.1,
-      max: 20,
-      step: 0.1,
-      label: "force rappel",
-    });
     physics.addBinding(physicsState, "damping", {
-      min: 0.1,
-      max: 35,
+      min: 2,
+      max: 40,
       step: 0.5,
-      label: "amortissement",
-    });
-    physics.addBinding(physicsState, "restitution", {
-      min: 0,
-      max: 1,
-      step: 0.05,
-      label: "élasticité / rebond",
-    });
-    physics.addBinding(physicsState, "friction", {
-      min: 0,
-      max: 1,
-      step: 0.05,
-      label: "friction contact",
-    });
-    physics.addBinding(physicsState, "lockRotation", {
-      label: "verrouiller rotation",
-    });
-    physics.addBinding(physicsState, "mass", {
-      min: 0.1,
-      max: 10,
-      step: 0.1,
-      label: "masse tuiles",
+      label: "vitesse de retour",
     });
 
     // ── Transition 2 temps (Hold -> Burst) ───────────────────────
