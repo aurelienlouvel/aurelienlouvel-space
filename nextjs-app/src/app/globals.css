@@ -255,38 +255,41 @@
     .lenis.lenis-smooth {
         scroll-behavior: auto !important;
     }
-}
-
-h1 {
-    font-weight: 640;
-    --font-wght: 640;
-    letter-spacing: var(--tracking-tight);
-    color: var(--color-stone-800);
-}
-
-h2 {
-    font-size: var(--text-xl);
-    font-weight: 640;
-    --font-wght: 640;
-    line-height: var(--text-xl--line-height);
-    letter-spacing: var(--tracking-tight);
-    color: var(--color-stone-400);
-}
-
-h3 {
-    font-size: var(--text-3xl);
-    font-weight: 640;
-    --font-wght: 640;
-    letter-spacing: var(--tracking-tight);
-    color: var(--color-stone-800);
-}
-
-h4 {
-    font-size: var(--text-lg);
-    font-weight: 600;
-    --font-wght: 600;
-    letter-spacing: var(--tracking-tight);
-    color: var(--color-stone-500);
+    /* Element defaults for h1-h4 — MUST live inside @layer base: unlayered
+       rules always win over Tailwind's own utility layer regardless of
+       specificity, which silently made a className like `text-7xl` on an h3
+       render at this h3's 3xl no matter what (Tailwind's utility, being
+       layered, always lost). Moving these here lets any text-size/color
+       utility applied directly in JSX override the default again, as
+       expected — see work/[slug]/page.tsx's h1. */
+    h1 {
+        font-weight: 640;
+        --font-wght: 640;
+        letter-spacing: var(--tracking-tight);
+        color: var(--color-stone-800);
+    }
+    h2 {
+        font-size: var(--text-xl);
+        font-weight: 640;
+        --font-wght: 640;
+        line-height: var(--text-xl--line-height);
+        letter-spacing: var(--tracking-tight);
+        color: var(--color-stone-400);
+    }
+    h3 {
+        font-size: var(--text-3xl);
+        font-weight: 640;
+        --font-wght: 640;
+        letter-spacing: var(--tracking-tight);
+        color: var(--color-stone-800);
+    }
+    h4 {
+        font-size: var(--text-lg);
+        font-weight: 600;
+        --font-wght: 600;
+        letter-spacing: var(--tracking-tight);
+        color: var(--color-stone-500);
+    }
 }
 
 .text-block {

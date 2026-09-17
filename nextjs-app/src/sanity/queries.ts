@@ -207,75 +207,58 @@ export const allProjectSlugsQuery = defineQuery(`
   *[_type == "project"] { "slug": slug.current }
 `);
 
-// ─── Artifacts (Play page canvas) ─────────────────────────────────────────────
+// ─── Artifacts (canvas /play) ─────────────────────────────────────────────────
 
-export const artifactsCanvasQuery = defineQuery(`
-  *[_type == "artifact"] | order(orderRank) {
+/**
+ * Tous les artifacts qui portent au moins un média de galerie exploitable
+ * (image déjà uploadée, ou vidéo — fichier uploadé ou lien externe), dans
+ * l'ordre manuel — le canvas les affiche tous.
+ *
+ * Le premier média valide de la galerie est retenu, qu'il soit image ou
+ * vidéo. Avant, le filtre s'arrêtait à `galleryImage` : tout artifact dont la
+ * galerie ne contenait QUE des vidéos en sortait entièrement (4 des 9
+ * artifacts de la prod au moment d'écrire ceci) — c'était le bug rapporté («
+ * ça bug » côté vidéo), pas une limitation du rendu lui-même.
+ *
+ * Comme pour l'ancien filtre image seule, on va jusqu'à `defined(...)` sur
+ * chaque branche plutôt que de garder les champs nullables : un `galleryImage`
+ * sans asset uploadé, ou un `galleryVideo` sans fichier NI lien externe, n'a
+ * de toute façon rien à afficher. `resolveArtifactMedia` (côté Next.js,
+ * `artifact-media.ts`) fait le départ entre les deux formes possibles du
+ * résultat.
+ */
+export const playArtifactsQuery = defineQuery(`
+  *[_type == "artifact" && count(gallery[
+    (_type == "galleryImage" && defined(image.asset)) ||
+    (_type == "galleryVideo" && (defined(file.asset) || defined(url)))
+  ]) > 0] | order(orderRank) {
     _id,
     title,
-    "slug": slug.current,
-    description,
-    "firstMedia": gallery[0] {
+    "media": gallery[
+      (_type == "galleryImage" && defined(image.asset)) ||
+      (_type == "galleryVideo" && (defined(file.asset) || defined(url)))
+    ][0] {
       _type,
-      "imageUrl": image.asset->url,
       "imageRef": image.asset._ref,
       "imageWidth": image.asset->metadata.dimensions.width,
       "imageHeight": image.asset->metadata.dimensions.height,
-      "imageHotspot": image.hotspot,
-      "imageCrop": image.crop,
-      "paletteDominant": image.asset->metadata.palette.dominant.background,
-      "videoFileUrl": file.asset->url,
+      "videoRef": file.asset._ref,
       "videoUrl": url
-    },
-    "gallery": gallery[] {
-      _type,
-      "imageUrl": image.asset->url,
-      "imageRef": image.asset._ref,
-      "imageWidth": image.asset->metadata.dimensions.width,
-      "imageHeight": image.asset->metadata.dimensions.height,
-      "imageHotspot": image.hotspot,
-      "imageCrop": image.crop,
-      "paletteDominant": image.asset->metadata.palette.dominant.background,
-      "videoFileUrl": file.asset->url,
-      "videoUrl": url
-    },
-    "galleryCount": count(gallery),
-    "tags": tags[]->{ _id, name, color, icon },
-    "mates": contributors[defined(person)] {
-      _key,
-      "person": person->{ _id, firstName, lastName, "avatarUrl": avatar.asset->url + "?w=72&q=80&auto=format", linkedinUrl },
-      "roles": roles[]->{ _id, name, color, icon }
-    },
-    startDate,
-    endDate
+    }
   }
 `);
 
-export type ArtifactFirstMedia = {
-  _type: "galleryImage" | "galleryVideo";
-  imageUrl: string | null;
-  imageRef: string | null;
-  imageWidth: number | null;
-  imageHeight: number | null;
-  imageHotspot: { x: number; y: number; width: number; height: number } | null;
-  imageCrop: { top: number; bottom: number; left: number; right: number } | null;
-  paletteDominant: string | null;
-  videoFileUrl: string | null;
-  videoUrl: string | null;
-};
-
-export type ArtifactCanvasItem = {
+export type PlayArtifact = {
   _id: string;
   title: string;
-  slug: string;
-  description: string | null;
-  firstMedia: ArtifactFirstMedia | null;
-  gallery: ArtifactFirstMedia[] | null;
-  galleryCount: number;
-  tags: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
-  mates: Mate[] | null;
-  startDate: string | null;
-  endDate: string | null;
+  media: {
+    _type: "galleryImage" | "galleryVideo";
+    imageRef: string | null;
+    imageWidth: number | null;
+    imageHeight: number | null;
+    videoRef: string | null;
+    videoUrl: string | null;
+  };
 };
 
 // ─── Profile (Info page) ──────────────────────────────────────────────────────
@@ -424,30 +407,6 @@ export type Profile = {
     url: string | null;
     referral: boolean | null;
   }> | null;
-};
-
-// ─── Decorations (Play canvas doodles) ────────────────────────────────────────
-
-export const decorationsQuery = defineQuery(`
-  *[_type == "decorations"][0] {
-    "doodles": doodles[] {
-      _key,
-      "url": asset->url + "?w=256&q=85&auto=format",
-      "width": asset->metadata.dimensions.width,
-      "height": asset->metadata.dimensions.height
-    }
-  }
-`);
-
-export type CustomDoodleImage = {
-  _key: string;
-  url: string | null;
-  width: number | null;
-  height: number | null;
-};
-
-export type Decorations = {
-  doodles: CustomDoodleImage[] | null;
 };
 
 export const experiencesQuery = defineQuery(`

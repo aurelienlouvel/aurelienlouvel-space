@@ -296,6 +296,10 @@ export function ActionBar() {
             <div className="flex h-full items-center px-2 overflow-hidden">
               <motion.button
                 onClick={() => {
+                  if (projectData?.onBack) {
+                    projectData.onBack();
+                    return;
+                  }
                   markWorkReturn();
                   router.push("/work", {
                     scroll: false,

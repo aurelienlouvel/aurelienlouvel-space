@@ -3,7 +3,6 @@ import {roleType} from './role'
 import {organisationType} from './organisation'
 import {personType} from './person'
 import {profileType} from './profile'
-import {decorationsType} from './decorations'
 import {toolType} from './tool'
 import {
   blockText,
@@ -45,6 +44,5 @@ export const schemaTypes = [
   awardType,
   projectType,
   profileType,
-  decorationsType,
   toolType,
 ]

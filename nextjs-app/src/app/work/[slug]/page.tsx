@@ -54,28 +54,28 @@ export default async function ProjectPage({
     >
       <PageShell restore="top">
         <main className="w-full bg-white rounded-t-2xl">
-          <div className="mx-auto max-w-5xl pt-4 sm:pt-16 pb-12 sm:pb-64">
+          <div className="mx-auto max-w-5xl pt-4 sm:pt-16 sm:pb-64">
             <ProjectPageClient
               title={project.title}
               redirectUrl={project.redirectUrl}
             />
 
-            <div className="px-4 sm:px-16 py-8 sm:py-12">
-              <h1 className="max-w-[820px] text-pretty mb-8 text-4xl sm:text-6xl px-1 sm:px-0">{project.title}</h1>
+            <div className="px-16 py-12">
+              <h1 className="max-w-[820] text-pretty mb-8">{project.title}</h1>
 
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-2">
+              <div className="flex flex-row items-center gap-4 px-1.5">
                 {/* Organisation */}
                 {project.organisation && (
-                  <div className="flex items-center gap-2 flex-nowrap">
+                  <div className="flex items-center gap-2">
                     {project.organisation.logoUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={project.organisation.logoUrl}
                         alt=""
-                        className="h-6 w-6 rounded-sm object-contain flex-shrink-0"
+                        className="h-6 w-6 rounded-sm object-contain"
                       />
                     )}
-                    <span className="text-md font-medium text-stone-700 whitespace-nowrap">
+                    <span className="text-md font-medium text-stone-700">
                       {project.organisation.name}
                     </span>
                   </div>
@@ -105,7 +105,7 @@ export default async function ProjectPage({
               />
             )}
 
-            <div className="px-6 sm:px-16 py-8 sm:py-12 flex flex-wrap gap-8 sm:gap-12">
+            <div className="px-16 py-12 flex flex-wrap gap-12">
               {/* Role */}
               {project.roles && project.roles.length > 0 && (
                 <RoleBlock roles={project.roles} />

@@ -1,5 +1,10 @@
-// Le canvas est rendu par PlayCanvas dans le root layout (persistant, jamais démonté).
-// Cette page n'a besoin de rien rendre — la présence du pathname /play
-// suffit à rendre le canvas visible via PlayCanvas.
+import { client } from "@/sanity/client";
+import { playArtifactsQuery, type PlayArtifact } from "@/sanity/queries";
+import { PlayCanvas } from "@/components/play/PlayCanvas";
+
 export const revalidate = 60;
-export default function PlayPage() { return null; }
+
+export default async function PlayPage() {
+  const artifacts = await client.fetch<PlayArtifact[]>(playArtifactsQuery);
+  return <PlayCanvas artifacts={artifacts} />;
+}
