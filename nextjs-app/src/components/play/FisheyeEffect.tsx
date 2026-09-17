@@ -34,6 +34,16 @@ uniform vec2 uResolution;
 
 varying vec2 vUv;
 
+// Formule officielle Three.js de conversion Linéaire vers sRGB (sRGBTransferOETF).
+// Indispensable car les RenderTargets Three.js stockent les texels en espace linéaire.
+vec3 linearToSRGB(vec3 color) {
+  return mix(
+    pow(color, vec3(0.41666)) * 1.055 - vec3(0.055),
+    color * 12.92,
+    vec3(lessThanEqual(color, vec3(0.0031308)))
+  );
+}
+
 void main() {
   vec2 coord = (vUv - 0.5) * 2.0;
   float aspect = uResolution.x / max(uResolution.y, 1.0);
@@ -41,20 +51,24 @@ void main() {
 
   float r2 = dot(coord, coord);
   float rCorner2 = aspect * aspect + 1.0;
+  float normR2 = r2 / rCorner2;
 
   // Projection sphérique convexe (défilement sur un globe) :
-  // Le centre est plus proche et bombé vers le spectateur,
-  // tandis que les bords s'incurvent et s'éloignent vers l'horizon.
-  float factor = (1.0 + uStrength * r2) / (1.0 + uStrength * rCorner2);
+  // Le centre est bombé vers l'avant, tandis que les bords
+  // s'incurvent et s'éloignent vers l'horizon avec symétrie circulaire parfaite.
+  float factor = (1.0 + uStrength * normR2) / (1.0 + uStrength);
 
   vec2 uv = vec2(coord.x * factor / aspect, coord.y * factor) * 0.5 + 0.5;
 
-  vec4 col = texture2D(tDiffuse, uv);
+  vec3 rgb = vec3(1.0);
+  if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0) {
+    vec4 col = texture2D(tDiffuse, uv);
+    rgb = clamp(col.rgb, 0.0, 1.0);
+  }
 
-  // Composite propre sur le fond blanc du canvas (#ffffff)
-  vec3 rgb = mix(vec3(1.0), col.rgb, col.a);
-
-  gl_FragColor = vec4(rgb, 1.0);
+  // Conversion Linéaire -> sRGB pour retrouver exactement la luminosité,
+  // les contrastes et les teintes naturelles du rendu canvas natif.
+  gl_FragColor = vec4(linearToSRGB(rgb), 1.0);
 }
 `;
 
@@ -76,8 +90,10 @@ function renderFisheyePass(
     return;
   }
 
-  // 1. Rendu de la scène principale dans le render target
+  // 1. Rendu de la scène principale dans le render target avec fond blanc pur
   gl.setRenderTarget(renderTarget);
+  gl.setClearColor(0xffffff, 1.0);
+  gl.clear();
   gl.render(scene, camera);
 
   // 2. Rendu de la distorsion globe plein écran sur le canvas

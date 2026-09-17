@@ -10,6 +10,7 @@ import {
 } from "react";
 import dynamic from "next/dynamic";
 import { Canvas, events, useFrame } from "@react-three/fiber";
+import { Stats } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
 import { buildImageUrl } from "@/lib/sanity-image";
 import type { PlayArtifact } from "@/sanity/queries";
@@ -870,7 +871,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
                     const cy = py;
                     const r2 = cx * cx + cy * cy;
                     const rCorner2 = aspect * aspect + 1.0;
-                    const factor = (1.0 + fish.strength * r2) / (1.0 + fish.strength * rCorner2);
+                    const normR2 = r2 / rCorner2;
+                    const factor = (1.0 + fish.strength * normR2) / (1.0 + fish.strength);
                     state.pointer.set((cx * factor) / aspect, cy * factor);
                   } else {
                     state.pointer.set(px, py);
@@ -880,6 +882,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               };
             }}
           >
+            <Stats className="!top-4 !left-4" />
             <CameraRig debug={debug} runtime={runtime} velocity={velocity} />
             <ArtifactGrid
               textureUrls={textureUrls}
