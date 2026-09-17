@@ -2,16 +2,18 @@
 
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { useTexture } from "@react-three/drei";
+import { useTexture, useVideoTexture } from "@react-three/drei";
 import {
   SRGBColorSpace,
   Vector2,
+  Vector3,
   type IUniform,
   type Mesh,
   type MeshBasicMaterial,
   type Texture,
   type WebGLProgramParametersWithUniforms,
 } from "three";
+import type { MediaKind } from "./artifact-media";
 import type { PlayDebugRef } from "./PlayCanvas";
 import {
   attachUniforms,
@@ -63,7 +65,8 @@ const ROUNDING_MASK = /* glsl */ `
  * Injection dans `MeshBasicMaterial` plutôt que `ShaderMaterial` maison : on
  * garde ainsi la gestion des couleurs de three, qui décode la texture sRGB en
  * entrée et ré-encode en sortie. La refaire à la main ne rapporterait qu'un
- * risque de la rater.
+ * risque de la rater. Vrai autant pour une texture image que vidéo — les deux
+ * arrivent ici sous la même forme (`THREE.Texture`), cf. `ArtifactPlaneMesh`.
  */
 function roundCorners(
   this: MeshBasicMaterial,
@@ -90,52 +93,113 @@ function roundCornersCacheKey() {
   return "play-artifact-rounded";
 }
 
-/**
- * Le plane texturé, au ratio réel de l'image.
- *
- * La géométrie est un carré unitaire remis à l'échelle à chaque frame : la
- * largeur du debug pane devient un simple `scale`, sans reconstruire de
- * géométrie.
- *
- * `ratio` = largeur / hauteur de l'image source.
- *
- * Le survol est remonté au parent plutôt que gardé ici : c'est `FocusIndicator`
- * qui le consomme, et les deux sont frères dans la scène.
- */
-export function ArtifactPlane({
-  url,
-  ratio,
-  debug,
-  onHoverChange,
-}: {
+type ArtifactPlaneProps = {
   url: string;
-  ratio: number;
+  /** cf. `artifact-media.ts` — détermine quel hook de chargement de texture appeler. */
+  kind: MediaKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
   debug: PlayDebugRef;
-  onHoverChange: (hovered: boolean) => void;
-}) {
+  onHoverChange: (hovering: boolean, world: { x: number; y: number }) => void;
+  onSelect: (world: { x: number; y: number }) => void;
+};
+
+/**
+ * Le plane d'un point de la mosaïque, image ou vidéo selon `kind`.
+ *
+ * N'est lui-même qu'un aiguillage : `useTexture` (image) et `useVideoTexture`
+ * (vidéo) sont deux hooks distincts, et les régles de React interdisent de
+ * n'en appeler qu'un des deux selon une condition (`kind`) — le nombre et
+ * l'ordre des hooks doivent être identiques à chaque rendu d'un même
+ * composant. `ArtifactPlaneImage`/`ArtifactPlaneVideo` existent pour ça :
+ * chacun appelle inconditionnellement exactement un hook, puis délègue tout
+ * le reste (taille, position, survol, clic, découpe du shader) à
+ * `ArtifactPlaneMesh`, strictement identique quel que soit le média.
+ */
+export function ArtifactPlane({ kind, ...rest }: ArtifactPlaneProps) {
+  return kind === "video" ? <ArtifactPlaneVideo {...rest} /> : <ArtifactPlaneImage {...rest} />;
+}
+
+type ArtifactPlaneMediaProps = Omit<ArtifactPlaneProps, "kind">;
+
+function ArtifactPlaneImage(props: ArtifactPlaneMediaProps) {
+  const texture = useTexture(props.url, markAsSrgb);
+  return <ArtifactPlaneMesh {...props} texture={texture} />;
+}
+
+/**
+ * `useVideoTexture` (drei) crée et joue lui-même un `<video>` hors DOM, mis en
+ * cache par url exactement comme `useTexture` met les images en cache par url
+ * (même mécanisme `suspend-react` dessous) — un même artifact vidéo répété
+ * sur plusieurs points (`repeat` > 1, cf. `scatter-layout.ts`) ne décode donc
+ * son fichier qu'une seule fois, pas une par occurrence à l'écran.
+ *
+ * Défauts de drei (`muted`, `loop`, `playsInline`) : même convention que le
+ * `<video>` DOM de `ProjectCard.tsx`, nécessaire de toute façon pour que
+ * l'autoplay ne soit pas bloqué par le navigateur. `colorSpace` est posé par
+ * le hook lui-même (`gl.outputColorSpace`) — pas besoin d'un `markAsSrgb` ici.
+ */
+function ArtifactPlaneVideo(props: ArtifactPlaneMediaProps) {
+  const texture = useVideoTexture(props.url);
+  return <ArtifactPlaneMesh {...props} texture={texture} />;
+}
+
+/**
+ * Rendu commun à une image et une vidéo : taille, position, découpe en
+ * rectangle arrondi, survol et clic — tout ce qui ne dépend pas de la façon
+ * dont `texture` a été obtenue.
+ *
+ * Taille et position arrivent en props fixes, résolues une fois par
+ * l'algorithme de mise en page (`buildScatterTile`, cf. `scatter-layout.ts`)
+ * — posées telles quelles sur le mesh (`position={[x, y, 0]}`), jamais
+ * retouchées par frame : seule la caméra bouge. `radius`
+ * reste un réglage live du debug pane, partagé par toutes les instances,
+ * d'où le seul `useFrame` restant ici.
+ *
+ * Survol et clic remontent la même position monde (`worldPosition`, lue sur
+ * le mesh via `getWorldPosition` — donc celle de sa copie effectivement
+ * survolée/cliquée parmi les 3×3 du tuilage, cf. `ArtifactGrid`), pas les
+ * props `x`/`y` telles quelles : celles-ci sont relatives au groupe parent
+ * (une des 9 copies), jamais la position monde absolue dont `ArtifactGrid`
+ * a besoin.
+ */
+function ArtifactPlaneMesh({
+  x,
+  y,
+  width,
+  height,
+  debug,
+  texture,
+  onHoverChange,
+  onSelect,
+}: ArtifactPlaneMediaProps & { texture: Texture }) {
   const meshRef = useRef<Mesh>(null);
   const materialRef = useRef<MeshBasicMaterial>(null);
-  const texture = useTexture(url, markAsSrgb);
 
   useFrame(() => {
-    const mesh = meshRef.current;
-    if (!mesh) return;
-    const { x, y, width, radius } = debug.current.plane;
-    const height = width / ratio;
-    mesh.position.set(x, y, 0);
-    mesh.scale.set(width, height, 1);
-
     const uniforms = uniformsOf<PlaneUniforms>(materialRef.current);
-    if (!uniforms) return;
-    uniforms.uSize.value.set(width, height);
-    uniforms.uRadius.value = clampRadius(radius, width, height);
+    if (uniforms) {
+      uniforms.uSize.value.set(width, height);
+      uniforms.uRadius.value = clampRadius(debug.current.plane.radius, width, height);
+    }
   });
+
+  function worldPosition() {
+    const vector = new Vector3();
+    meshRef.current?.getWorldPosition(vector);
+    return { x: vector.x, y: vector.y };
+  }
 
   return (
     <mesh
       ref={meshRef}
-      onPointerOver={() => onHoverChange(true)}
-      onPointerOut={() => onHoverChange(false)}
+      position={[x, y, 0]}
+      scale={[width, height, 1]}
+      onPointerOver={() => onHoverChange(true, worldPosition())}
+      onPointerOut={() => onHoverChange(false, worldPosition())}
+      onClick={() => onSelect(worldPosition())}
     >
       <planeGeometry args={[1, 1]} />
       <meshBasicMaterial

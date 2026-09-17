@@ -210,23 +210,40 @@ export const allProjectSlugsQuery = defineQuery(`
 // ─── Artifacts (canvas /play) ─────────────────────────────────────────────────
 
 /**
- * Premier artifact de l'ordre manuel qui porte au moins une image de galerie,
- * et la première de ces images.
+ * Tous les artifacts qui portent au moins un média de galerie exploitable
+ * (image déjà uploadée, ou vidéo — fichier uploadé ou lien externe), dans
+ * l'ordre manuel — le canvas les affiche tous.
  *
- * Le filtre `count(...) > 0` n'est pas cosmétique : les premiers artifacts du
- * dataset n'ont qu'une vidéo en galerie, donc un simple `order(orderRank)[0]`
- * retourne `image: null` et le canvas n'affiche rien.
+ * Le premier média valide de la galerie est retenu, qu'il soit image ou
+ * vidéo. Avant, le filtre s'arrêtait à `galleryImage` : tout artifact dont la
+ * galerie ne contenait QUE des vidéos en sortait entièrement (4 des 9
+ * artifacts de la prod au moment d'écrire ceci) — c'était le bug rapporté («
+ * ça bug » côté vidéo), pas une limitation du rendu lui-même.
  *
- * Singulier assumé — à renommer quand le canvas passera à N artifacts.
+ * Comme pour l'ancien filtre image seule, on va jusqu'à `defined(...)` sur
+ * chaque branche plutôt que de garder les champs nullables : un `galleryImage`
+ * sans asset uploadé, ou un `galleryVideo` sans fichier NI lien externe, n'a
+ * de toute façon rien à afficher. `resolveArtifactMedia` (côté Next.js,
+ * `artifact-media.ts`) fait le départ entre les deux formes possibles du
+ * résultat.
  */
-export const playArtifactQuery = defineQuery(`
-  *[_type == "artifact" && count(gallery[_type == "galleryImage"]) > 0] | order(orderRank) [0] {
+export const playArtifactsQuery = defineQuery(`
+  *[_type == "artifact" && count(gallery[
+    (_type == "galleryImage" && defined(image.asset)) ||
+    (_type == "galleryVideo" && (defined(file.asset) || defined(url)))
+  ]) > 0] | order(orderRank) {
     _id,
     title,
-    "image": gallery[_type == "galleryImage"][0].image {
-      "ref": asset._ref,
-      "width": asset->metadata.dimensions.width,
-      "height": asset->metadata.dimensions.height
+    "media": gallery[
+      (_type == "galleryImage" && defined(image.asset)) ||
+      (_type == "galleryVideo" && (defined(file.asset) || defined(url)))
+    ][0] {
+      _type,
+      "imageRef": image.asset._ref,
+      "imageWidth": image.asset->metadata.dimensions.width,
+      "imageHeight": image.asset->metadata.dimensions.height,
+      "videoRef": file.asset._ref,
+      "videoUrl": url
     }
   }
 `);
@@ -234,16 +251,14 @@ export const playArtifactQuery = defineQuery(`
 export type PlayArtifact = {
   _id: string;
   title: string;
-  /**
-   * Les champs internes sont nullables : le champ `image` du `galleryImage`
-   * n'est pas `required` au schéma, donc une entrée sans asset uploadé
-   * remonte un objet dont `ref` / `width` / `height` valent `null`.
-   */
-  image: {
-    ref: string | null;
-    width: number | null;
-    height: number | null;
-  } | null;
+  media: {
+    _type: "galleryImage" | "galleryVideo";
+    imageRef: string | null;
+    imageWidth: number | null;
+    imageHeight: number | null;
+    videoRef: string | null;
+    videoUrl: string | null;
+  };
 };
 
 // ─── Profile (Info page) ──────────────────────────────────────────────────────

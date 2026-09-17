@@ -9,7 +9,8 @@ import {
   type MeshBasicMaterial,
   type WebGLProgramParametersWithUniforms,
 } from "three";
-import type { PlayDebugRef } from "./PlayCanvas";
+import type { PlayDebugRef, PlayRuntimeRef } from "./PlayCanvas";
+import { dampTowards } from "./damp";
 import {
   attachUniforms,
   FRAME_DEFINES,
@@ -22,9 +23,6 @@ const MARGIN = 4;
 
 /** Devant le plane, qui est à z = 0. */
 const Z = 1;
-
-/** Vitesse du fondu (amortissement exponentiel, par seconde). */
-const FADE_SPEED = 14;
 
 /** En dessous, on considère l'indicateur éteint et on cesse de le dessiner. */
 const OPACITY_EPSILON = 0.001;
@@ -189,38 +187,42 @@ function carveBracketsCacheKey() {
 }
 
 /**
- * Quatre brackets d'angle qui encadrent l'artifact au survol.
+ * Quatre brackets d'angle qui encadrent le point actuellement ciblé — la
+ * sélection au repos, ou le survol le temps qu'il dure.
  *
  * Un seul quad, une seule passe de shader : les brackets sont symétriques, donc
  * le fragment shader replie le plan avec `abs()` et ne décrit la forme qu'une
  * fois. Le quad ne dépasse que de ce que la forme réclame, pour ne pas ombrer
  * tout l'écran au survol.
  *
- * Tous les réglages viennent du debug pane et gardent la même valeur quelle que
- * soit la taille de l'image — seule la position des coins suit le cadre.
- *
- * `ratio` = largeur / hauteur de l'image, comme pour `ArtifactPlane`.
+ * Position et taille suivent `runtime.current.indicatorTarget` avec un
+ * amortissement propre (cf. `damp.ts`), séparé de celui de l'opacité : la
+ * cible peut sauter d'un coup (survol, sélection) sans que l'indicateur ne
+ * saute avec elle, il glisse. L'opacité, elle, ne vise plus le survol — elle
+ * est fixée à 1 en permanence, et l'amortissement ne joue plus que le temps
+ * d'un fondu d'entrée au montage (repos = indicateur visible sur la
+ * sélection courante, pas éteint comme du temps de l'artifact unique).
  */
 export function FocusIndicator({
-  ratio,
   debug,
-  active,
+  runtime,
 }: {
-  ratio: number;
   debug: PlayDebugRef;
-  active: boolean;
+  runtime: PlayRuntimeRef;
 }) {
   const meshRef = useRef<Mesh>(null);
   const materialRef = useRef<MeshBasicMaterial>(null);
   const opacityRef = useRef(0);
   const colorRef = useRef("");
+  const posRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
 
   useFrame((_, delta) => {
     const mesh = meshRef.current;
     const material = materialRef.current;
     if (!mesh || !material) return;
 
-    const { plane, brackets } = debug.current;
+    const { brackets, indicator } = debug.current;
+    const target = runtime.current.indicatorTarget;
 
     // Posée même quand l'indicateur est éteint : le matériau resterait sinon au
     // blanc de three jusqu'à la première frame visible. Le garde évite de
@@ -231,27 +233,26 @@ export function FocusIndicator({
       material.color.set(brackets.color);
     }
 
-    // Amortissement exponentiel plutôt qu'un pas fixe : le fondu dure le même
-    // temps quel que soit le framerate.
-    const target = active ? 1 : 0;
-    const opacity =
-      opacityRef.current +
-      (target - opacityRef.current) * (1 - Math.exp(-FADE_SPEED * delta));
+    const opacity = dampTowards(opacityRef.current, 1, indicator.fadeSpeed, delta);
     opacityRef.current = opacity;
 
     mesh.visible = opacity > OPACITY_EPSILON;
     if (!mesh.visible) return;
     material.opacity = opacity;
 
-    const width = plane.width;
-    const height = width / ratio;
+    const pos = posRef.current;
+    pos.x = dampTowards(pos.x, target.x, indicator.moveSpeed, delta);
+    pos.y = dampTowards(pos.y, target.y, indicator.moveSpeed, delta);
+    pos.width = dampTowards(pos.width, target.width, indicator.moveSpeed, delta);
+    pos.height = dampTowards(pos.height, target.height, indicator.moveSpeed, delta);
+
     const margin = oversize(brackets.padding, brackets.arm, brackets.thickness);
-    mesh.position.set(plane.x, plane.y, Z);
-    mesh.scale.set(width + margin, height + margin, 1);
+    mesh.position.set(pos.x, pos.y, Z);
+    mesh.scale.set(pos.width + margin, pos.height + margin, 1);
 
     const uniforms = uniformsOf<BracketUniforms>(material);
     if (!uniforms) return;
-    uniforms.uSize.value.set(width, height);
+    uniforms.uSize.value.set(pos.width, pos.height);
     uniforms.uPadding.value = brackets.padding;
     uniforms.uRadius.value = brackets.radius;
     // Le pane raisonne en degrés, le shader en radians.

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { Pane } from "tweakpane";
 import type { PlayDebugRef, PlayDebugState } from "./PlayCanvas";
+import type { LayoutStats } from "./layout-types";
 
 const STORAGE_KEY = "play-debug";
 
@@ -12,23 +13,9 @@ const FLASH_MS = 1200;
 /** Les groupes de l'état sont des sacs de réglages, le stockage aussi. */
 type SettingGroups = Record<string, Record<string, unknown>>;
 
-/** Les seules chaînes de l'état sont des couleurs, et le pane les veut valides. */
+/** La seule chaîne de l'état est une couleur, et le pane la veut valide. */
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
-/**
- * Recharge les valeurs sauvegardées dans l'objet d'état, en place.
- *
- * L'état est muté clé par clé plutôt que remplacé d'un bloc : les bindings
- * tweakpane pointent sur les objets de groupe, qui doivent survivre. Au passage
- * une sauvegarde antérieure à l'ajout d'un réglage reste lisible, et une entrée
- * abîmée ne fait que retomber sur la valeur par défaut.
- *
- * Le type de la valeur par défaut fait loi : une entrée d'un autre type est le
- * reste d'une version antérieure du pane, pas une valeur à recharger. Le
- * contrôle va jusqu'à la forme pour les couleurs, car tweakpane refuse de créer
- * un binding sur une chaîne qu'il ne sait pas lire — une seule entrée abîmée
- * emporterait le pane entier.
- */
 function restore(state: PlayDebugState) {
   const raw = window.localStorage.getItem(STORAGE_KEY);
   if (!raw) return;
@@ -50,24 +37,12 @@ function restore(state: PlayDebugState) {
       const value = (savedGroup as Record<string, unknown>)[key];
       if (typeof value !== typeof fallback) continue;
       if (typeof value === "number" && !Number.isFinite(value)) continue;
-      if (typeof value === "string" && !HEX_COLOR.test(value)) continue;
+      if (typeof value === "string" && key === "color" && !HEX_COLOR.test(value)) continue;
       group[key] = value;
     }
   }
 }
 
-/**
- * Ajoute un bouton qui confirme son action en changeant de titre un instant, et
- * rend de quoi annuler une confirmation restée en attente.
- *
- * Le titre de repos est celui passé en argument, jamais celui relu sur le
- * bouton : deux clics rapprochés le liraient pendant la confirmation, et
- * l'auraient figé dessus.
- *
- * L'action rend le mot de sa confirmation, au besoin plus tard : c'est ce qui
- * permet au presse-papiers de n'annoncer le succès qu'une fois sa promesse
- * tenue, et de dire autre chose si elle est rompue.
- */
 function addAction(
   pane: Pane,
   title: string,
@@ -85,8 +60,6 @@ function addAction(
   }
 
   button.on("click", () => {
-    // `Promise.resolve` ramène les deux formes d'action au même traitement ; le
-    // tick qu'il coûte à une action synchrone ne se voit pas.
     void Promise.resolve(action()).then(flash);
   });
 
@@ -94,19 +67,38 @@ function addAction(
 }
 
 /**
- * Debug pane tweakpane, monté en dev uniquement (cf. `PlayCanvas`).
- *
- * Les bindings écrivent directement dans l'objet d'état, que les `useFrame` du
- * canvas relisent à chaque frame : les sliders sont donc live, sans repasser
- * par React.
- *
- * Le bouton save fige les valeurs courantes dans `localStorage`, et le pane les
- * recharge au montage. La persistance s'arrête là : en prod le pane n'est pas
- * embarqué, donc le canvas repart toujours des valeurs par défaut du code — le
- * bouton copy sert justement à en sortir les valeurs pour les y reporter.
+ * Debug pane Tweakpane, monté en dev uniquement (cf. `PlayCanvas`).
  */
-export function PlayDebug({ state }: { state: PlayDebugRef }) {
+export function PlayDebug({
+  state,
+  stats,
+  onLayoutChange,
+}: {
+  state: PlayDebugRef;
+  stats?: LayoutStats;
+  onLayoutChange: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<Pane | null>(null);
+
+  const statsObj = useRef({
+    computeTime: "0 ms",
+    density: "0%",
+    occupiedArea: "0 px²",
+    boundingBoxArea: "0 px²",
+    perfectLayouts: "0 / 0",
+  });
+
+  // Synchronisation dynamique des statistiques calculées sans recréer le pane
+  useEffect(() => {
+    if (!stats) return;
+    statsObj.current.computeTime = stats.computeTimeFormatted;
+    statsObj.current.density = stats.densityPercent;
+    statsObj.current.occupiedArea = stats.occupiedAreaFormatted;
+    statsObj.current.boundingBoxArea = stats.boundingBoxAreaFormatted;
+    statsObj.current.perfectLayouts = `${stats.perfectCount} / ${stats.totalIterations}`;
+    paneRef.current?.refresh();
+  }, [stats]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -116,20 +108,20 @@ export function PlayDebug({ state }: { state: PlayDebugRef }) {
     const {
       plane: planeState,
       brackets: bracketsState,
+      indicator: indicatorState,
       camera: cameraState,
+      gravity: gravityState,
+      pan: panState,
     } = state.current;
+
     const pane = new Pane({ container, title: "play" });
+    paneRef.current = pane;
 
-    // Titre `image` et non `plane` : c'est ce que le pane donne à lire, et le
-    // plane n'est qu'un détail d'implémentation côté three.
-    const plane = pane.addFolder({ title: "image" });
-    plane.addBinding(planeState, "x", { min: -1000, max: 1000, step: 1 });
-    plane.addBinding(planeState, "y", { min: -1000, max: 1000, step: 1 });
-    plane.addBinding(planeState, "width", { min: 50, max: 2000, step: 1 });
-    plane.addBinding(planeState, "radius", { min: 0, max: 200, step: 1 });
+    // ── Image ─────────────────────────────────────────────────────────────
+    const image = pane.addFolder({ title: "image" });
+    image.addBinding(planeState, "radius", { min: 0, max: 200, step: 1 });
 
-    // Rangés comme se lit la forme : où elle se pose, comment elle tourne, sur
-    // quelle longueur elle se prolonge, de quel trait elle s'écrit.
+    // ── Brackets ──────────────────────────────────────────────────────────
     const brackets = pane.addFolder({ title: "brackets" });
     brackets.addBinding(bracketsState, "padding", { min: 0, max: 200, step: 1 });
     brackets.addBinding(bracketsState, "radius", { min: 0, max: 200, step: 1 });
@@ -142,18 +134,96 @@ export function PlayDebug({ state }: { state: PlayDebugRef }) {
     });
     brackets.addBinding(bracketsState, "color");
 
+    // ── Indicateur ────────────────────────────────────────────────────────
+    const indicator = pane.addFolder({ title: "indicator" });
+    indicator.addBinding(indicatorState, "fadeSpeed", { min: 1, max: 40, step: 1 });
+    indicator.addBinding(indicatorState, "moveSpeed", { min: 1, max: 40, step: 1 });
+
+    // ── Caméra ────────────────────────────────────────────────────
     const camera = pane.addFolder({ title: "camera" });
-    camera.addBinding(cameraState, "x", { min: -2000, max: 2000, step: 1 });
-    camera.addBinding(cameraState, "y", { min: -2000, max: 2000, step: 1 });
     camera.addBinding(cameraState, "zoom", { min: 0.1, max: 5, step: 0.01 });
+
+    // ── Layout : Gravité Centrale ─────────────────────────────────
+    const layout = pane.addFolder({ title: "layout (gravité)" });
+    layout
+      .addBinding(gravityState, "maxWidth", { min: 100, max: 1000, step: 10 })
+      .on("change", onLayoutChange);
+    layout
+      .addBinding(gravityState, "maxHeight", { min: 100, max: 1000, step: 10 })
+      .on("change", onLayoutChange);
+    layout
+      .addBinding(gravityState, "gap", { min: 0, max: 400, step: 4 })
+      .on("change", onLayoutChange);
+    layout
+      .addBinding(gravityState, "scaleVariance", {
+        min: 0,
+        max: 0.8,
+        step: 0.05,
+        label: "variance scale",
+      })
+      .on("change", onLayoutChange);
+    layout
+      .addBinding(gravityState, "antiNeighbor", {
+        label: "anti-voisins",
+      })
+      .on("change", onLayoutChange);
+    layout
+      .addBinding(gravityState, "repeatGap", {
+        min: 0,
+        max: 400,
+        step: 10,
+        label: "écart anti-voisin",
+      })
+      .on("change", onLayoutChange);
+    layout
+      .addBinding(gravityState, "repeat", { min: 1, max: 10, step: 1 })
+      .on("change", onLayoutChange);
+    layout
+      .addBinding(gravityState, "iterations", {
+        min: 1,
+        max: 10000,
+        step: 10,
+        label: "itérations M-C",
+      })
+      .on("change", onLayoutChange);
+    layout
+      .addBinding(gravityState, "seed", { min: 0, max: 9999, step: 1 })
+      .on("change", onLayoutChange);
+
+    // ── Statistiques du layout calculé ────────────────────────────
+    const statsFolder = layout.addFolder({ title: "statistiques" });
+    statsFolder.addBinding(statsObj.current, "computeTime", {
+      readonly: true,
+      label: "temps calcul",
+    });
+    statsFolder.addBinding(statsObj.current, "density", {
+      readonly: true,
+      label: "densité",
+    });
+    statsFolder.addBinding(statsObj.current, "occupiedArea", {
+      readonly: true,
+      label: "aire occupée",
+    });
+    statsFolder.addBinding(statsObj.current, "boundingBoxArea", {
+      readonly: true,
+      label: "aire totale (BB)",
+    });
+    statsFolder.addBinding(statsObj.current, "perfectLayouts", {
+      readonly: true,
+      label: "layouts parfaits",
+    });
+
+    // ── Pan ───────────────────────────────────────────────────────
+    const pan = pane.addFolder({ title: "pan" });
+    pan.addBinding(panState, "dragThreshold", { min: 0, max: 40, step: 1 });
+    pan.addBinding(panState, "velocityWindowMs", { min: 10, max: 300, step: 5 });
+    pan.addBinding(panState, "friction", { min: -10, max: -0.2, step: 0.1 });
 
     const stopSave = addAction(pane, "save", () => {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.current));
       return "saved";
     });
 
-    // Indenté, contrairement à la sauvegarde : celle-ci n'est relue que par du
-    // code, alors que la copie est faite pour être collée dans une discussion.
     const stopCopy = addAction(pane, "copy", () =>
       navigator.clipboard
         .writeText(JSON.stringify(state.current, null, 2))
@@ -167,8 +237,9 @@ export function PlayDebug({ state }: { state: PlayDebugRef }) {
       stopSave();
       stopCopy();
       pane.dispose();
+      paneRef.current = null;
     };
-  }, [state]);
+  }, [state, onLayoutChange]);
 
   return <div ref={containerRef} className="fixed top-4 right-4 z-50 w-64" />;
 }

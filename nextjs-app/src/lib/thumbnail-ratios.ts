@@ -1,16 +1,19 @@
 /**
- * Ratios (largeur / hauteur) des thumbnails de projets.
- *
- * Les thumbnails sont des assets Sanity de type `file` (png/gif/mp4/webm) :
+ * Ratios (largeur / hauteur) des assets Sanity de type `file` (png/gif/mp4/webm) :
  * Sanity ne stocke PAS leurs dimensions (`metadata.dimensions` est null pour les
- * fichiers). On fige donc ici les ratios mesurés via les décodeurs natifs du
- * navigateur — ce qui couvre images ET vidéos.
+ * fichiers, contrairement aux assets `image`). On fige donc ici les ratios
+ * mesurés — ce qui couvre images ET vidéos. Partagé par les thumbnails de
+ * `/work` (`ProjectCard`) et par les artifacts tout-vidéo de `/play`
+ * (cf. `artifact-media.ts`) : même problème, même table plutôt que d'en
+ * inventer une deuxième.
  *
  * Keyé par ref d'asset : si un thumbnail change, sa ref change → le lookup
  * retombe proprement sur DEFAULT (jamais un ratio FAUX).
  *
- * ⟳ Régénérer après ajout/changement de média : mesurer en console les
- *   `new Image()/<video>` des thumbnails et reporter les ratios ci-dessous.
+ * ⟳ Régénérer après ajout/changement de média : mesurer les dimensions
+ *   réelles (`new Image()`/`<video>` en console navigateur, ou `ffprobe
+ *   -select_streams v:0 -show_entries stream=width,height <url>` pour une
+ *   vidéo) et reporter les ratios ci-dessous.
  */
 export const THUMBNAIL_RATIOS: Record<string, number> = {
   "file-12837bc3884b239c6072117e9b9b08e664c51363-png": 1.3333,
@@ -29,6 +32,11 @@ export const THUMBNAIL_RATIOS: Record<string, number> = {
   "file-9c4990b25a3ef1d5d55ac948322542ed933c47bc-png": 0.9922,
   "file-c8b3d584bcd25fd5d1565664a21cdf8020477472-webm": 1,
   "file-9767bb7722bb5161c36923f0fb66b773b3555118-webm": 1.2,
+  // Artifacts /play tout-vidéo (cf. `artifact-media.ts`) — mesurés via ffprobe.
+  "file-c433f2eec59a07339702521f9e6619c77ceb775a-mp4": 1.5, // beuleu-shooter.js, 1620×1080
+  "file-5cada71ae139c967ce0e98354999825228ffa23b-mp4": 1, // cadillac.blend, 960×960
+  "file-4b3f84736bc6ceb3786f3dc12015bad933079fab-webm": 0.46, // unlock.app, 804×1748 (portrait)
+  "file-defbff963e967b97ead0c795ffafe7aeb3e2c6c9-mp4": 1.5, // #efface, 1620×1080
 };
 
 /** Fallback pour un thumbnail non mesuré (nouveau média) — paysage doux. */
