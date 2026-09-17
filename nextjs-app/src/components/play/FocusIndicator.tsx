@@ -36,16 +36,23 @@ type BracketUniforms = {
   uPadding: IUniform<number>;
   uRadius: IUniform<number>;
   uAngle: IUniform<number>;
-  uArm: IUniform<Vector2>;
+  uArm: IUniform<number>;
   uThickness: IUniform<number>;
 };
+
+/**
+ * De combien le quad déborde l'image, sur chaque axe.
+ */
+function oversize(padding: number, arm: number, thickness: number) {
+  return 2 * (padding + arm + thickness / 2 + MARGIN);
+}
 
 const BRACKETS_PARS = /* glsl */ `
 uniform vec2 uSize;
 uniform float uPadding;
 uniform float uRadius;
 uniform float uAngle;
-uniform vec2 uArm;
+uniform float uArm;
 uniform float uThickness;
 
 ${GLSL_PIXEL_WIDTH}
@@ -117,14 +124,13 @@ const BRACKETS_MASK = /* glsl */ `
   vec2 arcTangent = vec2(arcDir.y, -arcDir.x);
 
   vec2 armStart = arcCenter + axisRadius * arcDir;
-  vec2 armTipY = armStart + uArm.y * arcTangent;
-  vec2 armTipX = armStart.yx + uArm.x * arcTangent.yx;
+  vec2 armTip = armStart + uArm * arcTangent;
 
   float bracketDistance = min(
     min(
-      sdSegment(cornerPoint, armStart, armTipY),
+      sdSegment(cornerPoint, armStart, armTip),
       // L'autre bras est le miroir du premier par la diagonale du coin.
-      sdSegment(cornerPoint, armStart.yx, armTipX)
+      sdSegment(cornerPoint, armStart.yx, armTip.yx)
     ),
     sdArc(cornerPoint, arcCenter, axisRadius, cosHalfAngle)
   );
@@ -154,7 +160,7 @@ function carveBrackets(
     uPadding: { value: 0 },
     uRadius: { value: 0 },
     uAngle: { value: 0 },
-    uArm: { value: new Vector2(0, 0) },
+    uArm: { value: 0 },
     uThickness: { value: 0 },
   } satisfies BracketUniforms);
   parameters.fragmentShader = parameters.fragmentShader
@@ -171,15 +177,12 @@ function carveBrackets(
  * matériaux qui injectent du code.
  */
 function carveBracketsCacheKey() {
-  return "play-focus-brackets-v2";
+  return "play-focus-brackets-v3";
 }
 
 /**
  * Quatre brackets d'angle qui encadrent le point actuellement ciblé — la
  * sélection au repos, ou le survol le temps qu'il dure.
- *
- * Lors du maintien pour sélection (hold), les quatre bras s'étirent le long des bords
- * jusqu'à se rejoindre au centre de chaque arête pour former un rectangle fermé continu.
  */
 export function FocusIndicator({
   debug,
@@ -193,7 +196,6 @@ export function FocusIndicator({
   const opacityRef = useRef(0);
   const colorRef = useRef("");
   const posRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
-  const armRef = useRef({ x: 0, y: 0 });
 
   useFrame((_, delta) => {
     const mesh = meshRef.current;
@@ -225,51 +227,9 @@ export function FocusIndicator({
     pos.width = dampTowards(pos.width, target.width, indicator.moveSpeed, delta);
     pos.height = dampTowards(pos.height, target.height, indicator.moveSpeed, delta);
 
-    // Calcul de la longueur de bras requise pour fermer entièrement le cadre
-    const halfThickness = brackets.thickness * 0.5;
-    const frameCornerX = pos.width * 0.5 + brackets.padding;
-    const frameCornerY = pos.height * 0.5 + brackets.padding;
-    const cornerLimit = Math.min(frameCornerX, frameCornerY);
-    const outerRadius = Math.max(
-      halfThickness,
-      Math.min(brackets.radius, Math.max(cornerLimit, halfThickness)),
-    );
-
-    // Le bras rejoint le centre de chaque arête (+ 1px pour sceller parfaitement tout artefact subpixel)
-    const neededArmX = Math.max(brackets.arm, frameCornerX - outerRadius + 1.0);
-    const neededArmY = Math.max(brackets.arm, frameCornerY - outerRadius + 1.0);
-
-    const tr = runtime.current.transition;
-    let joinProgress = 0;
-    if (tr.phase === "selecting") {
-      joinProgress = tr.easedSelectProgress;
-    } else if (tr.phase === "burst" || tr.phase === "isolated") {
-      joinProgress = 1;
-    }
-
-    const targetArmX = brackets.arm + (neededArmX - brackets.arm) * joinProgress;
-    const targetArmY = brackets.arm + (neededArmY - brackets.arm) * joinProgress;
-
-    const armDampSpeed = 16;
-    const currentArmX = dampTowards(
-      armRef.current.x || brackets.arm,
-      targetArmX,
-      armDampSpeed,
-      delta,
-    );
-    const currentArmY = dampTowards(
-      armRef.current.y || brackets.arm,
-      targetArmY,
-      armDampSpeed,
-      delta,
-    );
-    armRef.current.x = currentArmX;
-    armRef.current.y = currentArmY;
-
-    const marginX = 2 * (brackets.padding + currentArmX + halfThickness + MARGIN);
-    const marginY = 2 * (brackets.padding + currentArmY + halfThickness + MARGIN);
+    const margin = oversize(brackets.padding, brackets.arm, brackets.thickness);
     mesh.position.set(pos.x, pos.y, Z);
-    mesh.scale.set(pos.width + marginX, pos.height + marginY, 1);
+    mesh.scale.set(pos.width + margin, pos.height + margin, 1);
 
     const uniforms = uniformsOf<BracketUniforms>(material);
     if (!uniforms) return;
@@ -278,7 +238,7 @@ export function FocusIndicator({
     uniforms.uRadius.value = brackets.radius;
     // Le pane raisonne en degrés, le shader en radians.
     uniforms.uAngle.value = (brackets.angle * Math.PI) / 180;
-    uniforms.uArm.value.set(currentArmX, currentArmY);
+    uniforms.uArm.value = brackets.arm;
     uniforms.uThickness.value = brackets.thickness;
   });
 

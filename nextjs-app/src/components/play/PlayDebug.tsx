@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v9";
+const STORAGE_KEY = "play-debug-v10";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -143,9 +143,23 @@ export function PlayDebug({
     indicator.addBinding(indicatorState, "fadeSpeed", { min: 1, max: 40, step: 1 });
     indicator.addBinding(indicatorState, "moveSpeed", { min: 1, max: 40, step: 1 });
 
-    // ── Caméra ────────────────────────────────────────────────────
+    // ── Caméra & Fisheye ──────────────────────────────────────────
     const camera = pane.addFolder({ title: "camera" });
     camera.addBinding(cameraState, "zoom", { min: 0.1, max: 5, step: 0.01 });
+    const fisheye = camera.addFolder({ title: "fisheye (optique)" });
+    fisheye.addBinding(state.current.fisheye, "enabled", { label: "activer" });
+    fisheye.addBinding(state.current.fisheye, "strength", {
+      min: 0,
+      max: 0.25,
+      step: 0.005,
+      label: "distorsion",
+    });
+    fisheye.addBinding(state.current.fisheye, "aberration", {
+      min: 0,
+      max: 0.08,
+      step: 0.002,
+      label: "aberration",
+    });
 
     // ── Layout : Gravité Centrale ─────────────────────────────────
     const layout = pane.addFolder({ title: "layout (gravité)" });

@@ -9,13 +9,14 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, events, useFrame } from "@react-three/fiber";
 import type { OrthographicCamera } from "three";
 import { buildImageUrl } from "@/lib/sanity-image";
 import type { PlayArtifact } from "@/sanity/queries";
 import { ArtifactGrid } from "./ArtifactGrid";
 import { resolveArtifactMedia } from "./artifact-media";
 import { dampTowards } from "./damp";
+import { FisheyeEffect } from "./FisheyeEffect";
 import { FocusIndicator } from "./FocusIndicator";
 import {
   buildGravityTile,
@@ -63,6 +64,18 @@ export const PHYSICS_DEFAULTS: PhysicsParams = {
   mass: 1,
 };
 
+export type FisheyeParams = {
+  enabled: boolean;
+  strength: number;
+  aberration: number;
+};
+
+export const FISHEYE_DEFAULTS: FisheyeParams = {
+  enabled: true,
+  strength: 0.07,
+  aberration: 0.02,
+};
+
 export type PlayDebugState = {
   plane: { radius: number };
   brackets: {
@@ -79,6 +92,7 @@ export type PlayDebugState = {
   pan: { dragThreshold: number; velocityWindowMs: number; friction: number };
   physics: PhysicsParams;
   transition: TransitionConfig;
+  fisheye: FisheyeParams;
 };
 
 export type PlayDebugRef = RefObject<PlayDebugState>;
@@ -440,6 +454,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     },
     physics: { ...PHYSICS_DEFAULTS },
     transition: { ...DEFAULT_TRANSITION_CONFIG },
+    fisheye: { ...FISHEYE_DEFAULTS },
   });
 
   const [gravityParams, setGravityParams] = useState<GravityParams>(() => ({
@@ -843,6 +858,28 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
             orthographic
             dpr={[1, 2]}
             camera={{ position: [0, 0, 100], zoom: CAMERA_ZOOM, near: 0.1, far: 1000 }}
+            events={(store) => {
+              const base = events(store);
+              return {
+                ...base,
+                compute(event, state) {
+                  const px = (event.offsetX / state.size.width) * 2 - 1;
+                  const py = -(event.offsetY / state.size.height) * 2 + 1;
+                  const fish = debug.current.fisheye;
+                  if (fish?.enabled && fish.strength > 0.001) {
+                    const aspect = state.size.width / Math.max(state.size.height, 1);
+                    const cx = px * aspect;
+                    const cy = py;
+                    const r2 = cx * cx + cy * cy;
+                    const factor = 1 / (1 + fish.strength * r2);
+                    state.pointer.set((cx * factor) / aspect, cy * factor);
+                  } else {
+                    state.pointer.set(px, py);
+                  }
+                  state.raycaster.setFromCamera(state.pointer, state.camera);
+                },
+              };
+            }}
           >
             <CameraRig debug={debug} runtime={runtime} velocity={velocity} />
             <ArtifactGrid
@@ -855,6 +892,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
             />
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
             <FocusIndicator debug={debug} runtime={runtime} />
+            <FisheyeEffect debug={debug} />
           </Canvas>
         )}
       </div>
