@@ -94,7 +94,6 @@ function stepKinematicMeshes(
   meshRefs: (Mesh | null)[][],
   displacementRef: { current: number },
   delta: number,
-  visibleW: number,
 ) {
   if (!phys.enabled) {
     displacementRef.current = 0;
@@ -156,10 +155,7 @@ function stepKinematicMeshes(
   }
   const currentD = displacementRef.current;
 
-  // Largeur cible en coordonnées monde pour valoir exactement 1/6 de la largeur d'écran
-  const targetColWidth = visibleW / 6;
-
-  // Facteur d'échelle du média ciblé avec transition douce vers 1/6 de la largeur d'écran
+  // Facteur d'échelle du média ciblé avec micro-punch tactile au lock
   let selectScaleFactor = 1;
   if (rc.transition.phase === "selecting") {
     selectScaleFactor = 1 + (transition.selectScale - 1) * rc.transition.easedSelectProgress;
@@ -167,36 +163,12 @@ function stepKinematicMeshes(
     const lockT = rc.transition.lockProgress;
     const punch = Math.sin(lockT * Math.PI) * transition.lockScalePunch;
     selectScaleFactor = transition.selectScale + punch;
-  } else if (isBursting) {
-    if (targetPt) {
-      const startScale = transition.selectScale;
-      const finalScale = targetColWidth / targetPt.width;
-      selectScaleFactor = startScale + (finalScale - startScale) * rc.transition.easedBurstProgress;
-    } else {
-      selectScaleFactor = transition.selectScale;
-    }
-  } else if (isIsolated) {
-    if (targetPt) {
-      selectScaleFactor = targetColWidth / targetPt.width;
-    } else {
-      selectScaleFactor = 1;
-    }
-  } else if (isReturning) {
-    if (targetPt) {
-      const returnDelay = Math.max(0, transition.repulseReturnDelay);
-      const returnT = rc.transition.returnTimer < returnDelay ? 0 : Math.min(1, (rc.transition.returnTimer - returnDelay) / 0.35);
-      const finalScale = targetColWidth / targetPt.width;
-      selectScaleFactor = finalScale + (1 - finalScale) * returnT;
-    } else {
-      selectScaleFactor = 1;
-    }
   }
 
   // Mise à jour de la cible de l'indicateur
   if (targetPt && targetIdx === rc.selected) {
-    const scrollOffset = isIsolated ? rc.transition.columnScrollY : 0;
     rc.indicatorTarget.x = rc.selectedPos.x;
-    rc.indicatorTarget.y = rc.selectedPos.y + scrollOffset;
+    rc.indicatorTarget.y = rc.selectedPos.y;
     rc.indicatorTarget.width = targetPt.width * selectScaleFactor;
     rc.indicatorTarget.height = targetPt.height * selectScaleFactor;
   }
@@ -236,31 +208,26 @@ function stepKinematicMeshes(
         }
       }
 
-      const scrollOffset = isTarget && isIsolated ? rc.transition.columnScrollY : 0;
-      mesh.position.set(pt.x + curDx, pt.y + curDy + scrollOffset, 0);
+      mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
       mesh.rotation.z = 0;
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
-        if (isTarget) {
-          mat.opacity = 1;
-        } else {
-          let targetOpacity = 1;
-          if (isBursting) {
-            targetOpacity = Math.max(0, 1 - rc.transition.easedBurstProgress);
-          } else if (isIsolated) {
+        let targetOpacity = 1;
+        if (isBursting) {
+          targetOpacity = Math.max(0, 1 - rc.transition.easedBurstProgress);
+        } else if (isIsolated) {
+          targetOpacity = 0;
+        } else if (isReturning) {
+          const returnDelay = Math.max(0, transition.repulseReturnDelay);
+          if (rc.transition.returnTimer < returnDelay) {
             targetOpacity = 0;
-          } else if (isReturning) {
-            const returnDelay = Math.max(0, transition.repulseReturnDelay);
-            if (rc.transition.returnTimer < returnDelay) {
-              targetOpacity = 0;
-            } else {
-              targetOpacity = Math.min(1, (rc.transition.returnTimer - returnDelay) / 0.35);
-            }
+          } else {
+            targetOpacity = Math.min(1, (rc.transition.returnTimer - returnDelay) / 0.35);
           }
-          mat.opacity = dampTowards(mat.opacity, targetOpacity, dampSpeed, delta);
         }
+        mat.opacity = dampTowards(mat.opacity, targetOpacity, dampSpeed, delta);
       }
     }
   }
@@ -290,7 +257,7 @@ export function ArtifactGrid({
   dragMoved: RefObject<boolean>;
   onStartSelect?: (artifactIndex: number, point: LayoutPoint) => void;
 }) {
-  const { camera, size } = useThree();
+  const { camera } = useThree();
   const { TILE_W, TILE_H, points } = tile;
 
   const groupRefs = useRef<(Group | null)[]>(Array(COPIES).fill(null));
@@ -345,7 +312,6 @@ export function ArtifactGrid({
       }
     }
 
-    const visibleW = size.width / Math.max(0.01, camera.zoom);
     stepKinematicMeshes(
       debug.current.physics,
       debug.current.transition,
@@ -355,7 +321,6 @@ export function ArtifactGrid({
       meshRefs.current,
       displacementRef,
       delta,
-      visibleW,
     );
   });
 

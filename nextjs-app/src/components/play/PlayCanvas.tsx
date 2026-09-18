@@ -483,7 +483,8 @@ function stepCamera(
     }
 
     const screenW = screenSize?.width ?? 1920;
-    const isDesktop = screenW >= 1024;
+    const screenH = screenSize?.height ?? 1080;
+    const isDesktop = screenW >= 1024 && screenW >= screenH;
     const visibleW = screenW / Math.max(0.1, camera.zoom);
     const colRatio = config.detailColumnRatio ?? 0.50;
     const offsetRatio = 0.5 - colRatio * 0.5;
@@ -512,7 +513,8 @@ function stepCamera(
     }
 
     const screenW = screenSize?.width ?? 1920;
-    const isDesktop = screenW >= 1024;
+    const screenH = screenSize?.height ?? 1080;
+    const isDesktop = screenW >= 1024 && screenW >= screenH;
     const visibleW = screenW / Math.max(0.1, camera.zoom);
     const colRatio = config.detailColumnRatio ?? 0.50;
     const offsetRatio = 0.5 - colRatio * 0.5;

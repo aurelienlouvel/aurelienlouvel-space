@@ -481,6 +481,8 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
             "Burst duration (s)": p.burstDuration,
             "Burst zoom (dezoom)": p.burstZoom,
             "Media column ratio": p.detailColumnRatio,
+            "Media width % (desktop)": p.desktopMediaWidthRatio,
+            "Media height % (mobile)": p.mobileMediaHeightRatio,
             "Burst repulsion": p.burstRepulse,
             "Burst easing": p.burstEasing,
             "Repulsion return delay (s)": p.repulseReturnDelay,
@@ -625,6 +627,24 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
           step: 0.02,
           onChange: (v: number) => {
             state.current.transition.detailColumnRatio = v;
+          },
+        },
+        "Media width % (desktop)": {
+          value: state.current.transition.desktopMediaWidthRatio,
+          min: 0.15,
+          max: 0.40,
+          step: 0.01,
+          onChange: (v: number) => {
+            state.current.transition.desktopMediaWidthRatio = v;
+          },
+        },
+        "Media height % (mobile)": {
+          value: state.current.transition.mobileMediaHeightRatio,
+          min: 0.25,
+          max: 0.65,
+          step: 0.01,
+          onChange: (v: number) => {
+            state.current.transition.mobileMediaHeightRatio = v;
           },
         },
         "Burst repulsion": {

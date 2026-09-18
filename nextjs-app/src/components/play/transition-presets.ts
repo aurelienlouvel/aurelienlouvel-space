@@ -53,6 +53,8 @@ export type TransitionConfig = {
   burstDuration: number; // Durée de la transition vers la vue détaillée (ex: 0.8s)
   burstZoom: number; // Dézoom multiplicateur appliqué au baseZoom (ex: 0.85x)
   detailColumnRatio: number; // Largeur relative de la colonne média (ex: 0.40 = 40% média / 60% infos)
+  desktopMediaWidthRatio: number; // Largeur des médias sur desktop (ex: 0.24 = 24% de la largeur d'écran)
+  mobileMediaHeightRatio: number; // Hauteur des médias sur mobile (ex: 0.48 = 48% de la hauteur d'écran)
   burstRepulse: number; // Répulsion radiale des autres médias (ex: 40000)
   burstEasing: EasingName;
 
@@ -76,6 +78,8 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     burstDuration: 1.0,
     burstZoom: 0.85,
     detailColumnRatio: 0.50,
+    desktopMediaWidthRatio: 0.24,
+    mobileMediaHeightRatio: 0.48,
     burstRepulse: 40000,
     burstEasing: "easeInOutCubic",
     repulseReturnDelay: 0.3,
@@ -95,6 +99,8 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     burstDuration: 0.6,
     burstZoom: 0.90,
     detailColumnRatio: 0.50,
+    desktopMediaWidthRatio: 0.24,
+    mobileMediaHeightRatio: 0.48,
     burstRepulse: 40000,
     burstEasing: "easeOutExpo",
     repulseReturnDelay: 0.15,
@@ -114,6 +120,8 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     burstDuration: 1.2,
     burstZoom: 0.80,
     detailColumnRatio: 0.50,
+    desktopMediaWidthRatio: 0.24,
+    mobileMediaHeightRatio: 0.48,
     burstRepulse: 50000,
     burstEasing: "easeOutQuint",
     repulseReturnDelay: 0.35,
@@ -139,6 +147,8 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   burstDuration: 0.8,
   burstZoom: 0.85,
   detailColumnRatio: 0.50,
+  desktopMediaWidthRatio: 0.24,
+  mobileMediaHeightRatio: 0.48,
   burstRepulse: 35000,
   burstEasing: "easeInOutCubic",
   // 4. Retour vers la page de base
