@@ -111,7 +111,7 @@ function stepKinematicMeshes(
     return;
   }
 
-  const isSelecting = rc.transition.phase === "selecting";
+  const isSelecting = rc.transition.phase === "selecting" || rc.transition.phase === "delay";
   const isBursting = rc.transition.phase === "burst";
   const isIsolated = rc.transition.phase === "isolated";
   const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;

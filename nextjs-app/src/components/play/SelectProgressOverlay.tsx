@@ -197,7 +197,7 @@ export function SelectProgressOverlay({
     const rc = runtime.current;
     const progress = rc.transition.selectProgress;
 
-    if (progress <= 0.001 || rc.transition.phase !== "selecting") {
+    if (progress <= 0.001 || (rc.transition.phase !== "selecting" && rc.transition.phase !== "delay")) {
       mesh.visible = false;
       return;
     }

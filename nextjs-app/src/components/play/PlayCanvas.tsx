@@ -86,13 +86,13 @@ export type SelectOverlayParams = {
 };
 
 export const OVERLAY_DEFAULTS: SelectOverlayParams = {
-  crestSoftness: 0.12,
-  waveAmplitude: 0.012,
-  waveFrequency: 3.5,
-  waveSpeed: 2.0,
-  iridescence: 0.45,
-  baseOpacity: 0.28,
-  glowIntensity: 0.45,
+  crestSoftness: 0.26,
+  waveAmplitude: 0.06,
+  waveFrequency: 3.3,
+  waveSpeed: 2.6,
+  iridescence: 0.41,
+  baseOpacity: 0.6,
+  glowIntensity: 1.0,
 };
 
 export type PlayDebugState = {
@@ -138,9 +138,10 @@ export type PlayRuntimeState = {
     y: number;
   };
   transition: {
-    phase: "idle" | "selecting" | "burst" | "isolated";
+    phase: "idle" | "selecting" | "delay" | "burst" | "isolated";
     selectProgress: number;
     easedSelectProgress: number;
+    delayTimer: number;
     burstProgress: number;
     easedBurstProgress: number;
     targetIndex: number;
@@ -172,6 +173,7 @@ export function applyPointerDown(
   rc.transition.trigger = "pointer";
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
+  rc.transition.delayTimer = 0;
 }
 
 export function applyPointerUp(rc: PlayRuntimeState) {
@@ -186,6 +188,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.holding = false;
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
+  rc.transition.delayTimer = 0;
   rc.transition.burstProgress = 0;
   rc.transition.easedBurstProgress = 0;
   rc.transition.trigger = null;
@@ -217,6 +220,7 @@ function applyKeyDownEnter(
   rc.transition.trigger = "key";
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
+  rc.transition.delayTimer = 0;
   rc.camera.mode = "settle";
   rc.camera.targetX = rc.selectedPos.x;
   rc.camera.targetY = rc.selectedPos.y;
@@ -333,9 +337,14 @@ function stepCamera(
       );
       if (tr.selectProgress >= 1) {
         tr.selectProgress = 1;
-        tr.phase = "burst";
-        tr.burstProgress = 0;
-        tr.easedBurstProgress = 0;
+        if (config.holdDelay > 0.01) {
+          tr.phase = "delay";
+          tr.delayTimer = 0;
+        } else {
+          tr.phase = "burst";
+          tr.burstProgress = 0;
+          tr.easedBurstProgress = 0;
+        }
       }
     } else {
       tr.selectProgress = Math.max(
@@ -352,6 +361,27 @@ function stepCamera(
     tr.easedSelectProgress = evaluateEasing(config.selectEasing, tr.selectProgress);
 
     const targetZoom = baseZoom * (1 + (config.selectZoom - 1) * tr.easedSelectProgress);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    return;
+  }
+
+  // ── Phase Intermédiaire : Pause post-sélection avant explosion burst ───
+  if (tr.phase === "delay") {
+    tr.delayTimer += delta;
+    if (tr.delayTimer >= Math.max(0.01, config.holdDelay)) {
+      tr.phase = "burst";
+      tr.burstProgress = 0;
+      tr.easedBurstProgress = 0;
+    }
+
+    const targetZoom = baseZoom * config.selectZoom;
     const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
@@ -612,6 +642,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       phase: "idle",
       selectProgress: 0,
       easedSelectProgress: 0,
+      delayTimer: 0,
       burstProgress: 0,
       easedBurstProgress: 0,
       targetIndex: -1,

@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v14";
+const STORAGE_KEY = "play-debug-v15";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -299,6 +299,12 @@ export function PlayDebug({
         easeOutQuint: "easeOutQuint",
       },
       label: "courbe easing",
+    });
+    phase1.addBinding(transitionState, "holdDelay", {
+      min: 0.0,
+      max: 1.5,
+      step: 0.05,
+      label: "délai pause (s)",
     });
 
     // Phase 2 : Burst & Isolation

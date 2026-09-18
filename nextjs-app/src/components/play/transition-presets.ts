@@ -40,6 +40,8 @@ export type TransitionConfig = {
   selectScale: number; // Grossissement subtil du média sélectionné (ex: 1.06)
   selectRepulse: number; // Force de répulsion progressive douce (ex: 500)
   selectEasing: EasingName;
+  // ── Délai intermédiaire ──────────────────────────────────────────
+  holdDelay: number; // Délai de pause entre sélection et burst (ex: 0.25s)
   // ── Temps 2 : Explosion / Isolation (Burst) ──────────────────────
   burstDuration: number; // Durée de l'explosion/zoom final (ex: 1.2s)
   burstZoom: number; // Gros zoom final (ex: 3.2x)
@@ -54,6 +56,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     selectScale: 1.06,
     selectRepulse: 600,
     selectEasing: "easeInQuad",
+    holdDelay: 0.3,
     burstDuration: 1.2,
     burstZoom: 3.2,
     burstRepulse: 120000,
@@ -65,6 +68,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     selectScale: 1.08,
     selectRepulse: 800,
     selectEasing: "easeOutQuad",
+    holdDelay: 0.2,
     burstDuration: 0.8,
     burstZoom: 3.0,
     burstRepulse: 140000,
@@ -76,6 +80,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     selectScale: 1.04,
     selectRepulse: 350,
     selectEasing: "easeInCubic",
+    holdDelay: 0.35,
     burstDuration: 1.5,
     burstZoom: 3.6,
     burstRepulse: 180000,
@@ -90,6 +95,7 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   selectScale: 1,
   selectRepulse: 200,
   selectEasing: "easeOutQuint",
+  holdDelay: 0.25,
   burstDuration: 0.6,
   burstZoom: 1.8,
   burstRepulse: 40000,
