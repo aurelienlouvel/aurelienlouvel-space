@@ -138,13 +138,14 @@ export type PlayRuntimeState = {
     y: number;
   };
   transition: {
-    phase: "idle" | "selecting" | "lock" | "burst" | "isolated";
+    phase: "idle" | "selecting" | "lock" | "burst" | "isolated" | "returning";
     selectProgress: number;
     easedSelectProgress: number;
     lockTimer: number;
     lockProgress: number;
     burstProgress: number;
     easedBurstProgress: number;
+    returnTimer: number;
     targetIndex: number;
     holding: boolean;
     trigger: "pointer" | "key" | null;
@@ -158,7 +159,7 @@ export function applyPointerDown(
   pointIndex: number,
   canonicalPos: { x: number; y: number },
 ) {
-  if (rc.transition.phase === "isolated") {
+  if (rc.transition.phase === "isolated" || rc.transition.phase === "returning") {
     applyResetTransition(rc);
     return;
   }
@@ -176,6 +177,7 @@ export function applyPointerDown(
   rc.transition.easedSelectProgress = 0;
   rc.transition.lockTimer = 0;
   rc.transition.lockProgress = 0;
+  rc.transition.returnTimer = 0;
 }
 
 export function applyPointerUp(rc: PlayRuntimeState) {
@@ -186,6 +188,14 @@ export function applyPointerUp(rc: PlayRuntimeState) {
 }
 
 export function applyResetTransition(rc: PlayRuntimeState) {
+  if (rc.transition.phase === "isolated" || rc.transition.phase === "burst") {
+    rc.transition.phase = "returning";
+    rc.transition.returnTimer = 0;
+    rc.transition.holding = false;
+    rc.transition.trigger = null;
+    rc.camera.mode = "settle";
+    return;
+  }
   rc.transition.phase = "idle";
   rc.transition.holding = false;
   rc.transition.selectProgress = 0;
@@ -194,6 +204,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.lockProgress = 0;
   rc.transition.burstProgress = 0;
   rc.transition.easedBurstProgress = 0;
+  rc.transition.returnTimer = 0;
   rc.transition.trigger = null;
   rc.transition.targetIndex = -1;
   rc.repulsor.active = false;
@@ -205,7 +216,7 @@ function applyKeyDownEnter(
   rc: PlayRuntimeState,
   points: readonly { x: number; y: number }[],
 ) {
-  if (rc.transition.phase === "isolated") {
+  if (rc.transition.phase === "isolated" || rc.transition.phase === "returning") {
     applyResetTransition(rc);
     return;
   }
@@ -439,6 +450,20 @@ function stepCamera(
     return;
   }
 
+  // ── Mode Retour vers la page de base ─────────────────────────────────
+  if (tr.phase === "returning") {
+    const targetZoom = baseZoom;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 8, delta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    return;
+  }
+
   // ── Phase Idle : Retour au zoom de base et pan inertiel ────────────────
   if (Math.abs(camera.zoom - baseZoom) > 0.0005) {
     camera.zoom = dampTowards(camera.zoom, baseZoom, 8, delta);
@@ -652,6 +677,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       lockProgress: 0,
       burstProgress: 0,
       easedBurstProgress: 0,
+      returnTimer: 0,
       targetIndex: -1,
       holding: false,
       trigger: null,

@@ -114,6 +114,7 @@ function stepKinematicMeshes(
   const isSelecting = rc.transition.phase === "selecting" || rc.transition.phase === "lock";
   const isBursting = rc.transition.phase === "burst";
   const isIsolated = rc.transition.phase === "isolated";
+  const isReturning = rc.transition.phase === "returning";
   const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
   const targetPt = points[targetIdx] ?? points[0];
 
@@ -128,14 +129,31 @@ function stepKinematicMeshes(
     targetD = startD + (endD - startD) * rc.transition.easedBurstProgress;
   } else if (isIsolated) {
     targetD = transition.burstRepulse > 10000 ? 3500 : Math.max(2500, transition.burstRepulse);
+  } else if (isReturning) {
+    rc.transition.returnTimer += delta;
+    const maxD = transition.burstRepulse > 10000 ? 3500 : Math.max(2500, transition.burstRepulse);
+    const returnDelay = Math.max(0, transition.repulseReturnDelay);
+    if (rc.transition.returnTimer < returnDelay) {
+      // Pendant le délai de retour : maintien de la répulsion maximale
+      targetD = maxD;
+    } else {
+      // Délai écoulé : retour progressif des voisins à leur position initiale
+      targetD = 0;
+    }
   } else {
     targetD = 0;
   }
 
   // Amortissement propre vers targetD (rapide et direct en transition, fluide au retour)
-  const dampSpeed = rc.transition.phase === "idle" ? Math.max(8, phys.damping) : 24;
+  const dampSpeed = (rc.transition.phase === "idle" || isReturning) ? Math.max(8, phys.damping) : 24;
   displacementRef.current = dampTowards(displacementRef.current, targetD, dampSpeed, delta);
-  if (rc.transition.phase === "idle" && Math.abs(displacementRef.current) < 0.05) {
+  if (isReturning && targetD === 0 && Math.abs(displacementRef.current) < 0.5) {
+    displacementRef.current = 0;
+    rc.transition.phase = "idle";
+    rc.transition.targetIndex = -1;
+    rc.repulsor.active = false;
+    rc.repulsor.pointIndex = -1;
+  } else if (rc.transition.phase === "idle" && Math.abs(displacementRef.current) < 0.05) {
     displacementRef.current = 0;
   }
   const currentD = displacementRef.current;
@@ -150,6 +168,8 @@ function stepKinematicMeshes(
     selectScaleFactor = transition.selectScale + punch;
   } else if (isBursting || isIsolated) {
     selectScaleFactor = transition.selectScale;
+  } else if (isReturning) {
+    selectScaleFactor = 1;
   }
 
   // Mise à jour de la cible de l'indicateur

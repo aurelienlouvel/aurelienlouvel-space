@@ -206,8 +206,9 @@ export function FocusIndicator({
     const target = runtime.current.indicatorTarget;
     const tr = runtime.current.transition;
 
-    // En burst ou isolé, les brackets sont éteints
-    if (tr.phase === "burst" || tr.phase === "isolated") {
+    // En burst, isolé ou pendant le délai de retour, les brackets restent éteints
+    const isReturningDelayed = tr.phase === "returning" && tr.returnTimer < transition.repulseReturnDelay;
+    if (tr.phase === "burst" || tr.phase === "isolated" || isReturningDelayed) {
       mesh.visible = false;
       opacityRef.current = 0;
       return;

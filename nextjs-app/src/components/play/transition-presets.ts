@@ -52,6 +52,9 @@ export type TransitionConfig = {
   burstZoom: number; // Gros zoom final (ex: 1.8x)
   burstRepulse: number; // Maxi-répulsion expulsant tous les autres médias (ex: 40000)
   burstEasing: EasingName;
+
+  // ── 4. Retour vers la page de base ───────────────────────────────
+  repulseReturnDelay: number; // Délai avant que la répulsion des voisins ne revienne à zéro (ex: 0.25s)
 };
 
 export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">, Omit<TransitionConfig, "preset">> = {
@@ -69,6 +72,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     burstZoom: 3.2,
     burstRepulse: 120000,
     burstEasing: "easeInOutCubic",
+    repulseReturnDelay: 0.3,
   },
   snappy: {
     selectDuration: 0.5,
@@ -84,6 +88,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     burstZoom: 3.0,
     burstRepulse: 140000,
     burstEasing: "easeOutExpo",
+    repulseReturnDelay: 0.15,
   },
   dramatic: {
     selectDuration: 0.9,
@@ -99,6 +104,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     burstZoom: 3.6,
     burstRepulse: 180000,
     burstEasing: "easeOutQuint",
+    repulseReturnDelay: 0.35,
   },
 };
 
@@ -120,4 +126,6 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   burstZoom: 1.8,
   burstRepulse: 40000,
   burstEasing: "easeInQuad",
+  // 4. Retour vers la page de base
+  repulseReturnDelay: 0.25,
 };

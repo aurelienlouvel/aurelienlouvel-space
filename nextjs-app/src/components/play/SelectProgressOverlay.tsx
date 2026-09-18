@@ -78,9 +78,10 @@ void main() {
     discard;
   }
 
-  // 1. Onde de progression fluide (ondulation organique subtile)
-  float wave = sin(vUv.x * uWaveFrequency + uTime * uWaveSpeed) * uWaveAmplitude
-             + cos(vUv.x * (uWaveFrequency * 1.6) - uTime * (uWaveSpeed * 0.7)) * (uWaveAmplitude * 0.4);
+  // 1. Onde de progression fluide (ondulation organique purement verticale)
+  // Zéro dérive vers la gauche : la vague monte strictement selon l'axe Y et s'arrête
+  float wave = sin(vUv.x * uWaveFrequency * 1.5) * uWaveAmplitude
+             + cos(vUv.x * (uWaveFrequency * 2.7)) * (uWaveAmplitude * 0.35);
 
   // L'élévation de la crête progresse doucement du bas vers le haut
   float margin = max(0.06, uCrestSoftness * 1.5 + uWaveAmplitude * 1.5);
@@ -92,7 +93,7 @@ void main() {
     discard;
   }
 
-  // 2. Queue de la vague (évacuation / terminaison pendant le délai)
+  // 2. Queue de la vague (évacuation / terminaison pendant le lock)
   // Lorsque uExitProgress > 0, le bas de la vague s'élève pour libérer progressivement la carte
   float tailY = mix(-margin - uCrestSoftness * 2.0, 1.0 + margin + uCrestSoftness * 2.0, uExitProgress) + wave;
   float deltaTail = vUv.y - tailY;
@@ -119,7 +120,8 @@ void main() {
   float crestGlow = exp(-pow(deltaY / glowWidth, 2.0)) * uGlowIntensity;
 
   // 3. Corps du dégradé holographique nacré (iOS Sticker Sheen)
-  float holoPhase = vUv.y * 1.6 + vUv.x * 1.0 + uTime * 0.35 + deltaY * 1.2;
+  // Dégradé orienté verticalement suivant la vague vers le haut, sans glissement latéral
+  float holoPhase = vUv.y * 2.0 + deltaY * 1.4 + (vUv.x - 0.5) * 0.25;
   vec3 holo = holographicColor(holoPhase, uIridescence);
 
   // Voile translucide s'atténuant délicatement vers le bas

@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v16";
+const STORAGE_KEY = "play-debug-v17";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -361,6 +361,15 @@ export function PlayDebug({
       label: "courbe easing",
     });
 
+    // 4. Retour vers la page de base
+    const phase4 = transition.addFolder({ title: "4. retour page de base" });
+    phase4.addBinding(transitionState, "repulseReturnDelay", {
+      min: 0.0,
+      max: 1.5,
+      step: 0.05,
+      label: "délai retour répulsion (s)",
+    });
+
     presetBinding.on("change", (ev) => {
       const presetKey = ev.value as TransitionPresetName;
       if (presetKey !== "custom" && TRANSITION_PRESETS[presetKey]) {
@@ -383,6 +392,12 @@ export function PlayDebug({
       }
     });
     phase3.on("change", () => {
+      if (transitionState.preset !== "custom") {
+        transitionState.preset = "custom";
+        pane.refresh();
+      }
+    });
+    phase4.on("change", () => {
       if (transitionState.preset !== "custom") {
         transitionState.preset = "custom";
         pane.refresh();
