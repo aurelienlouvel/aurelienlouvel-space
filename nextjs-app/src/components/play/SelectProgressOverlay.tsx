@@ -228,16 +228,19 @@ export function SelectProgressOverlay({
     const rc = runtime.current;
     const progress = rc.transition.selectProgress;
 
-    if (progress <= 0.001 || (rc.transition.phase !== "selecting" && rc.transition.phase !== "delay")) {
+    if (
+      progress <= 0.001 ||
+      (rc.transition.phase !== "selecting" && rc.transition.phase !== "lock")
+    ) {
       mesh.visible = false;
       return;
     }
 
-    // Calcul de la progression de sortie de la vague pendant la phase de délai
+    // Calcul de la progression de sortie de la vague pendant la phase d'animation de select (lock)
     let exitProgress = 0;
-    if (rc.transition.phase === "delay") {
-      const holdDelay = Math.max(0.01, debug.current.transition.holdDelay);
-      const t = Math.min(1, Math.max(0, rc.transition.delayTimer / holdDelay));
+    if (rc.transition.phase === "lock") {
+      const exitDuration = Math.max(0.01, debug.current.transition.overlayExitDuration);
+      const t = Math.min(1, Math.max(0, rc.transition.lockTimer / exitDuration));
       // Évacuation douce (smoothstep) : monte et s'évacue délicatement
       exitProgress = t * t * (3 - 2 * t);
       if (exitProgress >= 0.999) {
@@ -254,8 +257,16 @@ export function SelectProgressOverlay({
     }
 
     // Synchronisation position et dimensions avec l'artifact sélectionné
-    // (tient compte du déplacement physique et du léger scale d'expansion)
-    const scaleFactor = 1 + (debug.current.transition.selectScale - 1) * rc.transition.easedSelectProgress;
+    // (tient compte du déplacement physique et du scale d'expansion + punch)
+    let scaleFactor = 1;
+    if (rc.transition.phase === "selecting") {
+      scaleFactor = 1 + (debug.current.transition.selectScale - 1) * rc.transition.easedSelectProgress;
+    } else if (rc.transition.phase === "lock") {
+      const lockT = rc.transition.lockProgress;
+      const punch = Math.sin(lockT * Math.PI) * debug.current.transition.lockScalePunch;
+      scaleFactor = debug.current.transition.selectScale + punch;
+    }
+
     const w = point.width * scaleFactor;
     const h = point.height * scaleFactor;
     const radius = clampRadius(debug.current.plane.radius * scaleFactor, w, h);

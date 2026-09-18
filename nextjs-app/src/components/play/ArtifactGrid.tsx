@@ -111,7 +111,7 @@ function stepKinematicMeshes(
     return;
   }
 
-  const isSelecting = rc.transition.phase === "selecting" || rc.transition.phase === "delay";
+  const isSelecting = rc.transition.phase === "selecting" || rc.transition.phase === "lock";
   const isBursting = rc.transition.phase === "burst";
   const isIsolated = rc.transition.phase === "isolated";
   const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
@@ -120,7 +120,8 @@ function stepKinematicMeshes(
   // Calcul du scalaire de déplacement cible
   let targetD = 0;
   if (isSelecting) {
-    targetD = transition.selectRepulse * rc.transition.easedSelectProgress;
+    const repulseProgress = rc.transition.phase === "lock" ? 1 : rc.transition.easedSelectProgress;
+    targetD = transition.selectRepulse * repulseProgress;
   } else if (isBursting) {
     const startD = transition.selectRepulse;
     const endD = transition.burstRepulse > 10000 ? 3500 : Math.max(2500, transition.burstRepulse);
@@ -139,12 +140,17 @@ function stepKinematicMeshes(
   }
   const currentD = displacementRef.current;
 
-  // Facteur d'échelle du média ciblé
-  const selectScaleFactor = isSelecting
-    ? 1 + (transition.selectScale - 1) * rc.transition.easedSelectProgress
-    : isBursting || isIsolated
-    ? transition.selectScale
-    : 1;
+  // Facteur d'échelle du média ciblé avec micro-punch tactile de confirmation au lock
+  let selectScaleFactor = 1;
+  if (rc.transition.phase === "selecting") {
+    selectScaleFactor = 1 + (transition.selectScale - 1) * rc.transition.easedSelectProgress;
+  } else if (rc.transition.phase === "lock") {
+    const lockT = rc.transition.lockProgress;
+    const punch = Math.sin(lockT * Math.PI) * transition.lockScalePunch;
+    selectScaleFactor = transition.selectScale + punch;
+  } else if (isBursting || isIsolated) {
+    selectScaleFactor = transition.selectScale;
+  }
 
   // Mise à jour de la cible de l'indicateur
   if (targetPt && targetIdx === rc.selected) {

@@ -34,54 +34,68 @@ export type TransitionPresetName = "cinematic" | "snappy" | "dramatic" | "custom
 
 export type TransitionConfig = {
   preset: TransitionPresetName;
-  // ── Temps 1 : Sélection maintenue (Hold) ─────────────────────────
-  selectDuration: number; // Durée pour charger la sélection (ex: 1.2s)
-  selectZoom: number; // Facteur multiplicatif du zoom caméra (ex: 1.15 = +15%)
-  selectScale: number; // Grossissement subtil du média sélectionné (ex: 1.06)
-  selectRepulse: number; // Force de répulsion progressive douce (ex: 500)
+  // ── 1. Progression du select (Hold) ──────────────────────────────
+  selectDuration: number; // Durée pour charger la sélection (ex: 0.6s)
+  selectZoom: number; // Facteur multiplicatif du zoom caméra (ex: 1.06)
+  selectScale: number; // Grossissement subtil du média sélectionné (ex: 1.0)
+  selectRepulse: number; // Force de répulsion progressive douce (ex: 200)
   selectEasing: EasingName;
-  // ── Délai intermédiaire ──────────────────────────────────────────
-  holdDelay: number; // Délai de pause entre sélection et burst (ex: 0.25s)
-  // ── Temps 2 : Explosion / Isolation (Burst) ──────────────────────
-  burstDuration: number; // Durée de l'explosion/zoom final (ex: 1.2s)
-  burstZoom: number; // Gros zoom final (ex: 3.2x)
-  burstRepulse: number; // Maxi-répulsion expulsant tous les autres médias (ex: 120000)
+
+  // ── 2. Animation de select (Lock) ────────────────────────────────
+  lockDuration: number; // Durée totale de l'animation de lock (ex: 0.4s)
+  lockBracketTighten: number; // Resserrement des brackets vers le média en px (ex: 18px)
+  lockScalePunch: number; // Intensité du rebond / scale punch de confirmation (ex: 0.05)
+  overlayExitDuration: number; // Durée d'évacuation de l'overlay vague (ex: 0.35s)
+
+  // ── 3. Transition vers la page artifact (Burst) ──────────────────
+  burstDuration: number; // Durée de l'explosion / zoom final (ex: 0.6s)
+  burstZoom: number; // Gros zoom final (ex: 1.8x)
+  burstRepulse: number; // Maxi-répulsion expulsant tous les autres médias (ex: 40000)
   burstEasing: EasingName;
 };
 
 export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">, Omit<TransitionConfig, "preset">> = {
   cinematic: {
-    selectDuration: 1.2,
+    selectDuration: 0.8,
     selectZoom: 1.15,
     selectScale: 1.06,
     selectRepulse: 600,
     selectEasing: "easeInQuad",
-    holdDelay: 0.3,
+    lockDuration: 0.5,
+    lockBracketTighten: 18,
+    lockScalePunch: 0.06,
+    overlayExitDuration: 0.4,
     burstDuration: 1.2,
     burstZoom: 3.2,
     burstRepulse: 120000,
     burstEasing: "easeInOutCubic",
   },
   snappy: {
-    selectDuration: 0.9,
+    selectDuration: 0.5,
     selectZoom: 1.18,
     selectScale: 1.08,
     selectRepulse: 800,
     selectEasing: "easeOutQuad",
-    holdDelay: 0.2,
-    burstDuration: 0.8,
+    lockDuration: 0.3,
+    lockBracketTighten: 20,
+    lockScalePunch: 0.08,
+    overlayExitDuration: 0.25,
+    burstDuration: 0.7,
     burstZoom: 3.0,
     burstRepulse: 140000,
     burstEasing: "easeOutExpo",
   },
   dramatic: {
-    selectDuration: 1.4,
+    selectDuration: 0.9,
     selectZoom: 1.12,
     selectScale: 1.04,
     selectRepulse: 350,
     selectEasing: "easeInCubic",
-    holdDelay: 0.35,
-    burstDuration: 1.5,
+    lockDuration: 0.6,
+    lockBracketTighten: 16,
+    lockScalePunch: 0.05,
+    overlayExitDuration: 0.5,
+    burstDuration: 1.4,
     burstZoom: 3.6,
     burstRepulse: 180000,
     burstEasing: "easeOutQuint",
@@ -90,12 +104,18 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
 
 export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   preset: "custom",
-  selectDuration: 0.7,
+  // 1. Progression du select (Hold : 0.6s)
+  selectDuration: 0.6,
   selectZoom: 1.06,
   selectScale: 1,
   selectRepulse: 200,
   selectEasing: "easeOutQuint",
-  holdDelay: 0.25,
+  // 2. Animation de select (Lock : 0.4s)
+  lockDuration: 0.4,
+  lockBracketTighten: 18,
+  lockScalePunch: 0.05,
+  overlayExitDuration: 0.35,
+  // 3. Transition vers artifact (Burst : 0.6s) — Total = 1.6s
   burstDuration: 0.6,
   burstZoom: 1.8,
   burstRepulse: 40000,

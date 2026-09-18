@@ -138,10 +138,11 @@ export type PlayRuntimeState = {
     y: number;
   };
   transition: {
-    phase: "idle" | "selecting" | "delay" | "burst" | "isolated";
+    phase: "idle" | "selecting" | "lock" | "burst" | "isolated";
     selectProgress: number;
     easedSelectProgress: number;
-    delayTimer: number;
+    lockTimer: number;
+    lockProgress: number;
     burstProgress: number;
     easedBurstProgress: number;
     targetIndex: number;
@@ -173,7 +174,8 @@ export function applyPointerDown(
   rc.transition.trigger = "pointer";
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
-  rc.transition.delayTimer = 0;
+  rc.transition.lockTimer = 0;
+  rc.transition.lockProgress = 0;
 }
 
 export function applyPointerUp(rc: PlayRuntimeState) {
@@ -188,7 +190,8 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.holding = false;
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
-  rc.transition.delayTimer = 0;
+  rc.transition.lockTimer = 0;
+  rc.transition.lockProgress = 0;
   rc.transition.burstProgress = 0;
   rc.transition.easedBurstProgress = 0;
   rc.transition.trigger = null;
@@ -220,7 +223,8 @@ function applyKeyDownEnter(
   rc.transition.trigger = "key";
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
-  rc.transition.delayTimer = 0;
+  rc.transition.lockTimer = 0;
+  rc.transition.lockProgress = 0;
   rc.camera.mode = "settle";
   rc.camera.targetX = rc.selectedPos.x;
   rc.camera.targetY = rc.selectedPos.y;
@@ -328,7 +332,7 @@ function stepCamera(
 ) {
   const tr = rc.transition;
 
-  // ── Temps 1 : Sélection progressive maintenue (Hold to Select) ─────────
+  // ── Temps 1 : Progression du select (Hold to Select) ───────────────────
   if (tr.phase === "selecting") {
     if (tr.holding) {
       tr.selectProgress = Math.min(
@@ -337,9 +341,10 @@ function stepCamera(
       );
       if (tr.selectProgress >= 1) {
         tr.selectProgress = 1;
-        if (config.holdDelay > 0.01) {
-          tr.phase = "delay";
-          tr.delayTimer = 0;
+        if (config.lockDuration > 0.01) {
+          tr.phase = "lock";
+          tr.lockTimer = 0;
+          tr.lockProgress = 0;
         } else {
           tr.phase = "burst";
           tr.burstProgress = 0;
@@ -372,10 +377,11 @@ function stepCamera(
     return;
   }
 
-  // ── Phase Intermédiaire : Pause post-sélection avant explosion burst ───
-  if (tr.phase === "delay") {
-    tr.delayTimer += delta;
-    if (tr.delayTimer >= Math.max(0.01, config.holdDelay)) {
+  // ── Temps 2 : Animation de select (Lock confirmation) ──────────────────
+  if (tr.phase === "lock") {
+    tr.lockTimer += delta;
+    tr.lockProgress = Math.min(1, tr.lockTimer / Math.max(0.01, config.lockDuration));
+    if (tr.lockTimer >= Math.max(0.01, config.lockDuration)) {
       tr.phase = "burst";
       tr.burstProgress = 0;
       tr.easedBurstProgress = 0;
@@ -393,7 +399,7 @@ function stepCamera(
     return;
   }
 
-  // ── Temps 2 : Explosion / Burst (Maxi zoom + Maxi répulsion) ───────────
+  // ── Temps 3 : Transition vers la page artifact (Burst) ─────────────────
   if (tr.phase === "burst") {
     tr.burstProgress = Math.min(
       1,
@@ -642,7 +648,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       phase: "idle",
       selectProgress: 0,
       easedSelectProgress: 0,
-      delayTimer: 0,
+      lockTimer: 0,
+      lockProgress: 0,
       burstProgress: 0,
       easedBurstProgress: 0,
       targetIndex: -1,

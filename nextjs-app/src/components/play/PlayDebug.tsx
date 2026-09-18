@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v15";
+const STORAGE_KEY = "play-debug-v16";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -249,8 +249,8 @@ export function PlayDebug({
       label: "vitesse de retour",
     });
 
-    // ── Transition 2 temps (Hold -> Burst) ───────────────────────
-    const transition = pane.addFolder({ title: "transition (2 temps)" });
+    // ── Transition 3 phases (Progression -> Animation Select -> Transition Artifact) ───
+    const transition = pane.addFolder({ title: "transition (3 parties)" });
 
     const presetBinding = transition.addBinding(transitionState, "preset", {
       options: {
@@ -262,13 +262,13 @@ export function PlayDebug({
       label: "preset",
     });
 
-    // Phase 1 : Hold to Select
-    const phase1 = transition.addFolder({ title: "1. sélection (hold)" });
+    // 1. Progression du select (Hold)
+    const phase1 = transition.addFolder({ title: "1. progression du select" });
     phase1.addBinding(transitionState, "selectDuration", {
-      min: 0.3,
-      max: 3.0,
-      step: 0.1,
-      label: "durée (s)",
+      min: 0.2,
+      max: 2.0,
+      step: 0.05,
+      label: "durée hold (s)",
     });
     phase1.addBinding(transitionState, "selectZoom", {
       min: 1.0,
@@ -300,34 +300,55 @@ export function PlayDebug({
       },
       label: "courbe easing",
     });
-    phase1.addBinding(transitionState, "holdDelay", {
-      min: 0.0,
+
+    // 2. Animation de select (Lock)
+    const phase2 = transition.addFolder({ title: "2. animation de select (lock)" });
+    phase2.addBinding(transitionState, "lockDuration", {
+      min: 0.1,
       max: 1.5,
       step: 0.05,
-      label: "délai pause (s)",
+      label: "durée lock (s)",
+    });
+    phase2.addBinding(transitionState, "lockBracketTighten", {
+      min: 0,
+      max: 40,
+      step: 1,
+      label: "resserrement brackets (px)",
+    });
+    phase2.addBinding(transitionState, "lockScalePunch", {
+      min: 0.0,
+      max: 0.2,
+      step: 0.01,
+      label: "scale punch pop",
+    });
+    phase2.addBinding(transitionState, "overlayExitDuration", {
+      min: 0.1,
+      max: 1.2,
+      step: 0.05,
+      label: "durée fin vague (s)",
     });
 
-    // Phase 2 : Burst & Isolation
-    const phase2 = transition.addFolder({ title: "2. burst (isolation)" });
-    phase2.addBinding(transitionState, "burstDuration", {
-      min: 0.3,
+    // 3. Transition vers la page artifact (Burst)
+    const phase3 = transition.addFolder({ title: "3. transition artifact (burst)" });
+    phase3.addBinding(transitionState, "burstDuration", {
+      min: 0.2,
       max: 3.0,
-      step: 0.1,
-      label: "durée (s)",
+      step: 0.05,
+      label: "durée burst (s)",
     });
-    phase2.addBinding(transitionState, "burstZoom", {
-      min: 1.5,
-      max: 6.0,
+    phase3.addBinding(transitionState, "burstZoom", {
+      min: 1.2,
+      max: 5.0,
       step: 0.1,
       label: "maxi zoom",
     });
-    phase2.addBinding(transitionState, "burstRepulse", {
+    phase3.addBinding(transitionState, "burstRepulse", {
       min: 10000,
       max: 300000,
       step: 5000,
       label: "maxi répulsion",
     });
-    phase2.addBinding(transitionState, "burstEasing", {
+    phase3.addBinding(transitionState, "burstEasing", {
       options: {
         linear: "linear",
         easeInQuad: "easeInQuad",
@@ -356,6 +377,12 @@ export function PlayDebug({
       }
     });
     phase2.on("change", () => {
+      if (transitionState.preset !== "custom") {
+        transitionState.preset = "custom";
+        pane.refresh();
+      }
+    });
+    phase3.on("change", () => {
       if (transitionState.preset !== "custom") {
         transitionState.preset = "custom";
         pane.refresh();

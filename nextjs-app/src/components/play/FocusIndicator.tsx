@@ -202,8 +202,16 @@ export function FocusIndicator({
     const material = materialRef.current;
     if (!mesh || !material) return;
 
-    const { brackets, indicator } = debug.current;
+    const { brackets, indicator, transition } = debug.current;
     const target = runtime.current.indicatorTarget;
+    const tr = runtime.current.transition;
+
+    // En burst ou isolé, les brackets sont éteints
+    if (tr.phase === "burst" || tr.phase === "isolated") {
+      mesh.visible = false;
+      opacityRef.current = 0;
+      return;
+    }
 
     // Posée même quand l'indicateur est éteint : le matériau resterait sinon au
     // blanc de three jusqu'à la première frame visible. Le garde évite de
@@ -214,12 +222,34 @@ export function FocusIndicator({
       material.color.set(brackets.color);
     }
 
-    const opacity = dampTowards(opacityRef.current, 1, indicator.fadeSpeed, delta);
-    opacityRef.current = opacity;
+    // Gestion du resserrement et de la disparition pendant l'animation de select (lock)
+    let currentPadding = brackets.padding;
+    let lockAlpha = 1;
 
-    mesh.visible = opacity > OPACITY_EPSILON;
+    if (tr.phase === "lock") {
+      const t = tr.lockProgress;
+
+      // 1. Resserrement : les brackets se resserrent vivement vers le média
+      const tightenT = Math.min(1, t / 0.45);
+      const easedTighten = tightenT * (2 - tightenT);
+      const tightenPx = easedTighten * transition.lockBracketTighten;
+      currentPadding = Math.max(0, brackets.padding - tightenPx);
+
+      // 2. Disparition : s'estompent de 1 à 0 dès qu'ils se sont resserrés
+      const fadeStart = 0.25;
+      if (t > fadeStart) {
+        const fadeT = (t - fadeStart) / (1 - fadeStart);
+        lockAlpha = Math.max(0, 1 - fadeT * fadeT);
+      }
+    }
+
+    const baseOpacity = dampTowards(opacityRef.current, 1, indicator.fadeSpeed, delta);
+    opacityRef.current = baseOpacity;
+    const finalOpacity = baseOpacity * lockAlpha;
+
+    mesh.visible = finalOpacity > OPACITY_EPSILON;
     if (!mesh.visible) return;
-    material.opacity = opacity;
+    material.opacity = finalOpacity;
 
     const pos = posRef.current;
     pos.x = dampTowards(pos.x, target.x, indicator.moveSpeed, delta);
@@ -227,14 +257,14 @@ export function FocusIndicator({
     pos.width = dampTowards(pos.width, target.width, indicator.moveSpeed, delta);
     pos.height = dampTowards(pos.height, target.height, indicator.moveSpeed, delta);
 
-    const margin = oversize(brackets.padding, brackets.arm, brackets.thickness);
+    const margin = oversize(currentPadding, brackets.arm, brackets.thickness);
     mesh.position.set(pos.x, pos.y, Z);
     mesh.scale.set(pos.width + margin, pos.height + margin, 1);
 
     const uniforms = uniformsOf<BracketUniforms>(material);
     if (!uniforms) return;
     uniforms.uSize.value.set(pos.width, pos.height);
-    uniforms.uPadding.value = brackets.padding;
+    uniforms.uPadding.value = currentPadding;
     uniforms.uRadius.value = brackets.radius;
     // Le pane raisonne en degrés, le shader en radians.
     uniforms.uAngle.value = (brackets.angle * Math.PI) / 180;
