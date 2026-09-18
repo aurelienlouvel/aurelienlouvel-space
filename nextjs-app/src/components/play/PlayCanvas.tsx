@@ -13,16 +13,17 @@ import { AnimatePresence, motion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Calendar02Icon } from "@hugeicons/core-free-icons";
 import { Canvas, events, useFrame } from "@react-three/fiber";
-import { Stats } from "@react-three/drei";
+import { Stats, useTexture } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
 import { useActionBar } from "@/contexts/ActionBarContext";
 import { preloadArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
+import { fileRefToUrl } from "@/lib/sanity-utils";
 import type { PlayArtifact, ArtifactDetail, Mate } from "@/sanity/queries";
 import { Tag } from "@/components/primitives/Tag";
 import { MatesBlock } from "@/components/blocks/MatesBlock";
 import { formatDateRange } from "@/lib/date-utils";
-import { ArtifactGrid } from "./ArtifactGrid";
+import { ArtifactGrid, setAppCursor } from "./ArtifactGrid";
 import { SecondaryGalleryPlanes } from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
 import { dampTowards } from "./damp";
@@ -104,14 +105,14 @@ export type SelectOverlayParams = {
 };
 
 export const OVERLAY_DEFAULTS: SelectOverlayParams = {
-  direction: "bottom-to-top",
-  crestSoftness: 0.26,
+  direction: "tl-to-br",
+  crestSoftness: 0.24,
   waveAmplitude: 0.06,
-  waveFrequency: 3.3,
+  waveFrequency: 6,
   waveSpeed: 2.6,
-  iridescence: 0.41,
-  baseOpacity: 0.6,
-  glowIntensity: 1.0,
+  iridescence: 0.64,
+  baseOpacity: 0.64,
+  glowIntensity: 0.6,
 };
 
 export type AnimationStudioParams = {
@@ -172,14 +173,30 @@ export type PlayRuntimeState = {
     y: number;
   };
   transition: {
-    phase: "idle" | "selecting" | "lock" | "burst" | "isolated" | "returning";
+    phase:
+      | "idle"
+      | "selecting"
+      | "lock"
+      | "burst"
+      | "reel"
+      | "dezoom"
+      | "isolated"
+      | "returning";
     selectProgress: number;
     easedSelectProgress: number;
     lockTimer: number;
     lockProgress: number;
     burstProgress: number;
     easedBurstProgress: number;
+    reelTimer: number;
+    reelProgress: number;
+    easedReelProgress: number;
+    dezoomTimer: number;
+    dezoomProgress: number;
+    easedDezoomProgress: number;
     returnTimer: number;
+    returnProgress: number;
+    easedReturnProgress: number;
     targetIndex: number;
     holding: boolean;
     trigger: "pointer" | "key" | null;
@@ -221,9 +238,17 @@ export function applyPointerUp(rc: PlayRuntimeState) {
 
 export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.targetColumnScrollY = 0;
-  if (rc.transition.phase === "isolated" || rc.transition.phase === "burst") {
+  setAppCursor("auto");
+  if (
+    rc.transition.phase === "isolated" ||
+    rc.transition.phase === "burst" ||
+    rc.transition.phase === "reel" ||
+    rc.transition.phase === "dezoom"
+  ) {
     rc.transition.phase = "returning";
     rc.transition.returnTimer = 0;
+    rc.transition.returnProgress = 0;
+    rc.transition.easedReturnProgress = 0;
     rc.transition.holding = false;
     rc.transition.trigger = null;
     rc.camera.mode = "settle";
@@ -238,7 +263,15 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.lockProgress = 0;
   rc.transition.burstProgress = 0;
   rc.transition.easedBurstProgress = 0;
+  rc.transition.reelTimer = 0;
+  rc.transition.reelProgress = 0;
+  rc.transition.easedReelProgress = 0;
+  rc.transition.dezoomTimer = 0;
+  rc.transition.dezoomProgress = 0;
+  rc.transition.easedDezoomProgress = 0;
   rc.transition.returnTimer = 0;
+  rc.transition.returnProgress = 0;
+  rc.transition.easedReturnProgress = 0;
   rc.transition.trigger = null;
   rc.transition.targetIndex = -1;
   rc.repulsor.active = false;
@@ -332,8 +365,8 @@ const BRACKET_THICKNESS = 4;
 const BRACKET_COLOR = "#a6a09b";
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
-const INDICATOR_FADE_SPEED = 14;
-const INDICATOR_MOVE_SPEED = 10;
+const INDICATOR_FADE_SPEED = 26;
+const INDICATOR_MOVE_SPEED = 6;
 
 // ── Ouverture — caméra ────────────────────────────────────────────────────
 const CAMERA_ZOOM = 0.8;
@@ -377,6 +410,7 @@ function stepCamera(
   studio?: AnimationStudioParams,
   screenSize?: { width: number; height: number },
   onBurstComplete?: () => void,
+  onReturnComplete?: () => void,
 ) {
   const speed = studio?.speed ?? 1.0;
   const effDelta = delta * speed;
@@ -460,7 +494,7 @@ function stepCamera(
     return;
   }
 
-  // ── Temps 3 : Transition vers la vue détail (Burst & Dezoom vers colonne gauche 40%) ─
+  // ── Temps 3 : Transition vers la vue détail (Burst & Centrage sur M0) ───
   if (tr.phase === "burst") {
     tr.burstProgress = Math.min(
       1,
@@ -469,13 +503,73 @@ function stepCamera(
     tr.easedBurstProgress = evaluateEasing(config.burstEasing, tr.burstProgress);
     if (tr.burstProgress >= 1) {
       tr.burstProgress = 1;
-      tr.phase = "isolated";
-      onBurstComplete?.();
+      tr.phase = "reel";
+      tr.reelTimer = 0;
+      tr.reelProgress = 0;
+      tr.easedReelProgress = 0;
     }
 
+    // Le zoom reste au zoom de base (pas de dézoom anticipé)
     const startZoom = baseZoom * config.selectZoom;
-    const endZoom = baseZoom * config.burstZoom; // config.burstZoom = 0.85 (dézoom)
-    const targetZoom = startZoom + (endZoom - startZoom) * tr.easedBurstProgress;
+    const targetZoom = startZoom + (baseZoom - startZoom) * tr.easedBurstProgress;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    // Caméra maintenue STRICTEMENT au centre sur le média principal
+    camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
+    return;
+  }
+
+  // ── Temps 3b : Machine à sous 777 (Reel Spin - 3 tours complets au centre) ──
+  if (tr.phase === "reel") {
+    const reelDur = Math.max(0.2, config.reelDuration ?? 1.4);
+    tr.reelTimer += effDelta;
+    tr.reelProgress = Math.min(1, tr.reelTimer / reelDur);
+    tr.easedReelProgress = evaluateEasing(config.reelEasing ?? "easeInOutCubic", tr.reelProgress);
+
+    if (tr.reelProgress >= 1) {
+      tr.reelProgress = 1;
+      tr.phase = "dezoom";
+      tr.dezoomTimer = 0;
+      tr.dezoomProgress = 0;
+      tr.easedDezoomProgress = 0;
+      tr.columnScrollY = 0;
+      tr.targetColumnScrollY = 0;
+      onBurstComplete?.(); // Révélation du panneau texte dès l'amorce du dézoom
+    }
+
+    const targetZoom = baseZoom;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    // Caméra toujours centrée sur le média principal pendant les 3 tours
+    camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
+    return;
+  }
+
+  // ── Temps 3c : Dézoom et décalage horizontal vers la gauche (40% / 60%) ────
+  if (tr.phase === "dezoom") {
+    const dezoomDur = Math.max(0.2, config.dezoomDuration ?? 0.75);
+    tr.dezoomTimer += effDelta;
+    tr.dezoomProgress = Math.min(1, tr.dezoomTimer / dezoomDur);
+    tr.easedDezoomProgress = evaluateEasing(config.dezoomEasing ?? "easeInOutCubic", tr.dezoomProgress);
+
+    if (tr.dezoomProgress >= 1) {
+      tr.dezoomProgress = 1;
+      tr.phase = "isolated";
+    }
+
+    const startZoom = baseZoom;
+    const endZoom = baseZoom * config.burstZoom; // 0.85
+    const targetZoom = startZoom + (endZoom - startZoom) * tr.easedDezoomProgress;
     const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
@@ -489,15 +583,13 @@ function stepCamera(
     const colRatio = config.detailColumnRatio ?? 0.50;
     const offsetRatio = 0.5 - colRatio * 0.5;
 
-    // Déplacement horizontal : le média principal se positionne au centre de la colonne gauche
+    // Déplacement horizontal : le média principal passe du centre vers le centre de la colonne gauche
     const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
-    const targetPosY = rc.selectedPos.y; // Centrage vertical
-
-    const curTargetX = rc.selectedPos.x + (targetPosX - rc.selectedPos.x) * tr.easedBurstProgress;
-    const curTargetY = rc.selectedPos.y + (targetPosY - rc.selectedPos.y) * tr.easedBurstProgress;
+    const curTargetX = rc.selectedPos.x + (targetPosX - rc.selectedPos.x) * tr.easedDezoomProgress;
+    const targetPosY = rc.selectedPos.y;
 
     camera.position.x = dampTowards(camera.position.x, curTargetX, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, curTargetY, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, targetPosY, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
@@ -528,13 +620,19 @@ function stepCamera(
     return;
   }
 
-  // ── Mode Retour vers la page de base ─────────────────────────────────
+  // ── Mode Retour vers la page de base (Exit / Return) ─────────────────
   if (tr.phase === "returning") {
     tr.targetColumnScrollY = 0;
-    tr.columnScrollY = dampTowards(tr.columnScrollY, 0, 14, effDelta);
+    tr.columnScrollY = dampTowards(tr.columnScrollY, 0, 16, effDelta);
+
+    const exitDur = Math.max(0.2, config.exitDuration ?? 0.6);
+    tr.returnTimer += effDelta;
+    const returnT = Math.min(1, tr.returnTimer / exitDur);
+    tr.returnProgress = returnT;
+    tr.easedReturnProgress = evaluateEasing(config.exitEasing ?? "easeInOutCubic", returnT);
 
     const targetZoom = baseZoom;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 8, effDelta);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 10, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
@@ -542,6 +640,21 @@ function stepCamera(
 
     camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
     camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
+
+    if (returnT >= 1 && ((Math.abs(camera.zoom - baseZoom) < 0.01 && Math.abs(camera.position.x - rc.camera.targetX) < 2.0) || tr.returnTimer >= exitDur + 0.3)) {
+      camera.zoom = baseZoom;
+      camera.position.x = rc.camera.targetX;
+      camera.position.y = rc.camera.targetY;
+      camera.updateProjectionMatrix();
+      tr.phase = "idle";
+      tr.returnTimer = 0;
+      tr.returnProgress = 0;
+      tr.easedReturnProgress = 0;
+      tr.targetIndex = -1;
+      rc.repulsor.active = false;
+      rc.repulsor.pointIndex = -1;
+      onReturnComplete?.();
+    }
     return;
   }
 
@@ -576,11 +689,13 @@ function CameraRig({
   runtime,
   velocity,
   onBurstComplete,
+  onReturnComplete,
 }: {
   debug: PlayDebugRef;
   runtime: PlayRuntimeRef;
   velocity: RefObject<{ x: number; y: number }>;
   onBurstComplete?: () => void;
+  onReturnComplete?: () => void;
 }) {
   useFrame((state, delta) => {
     stepCamera(
@@ -594,6 +709,7 @@ function CameraRig({
       debug.current.studio,
       state.size,
       onBurstComplete,
+      onReturnComplete,
     );
   });
 
@@ -651,7 +767,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       lockProgress: 0,
       burstProgress: 0,
       easedBurstProgress: 0,
+      reelTimer: 0,
+      reelProgress: 0,
+      easedReelProgress: 0,
+      dezoomTimer: 0,
+      dezoomProgress: 0,
+      easedDezoomProgress: 0,
       returnTimer: 0,
+      returnProgress: 0,
+      easedReturnProgress: 0,
       targetIndex: -1,
       holding: false,
       trigger: null,
@@ -761,18 +885,31 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
   const [tile, setTile] = useState<LayoutTile | null>(null);
   const [isCalculated, setIsCalculated] = useState(false);
+  const [selectedArtifactIndex, setSelectedArtifactIndex] = useState<number | null>(null);
   const [selectedArtifactDetail, setSelectedArtifactDetail] = useState<ArtifactDetail | null>(null);
   const [principalPoint, setPrincipalPoint] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [isDetailVisible, setIsDetailVisible] = useState(false);
+  const [apiStatus, setApiStatus] = useState<"idle" | "fetching" | "ready" | "error">("idle");
 
   const handleStartSelect = useCallback(
     (artifactIndex: number, point?: { x: number; y: number; width: number; height: number }) => {
       if (point) setPrincipalPoint(point);
+      setSelectedArtifactIndex(artifactIndex);
       const artifact = artifacts[artifactIndex];
       if (artifact?.slug) {
-        preloadArtifact(artifact.slug).then((data) => {
-          if (data) setSelectedArtifactDetail(data);
-        });
+        setApiStatus("fetching");
+        preloadArtifact(artifact.slug)
+          .then((data) => {
+            if (data) {
+              setSelectedArtifactDetail(data);
+              setApiStatus("ready");
+            } else {
+              setApiStatus("error");
+            }
+          })
+          .catch(() => {
+            setApiStatus("error");
+          });
       }
     },
     [artifacts],
@@ -788,11 +925,14 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     setIsDetailVisible(false);
     clearProject();
     applyResetTransition(runtime.current);
-    setTimeout(() => {
-      setSelectedArtifactDetail(null);
-      setPrincipalPoint(null);
-    }, 600);
   }, [clearProject]);
+
+  const handleReturnComplete = useCallback(() => {
+    setSelectedArtifactDetail(null);
+    setPrincipalPoint(null);
+    setSelectedArtifactIndex(null);
+    setApiStatus("idle");
+  }, []);
 
   useEffect(() => {
     if (selectedArtifactDetail && isDetailVisible) {
@@ -811,13 +951,21 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
   const handleSimulateSelect = useCallback(() => {
     const rc = runtime.current;
+    if (rc.transition.phase !== "idle") return;
     const selIndex = rc.selected >= 0 ? rc.selected : 0;
     rc.transition.targetIndex = selIndex;
-    rc.transition.phase = "selecting";
-    rc.transition.holding = true;
-    rc.transition.selectProgress = 0;
-    rc.transition.lockTimer = 0;
-    rc.transition.lockProgress = 0;
+    rc.transition.phase = "burst";
+    rc.transition.holding = false;
+    rc.transition.selectProgress = 1;
+    rc.transition.easedSelectProgress = 1;
+    rc.transition.burstProgress = 0;
+    rc.transition.easedBurstProgress = 0;
+    rc.transition.reelTimer = 0;
+    rc.transition.reelProgress = 0;
+    rc.transition.easedReelProgress = 0;
+    rc.transition.dezoomTimer = 0;
+    rc.transition.dezoomProgress = 0;
+    rc.transition.easedDezoomProgress = 0;
     rc.repulsor.active = true;
     rc.repulsor.pointIndex = selIndex;
     rc.repulsor.x = rc.selectedPos.x;
@@ -881,9 +1029,44 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
   }, [tile]);
 
-  // ── Préchargement DOM des textures (images et vidéos) ────────────────────
+  // ── Préchargement DOM & Drei des textures (mosaïque et galeries de détail) ─
   const [loaded, setLoaded] = useState(0);
-  const total = textureUrls.length;
+
+  // Rassemble tous les médias nécessaires au canvas ET aux galeries de détails
+  const allMediaToPreload = useMemo(() => {
+    const list: { url: string; kind: "image" | "video" }[] = [];
+    const seen = new Set<string>();
+
+    // 1. Médias de la mosaïque principale
+    textureUrls.forEach((url, i) => {
+      if (url && !seen.has(url)) {
+        seen.add(url);
+        list.push({ url, kind: mediaKinds[i] ?? "image" });
+      }
+    });
+
+    // 2. Médias secondaires des galeries de détails
+    artifacts.forEach((art) => {
+      if (Array.isArray(art.gallery)) {
+        art.gallery.forEach((g) => {
+          const isVideo = g._type === "galleryVideo";
+          const url = isVideo
+            ? (g.videoUrl || fileRefToUrl(g.videoRef) || "")
+            : (g.imageRef
+                ? buildImageUrl(g.imageRef, g.imageUrl ?? null, null, null, { width: 1400 })
+                : (g.imageUrl ?? ""));
+          if (url && !seen.has(url)) {
+            seen.add(url);
+            list.push({ url, kind: isVideo ? "video" : "image" });
+          }
+        });
+      }
+    });
+
+    return list;
+  }, [textureUrls, mediaKinds, artifacts]);
+
+  const total = allMediaToPreload.length;
 
   useEffect(() => {
     if (total === 0) return;
@@ -897,11 +1080,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       setLoaded(count);
     }
 
-    textureUrls.forEach((url, i) => {
-      if (mediaKinds[i] === "video") {
+    allMediaToPreload.forEach((m) => {
+      if (m.kind === "video") {
         const video = document.createElement("video");
+        video.crossOrigin = "anonymous";
         video.preload = "auto";
-        video.src = url;
+        video.src = m.url;
         let fired = false;
         const onDone = () => {
           if (fired) return;
@@ -914,9 +1098,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         elements.push(video);
         return;
       }
+      try {
+        useTexture.preload(m.url);
+      } catch {}
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.onload = img.onerror = bump;
-      img.src = url;
+      img.src = m.url;
       elements.push(img);
     });
 
@@ -932,7 +1120,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         }
       }
     };
-  }, [textureUrls, mediaKinds, total]);
+  }, [allMediaToPreload, total]);
 
   const isReady =
     isCalculated &&
@@ -959,7 +1147,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       }
 
       if (runtime.current.transition.phase === "isolated") {
-        const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 0.85);
+        const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 1.8);
         const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
         runtime.current.transition.targetColumnScrollY += (e.deltaY / (zoom || 1)) * 0.9 * speed;
         return;
@@ -973,7 +1161,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     function onPointerDown(e: PointerEvent) {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      if (runtime.current.transition.phase === "isolated" || runtime.current.transition.phase === "burst") {
+      const curPhase = runtime.current.transition.phase;
+      if (
+        curPhase === "isolated" ||
+        curPhase === "burst" ||
+        curPhase === "reel" ||
+        curPhase === "dezoom"
+      ) {
         // Un clic dans le vide ne fait pas retourner dans le canvas !
         dragging = true;
         dragMoved.current = false;
@@ -992,13 +1186,14 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onPointerMove(e: PointerEvent) {
-      if (runtime.current.transition.phase === "burst") return;
+      const curPhase = runtime.current.transition.phase;
+      if (curPhase === "burst" || curPhase === "reel" || curPhase === "dezoom") return;
       if (!dragging) return;
 
-      if (runtime.current.transition.phase === "isolated") {
+      if (curPhase === "isolated") {
         const dy = e.clientY - lastY;
         lastY = e.clientY;
-        const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 0.85);
+        const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 1.8);
         const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
         runtime.current.transition.targetColumnScrollY -= (dy / (zoom || 1)) * 1.1 * speed;
         return;
@@ -1019,6 +1214,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           return;
         }
         dragMoved.current = true;
+        setAppCursor("grabbing");
         if (runtime.current.transition.phase === "selecting") {
           applyResetTransition(runtime.current);
         }
@@ -1029,8 +1225,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onPointerUp() {
-      if (runtime.current.transition.phase === "isolated" || runtime.current.transition.phase === "burst") {
+      const curPhase = runtime.current.transition.phase;
+      if (
+        curPhase === "isolated" ||
+        curPhase === "burst" ||
+        curPhase === "reel" ||
+        curPhase === "dezoom"
+      ) {
         dragging = false;
+        setAppCursor("auto");
         return;
       }
       if (dragging && dragMoved.current && recent.length >= 2) {
@@ -1043,6 +1246,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         }
       }
       dragging = false;
+      if (curPhase === "idle") {
+        if (runtime.current.hovered !== null) {
+          setAppCursor("pointer");
+        } else {
+          setAppCursor("auto");
+        }
+      } else {
+        setAppCursor("auto");
+      }
     }
 
     window.addEventListener("wheel", onWheel, { passive: false });
@@ -1097,6 +1309,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         rc.repulsor.pointIndex = selIndex;
         rc.repulsor.x = rc.selectedPos.x;
         rc.repulsor.y = rc.selectedPos.y;
+        if (tile?.points[selIndex]) {
+          handleStartSelect(tile.points[selIndex].artifactIndex, {
+            ...tile.points[selIndex],
+            x: rc.selectedPos.x,
+            y: rc.selectedPos.y,
+          });
+        }
         return;
       }
 
@@ -1201,6 +1420,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               runtime={runtime}
               velocity={velocity}
               onBurstComplete={handleBurstComplete}
+              onReturnComplete={handleReturnComplete}
             />
             <ArtifactGrid
               textureUrls={textureUrls}
@@ -1211,10 +1431,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               dragMoved={dragMoved}
               onStartSelect={handleStartSelect}
             />
-            {selectedArtifactDetail && principalPoint && (
+            {selectedArtifactIndex !== null && principalPoint && (
               <SecondaryGalleryPlanes
-                gallery={selectedArtifactDetail.gallery}
+                gallery={artifacts[selectedArtifactIndex]?.gallery ?? selectedArtifactDetail?.gallery ?? []}
                 principalPoint={principalPoint}
+                primaryMedia={{
+                  url: textureUrls[selectedArtifactIndex] ?? "",
+                  kind: mediaKinds[selectedArtifactIndex] ?? "image",
+                  ratio: ratios[selectedArtifactIndex] ?? 1.5,
+                }}
                 runtime={runtime}
                 debug={debug}
                 gap={32}
@@ -1312,6 +1537,10 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           onReplayLock={handleReplayLock}
           onSimulateSelect={handleSimulateSelect}
           onResetTransition={handleResetTransition}
+          runtime={runtime}
+          selectedArtifact={selectedArtifactDetail}
+          apiStatus={apiStatus}
+          onCloseDetail={handleCloseDetail}
         />
       )}
     </div>

@@ -245,6 +245,18 @@ export const playArtifactsQuery = defineQuery(`
       "imageHeight": image.asset->metadata.dimensions.height,
       "videoRef": file.asset._ref,
       "videoUrl": url
+    },
+    "gallery": gallery[] {
+      _key,
+      _type,
+      caption,
+      alt,
+      "imageRef": image.asset._ref,
+      "imageUrl": image.asset->url,
+      "imageWidth": image.asset->metadata.dimensions.width,
+      "imageHeight": image.asset->metadata.dimensions.height,
+      "videoRef": file.asset._ref,
+      "videoUrl": coalesce(file.asset->url, url)
     }
   }
 `);
@@ -261,6 +273,7 @@ export type PlayArtifact = {
     videoRef: string | null;
     videoUrl: string | null;
   };
+  gallery?: ArtifactGalleryItem[] | null;
 };
 
 export const artifactDetailQuery = defineQuery(`

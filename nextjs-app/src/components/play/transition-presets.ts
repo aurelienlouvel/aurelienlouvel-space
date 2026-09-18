@@ -49,21 +49,33 @@ export type TransitionConfig = {
   overlayExitDuration: number; // Durée d'évacuation de l'overlay vague (ex: 0.5s)
   burstDelay: number; // Délai d'attente après l'animation avant de lancer la transition (ex: 0.25s)
 
-  // ── 3. Transition vers la page artifact (Burst / Dezoom) ────────
-  burstDuration: number; // Durée de la transition vers la vue détaillée (ex: 0.8s)
+  // ── 3. Transition vers la page artifact (Burst / Reel / Dezoom) ─
+  burstDuration: number; // Durée de la transition initiale et apparition (ex: 0.7s)
+  burstSlideOffset: number; // Distance de glissement vertical depuis le bas lors de l'apparition (ex: 400)
+  burstRepulse: number; // Répulsion radiale des autres médias (ex: 35000)
+  burstEasing: EasingName;
+
+  // ── 3b. Machine à sous 777 (Slot machine reel spin - 3 tours) ────
+  reelDuration: number; // Durée du défilement 3 tours (ex: 1.4s)
+  reelLoops: number; // Nombre de tours de rouleau (ex: 3)
+  reelEasing: EasingName; // Easing du rouleau (ex: "easeInOutCubic")
+
+  // ── 3c. Dézoom & Décalage vers la gauche (Révélation Texte) ──────
+  dezoomDuration: number; // Durée du dézoom et glissement à gauche (ex: 0.75s)
+  dezoomEasing: EasingName; // Easing du dézoom (ex: "easeInOutCubic")
   burstZoom: number; // Dézoom multiplicateur appliqué au baseZoom (ex: 0.85x)
   detailColumnRatio: number; // Largeur relative de la colonne média (ex: 0.50 = 50% média / 50% infos)
   desktopMediaWidthRatio: number; // Largeur des médias sur desktop (ex: 0.34 = 34% de la largeur d'écran)
   mobileMediaHeightRatio: number; // Hauteur des médias sur mobile (ex: 0.48 = 48% de la hauteur d'écran)
   mediaGap: number; // Espace entre médias consécutifs en px (ex: 32)
-  burstSlideOffset: number; // Distance de glissement vertical depuis le bas lors de l'apparition (ex: 400)
   detailScrollDamping: number; // Amortissement fluide du défilement infini (ex: 12)
   detailScrollSpeed: number; // Multiplicateur de vitesse de défilement (ex: 1.0)
-  burstRepulse: number; // Répulsion radiale des autres médias (ex: 40000)
-  burstEasing: EasingName;
 
-  // ── 4. Retour vers la page de base ───────────────────────────────
-  repulseReturnDelay: number; // Délai avant que la répulsion des voisins ne revienne à zéro (ex: 0.25s)
+  // ── 4. Retour vers la page de base (Exit / Return) ─────────────────
+  exitDuration: number; // Durée de retour au canvas (ex: 0.6s)
+  exitSlideOffset: number; // Glissement des secondaires vers le bas lors de la sortie (ex: 350)
+  exitEasing: EasingName; // Easing du retour
+  repulseReturnDelay: number; // Délai avant que la répulsion des voisins ne revienne à zéro (ex: 0.15s)
 };
 
 export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">, Omit<TransitionConfig, "preset">> = {
@@ -79,18 +91,26 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockScalePunch: 0.02,
     overlayExitDuration: 0.6,
     burstDelay: 0.35,
-    burstDuration: 1.0,
+    burstDuration: 0.8,
+    burstSlideOffset: 400,
+    burstRepulse: 40000,
+    burstEasing: "easeInOutCubic",
+    reelDuration: 1.6,
+    reelLoops: 3,
+    reelEasing: "easeInOutCubic",
+    dezoomDuration: 0.85,
+    dezoomEasing: "easeInOutCubic",
     burstZoom: 0.85,
     detailColumnRatio: 0.50,
     desktopMediaWidthRatio: 0.34,
     mobileMediaHeightRatio: 0.48,
     mediaGap: 32,
-    burstSlideOffset: 400,
     detailScrollDamping: 12,
     detailScrollSpeed: 1.0,
-    burstRepulse: 40000,
-    burstEasing: "easeInOutCubic",
-    repulseReturnDelay: 0.3,
+    exitDuration: 0.7,
+    exitSlideOffset: 350,
+    exitEasing: "easeInOutCubic",
+    repulseReturnDelay: 0.15,
   },
   snappy: {
     selectDuration: 0.5,
@@ -104,18 +124,26 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockScalePunch: 0.03,
     overlayExitDuration: 0.38,
     burstDelay: 0.12,
-    burstDuration: 0.6,
+    burstDuration: 0.5,
+    burstSlideOffset: 400,
+    burstRepulse: 40000,
+    burstEasing: "easeOutExpo",
+    reelDuration: 1.1,
+    reelLoops: 3,
+    reelEasing: "easeOutExpo",
+    dezoomDuration: 0.6,
+    dezoomEasing: "easeOutExpo",
     burstZoom: 0.90,
     detailColumnRatio: 0.50,
     desktopMediaWidthRatio: 0.34,
     mobileMediaHeightRatio: 0.48,
     mediaGap: 32,
-    burstSlideOffset: 400,
     detailScrollDamping: 14,
     detailScrollSpeed: 1.2,
-    burstRepulse: 40000,
-    burstEasing: "easeOutExpo",
-    repulseReturnDelay: 0.15,
+    exitDuration: 0.45,
+    exitSlideOffset: 300,
+    exitEasing: "easeOutExpo",
+    repulseReturnDelay: 0.1,
   },
   dramatic: {
     selectDuration: 0.9,
@@ -129,18 +157,26 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockScalePunch: 0.025,
     overlayExitDuration: 0.7,
     burstDelay: 0.4,
-    burstDuration: 1.2,
+    burstDuration: 1.0,
+    burstSlideOffset: 450,
+    burstRepulse: 50000,
+    burstEasing: "easeOutQuint",
+    reelDuration: 1.8,
+    reelLoops: 3,
+    reelEasing: "easeOutQuint",
+    dezoomDuration: 1.0,
+    dezoomEasing: "easeOutQuint",
     burstZoom: 0.80,
     detailColumnRatio: 0.50,
     desktopMediaWidthRatio: 0.36,
     mobileMediaHeightRatio: 0.50,
     mediaGap: 36,
-    burstSlideOffset: 450,
     detailScrollDamping: 10,
     detailScrollSpeed: 0.9,
-    burstRepulse: 50000,
-    burstEasing: "easeOutQuint",
-    repulseReturnDelay: 0.35,
+    exitDuration: 0.85,
+    exitSlideOffset: 400,
+    exitEasing: "easeOutQuint",
+    repulseReturnDelay: 0.2,
   },
 };
 
@@ -159,18 +195,28 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   lockScalePunch: 0.02,
   overlayExitDuration: 0.5,
   burstDelay: 0.25,
-  // 3. Transition vers artifact (Burst & Dezoom : 0.8s)
-  burstDuration: 0.8,
-  burstZoom: 0.85,
-  detailColumnRatio: 0.50,
+  // 3. Transition initiale & Apparition des médias (0.6s)
+  burstDuration: 0.6,
+  burstSlideOffset: 400,
+  burstRepulse: 40000,
+  burstEasing: "easeInQuad",
+  // 3b. Machine à sous 777 (3 tours : 1.4s)
+  reelDuration: 1.4,
+  reelLoops: 3,
+  reelEasing: "easeInOutCubic",
+  // 3c. Dézoom & Révélation Texte (0.75s)
+  dezoomDuration: 0.75,
+  dezoomEasing: "easeInOutCubic",
+  burstZoom: 1.8,
+  detailColumnRatio: 0.5,
   desktopMediaWidthRatio: 0.34,
   mobileMediaHeightRatio: 0.48,
   mediaGap: 32,
-  burstSlideOffset: 400,
   detailScrollDamping: 12,
-  detailScrollSpeed: 1.0,
-  burstRepulse: 35000,
-  burstEasing: "easeInOutCubic",
-  // 4. Retour vers la page de base
+  detailScrollSpeed: 1,
+  // 4. Retour vers la page de base (Exit / Return : 0.6s)
+  exitDuration: 0.6,
+  exitSlideOffset: 350,
+  exitEasing: "easeInOutCubic",
   repulseReturnDelay: 0.25,
 };

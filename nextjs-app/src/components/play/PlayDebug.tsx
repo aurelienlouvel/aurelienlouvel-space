@@ -1,21 +1,23 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, type RefObject } from "react";
 import { useControls, folder, buttonGroup, Leva } from "leva";
 import { toast } from "sonner";
 import {
   type PlayDebugRef,
   type PlayDebugState,
+  type PlayRuntimeState,
   type WaveDirection,
 } from "./PlayCanvas";
 import type { LayoutStats } from "./layout-types";
+import type { ArtifactDetail } from "@/sanity/queries";
 import {
   TRANSITION_PRESETS,
   type TransitionPresetName,
   type EasingName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v20";
+const STORAGE_KEY = "play-debug-v21";
 const VISIBILITY_STORAGE_KEY = "play-debug-visibility-v1";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -500,6 +502,11 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
             "Media height % (mobile)": p.mobileMediaHeightRatio,
             "Burst repulsion": p.burstRepulse,
             "Burst easing": p.burstEasing,
+            "Reel duration (s)": p.reelDuration,
+            "Reel loops": p.reelLoops,
+            "Reel easing": p.reelEasing,
+            "Dezoom duration (s)": p.dezoomDuration,
+            "Dezoom easing": p.dezoomEasing,
             "Repulsion return delay (s)": p.repulseReturnDelay,
           });
         }
@@ -681,6 +688,57 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
       },
       { collapsed: true },
     ),
+    "3b. 🎰 Reel Spin (777)": folder(
+      {
+        "Reel duration (s)": {
+          value: state.current.transition.reelDuration ?? 1.4,
+          min: 0.3,
+          max: 4.0,
+          step: 0.05,
+          onChange: (v: number) => {
+            state.current.transition.reelDuration = v;
+          },
+        },
+        "Reel loops": {
+          value: state.current.transition.reelLoops ?? 3,
+          min: 1,
+          max: 8,
+          step: 1,
+          onChange: (v: number) => {
+            state.current.transition.reelLoops = v;
+          },
+        },
+        "Reel easing": {
+          value: state.current.transition.reelEasing ?? "easeInOutCubic",
+          options: EASING_OPTIONS,
+          onChange: (v: string) => {
+            state.current.transition.reelEasing = v as EasingName;
+          },
+        },
+      },
+      { collapsed: true },
+    ),
+    "3c. 🔍 Dezoom & Layout": folder(
+      {
+        "Dezoom duration (s)": {
+          value: state.current.transition.dezoomDuration ?? 0.75,
+          min: 0.2,
+          max: 3.0,
+          step: 0.05,
+          onChange: (v: number) => {
+            state.current.transition.dezoomDuration = v;
+          },
+        },
+        "Dezoom easing": {
+          value: state.current.transition.dezoomEasing ?? "easeInOutCubic",
+          options: EASING_OPTIONS,
+          onChange: (v: string) => {
+            state.current.transition.dezoomEasing = v as EasingName;
+          },
+        },
+      },
+      { collapsed: true },
+    ),
     "4. Return to Page": folder(
       {
         "Repulsion return delay (s)": {
@@ -711,98 +769,262 @@ function ArtifactDetailsSection({
   state,
   onSimulateSelect,
   onResetTransition,
+  runtime,
+  selectedArtifact,
+  apiStatus = "idle",
+  onCloseDetail,
 }: {
   state: PlayDebugRef;
   onSimulateSelect: () => void;
   onResetTransition: () => void;
+  runtime?: RefObject<PlayRuntimeState>;
+  selectedArtifact?: ArtifactDetail | null;
+  apiStatus?: "idle" | "fetching" | "ready" | "error";
+  onCloseDetail?: () => void;
 }) {
-  useControls("artifact-details", () => ({
-    actions: buttonGroup({
-      "▶ Open Detail": onSimulateSelect,
-      "⏹ Return to Canvas": onResetTransition,
+  const [, set] = useControls(
+    "artifact-details",
+    () => ({
+      Actions: buttonGroup({
+        "▶ Enter Detail": onSimulateSelect,
+        "◀ Exit Detail": () => (onCloseDetail ? onCloseDetail() : onResetTransition()),
+        "🔄 Force Reset": onResetTransition,
+      }),
+      "Status Monitor": folder(
+        {
+          Phase: {
+            value: "idle",
+            editable: false,
+          },
+          "Target Slug": {
+            value: "none",
+            editable: false,
+          },
+          "API Status": {
+            value: "idle",
+            editable: false,
+          },
+          "Media Count": {
+            value: 1,
+            editable: false,
+          },
+          "Scroll Y": {
+            value: 0,
+            editable: false,
+          },
+        },
+        { collapsed: false },
+      ),
+      "Column Layout": folder(
+        {
+          "Width % (desktop)": {
+            value: state.current.transition.desktopMediaWidthRatio ?? 0.34,
+            min: 0.15,
+            max: 0.65,
+            step: 0.01,
+            onChange: (v: number) => {
+              state.current.transition.desktopMediaWidthRatio = v;
+            },
+          },
+          "Height % (mobile)": {
+            value: state.current.transition.mobileMediaHeightRatio ?? 0.48,
+            min: 0.2,
+            max: 0.8,
+            step: 0.01,
+            onChange: (v: number) => {
+              state.current.transition.mobileMediaHeightRatio = v;
+            },
+          },
+          "Column center X ratio": {
+            value: state.current.transition.detailColumnRatio ?? 0.5,
+            min: 0.2,
+            max: 0.8,
+            step: 0.01,
+            onChange: (v: number) => {
+              state.current.transition.detailColumnRatio = v;
+            },
+          },
+          "Media gap (px)": {
+            value: state.current.transition.mediaGap ?? 32,
+            min: 0,
+            max: 120,
+            step: 2,
+            onChange: (v: number) => {
+              state.current.transition.mediaGap = v;
+            },
+          },
+          "Camera zoom in detail": {
+            value: state.current.transition.burstZoom ?? 1.8,
+            min: 0.4,
+            max: 2.5,
+            step: 0.02,
+            onChange: (v: number) => {
+              state.current.transition.burstZoom = v;
+            },
+          },
+          "Scroll damping (lerp)": {
+            value: state.current.transition.detailScrollDamping ?? 12,
+            min: 2,
+            max: 30,
+            step: 1,
+            onChange: (v: number) => {
+              state.current.transition.detailScrollDamping = v;
+            },
+          },
+          "Scroll speed multiplier": {
+            value: state.current.transition.detailScrollSpeed ?? 1.0,
+            min: 0.2,
+            max: 3.0,
+            step: 0.1,
+            onChange: (v: number) => {
+              state.current.transition.detailScrollSpeed = v;
+            },
+          },
+        },
+        { collapsed: false },
+      ),
+      "Enter Animation": folder(
+        {
+          "Entrance duration (s)": {
+            value: state.current.transition.burstDuration ?? 0.8,
+            min: 0.2,
+            max: 3.0,
+            step: 0.05,
+            onChange: (v: number) => {
+              state.current.transition.burstDuration = v;
+            },
+          },
+          "Entrance slide-in offset (px)": {
+            value: state.current.transition.burstSlideOffset ?? 400,
+            min: 0,
+            max: 1200,
+            step: 20,
+            onChange: (v: number) => {
+              state.current.transition.burstSlideOffset = v;
+            },
+          },
+          "Entrance easing": {
+            value: state.current.transition.burstEasing ?? "easeOutQuint",
+            options: EASING_OPTIONS,
+            onChange: (v: EasingName) => {
+              state.current.transition.burstEasing = v;
+            },
+          },
+        },
+        { collapsed: false },
+      ),
+      "🎰 777 Slot Machine Reel": folder(
+        {
+          "Reel duration (s)": {
+            value: state.current.transition.reelDuration ?? 1.4,
+            min: 0.3,
+            max: 4.0,
+            step: 0.05,
+            onChange: (v: number) => {
+              state.current.transition.reelDuration = v;
+            },
+          },
+          "Reel loops": {
+            value: state.current.transition.reelLoops ?? 3,
+            min: 1,
+            max: 8,
+            step: 1,
+            onChange: (v: number) => {
+              state.current.transition.reelLoops = v;
+            },
+          },
+          "Reel easing": {
+            value: state.current.transition.reelEasing ?? "easeInOutCubic",
+            options: EASING_OPTIONS,
+            onChange: (v: string) => {
+              state.current.transition.reelEasing = v as EasingName;
+            },
+          },
+        },
+        { collapsed: false },
+      ),
+      "🔍 Dezoom & Reveal": folder(
+        {
+          "Dezoom duration (s)": {
+            value: state.current.transition.dezoomDuration ?? 0.75,
+            min: 0.2,
+            max: 3.0,
+            step: 0.05,
+            onChange: (v: number) => {
+              state.current.transition.dezoomDuration = v;
+            },
+          },
+          "Dezoom easing": {
+            value: state.current.transition.dezoomEasing ?? "easeInOutCubic",
+            options: EASING_OPTIONS,
+            onChange: (v: string) => {
+              state.current.transition.dezoomEasing = v as EasingName;
+            },
+          },
+        },
+        { collapsed: false },
+      ),
+      "Exit Animation": folder(
+        {
+          "Exit duration (s)": {
+            value: state.current.transition.exitDuration ?? 0.6,
+            min: 0.2,
+            max: 3.0,
+            step: 0.05,
+            onChange: (v: number) => {
+              state.current.transition.exitDuration = v;
+            },
+          },
+          "Exit slide-out offset (px)": {
+            value: state.current.transition.exitSlideOffset ?? 350,
+            min: 0,
+            max: 1200,
+            step: 20,
+            onChange: (v: number) => {
+              state.current.transition.exitSlideOffset = v;
+            },
+          },
+          "Exit easing": {
+            value: state.current.transition.exitEasing ?? "easeInOutCubic",
+            options: EASING_OPTIONS,
+            onChange: (v: EasingName) => {
+              state.current.transition.exitEasing = v;
+            },
+          },
+          "Repulse return delay (s)": {
+            value: state.current.transition.repulseReturnDelay ?? 0.25,
+            min: 0,
+            max: 1.0,
+            step: 0.05,
+            onChange: (v: number) => {
+              state.current.transition.repulseReturnDelay = v;
+            },
+          },
+        },
+        { collapsed: false },
+      ),
     }),
-    "Width % (desktop)": {
-      value: state.current.transition.desktopMediaWidthRatio ?? 0.34,
-      min: 0.15,
-      max: 0.65,
-      step: 0.01,
-      onChange: (v: number) => {
-        state.current.transition.desktopMediaWidthRatio = v;
-      },
-    },
-    "Height % (mobile)": {
-      value: state.current.transition.mobileMediaHeightRatio ?? 0.48,
-      min: 0.20,
-      max: 0.80,
-      step: 0.01,
-      onChange: (v: number) => {
-        state.current.transition.mobileMediaHeightRatio = v;
-      },
-    },
-    "Column center X ratio": {
-      value: state.current.transition.detailColumnRatio ?? 0.50,
-      min: 0.20,
-      max: 0.80,
-      step: 0.01,
-      onChange: (v: number) => {
-        state.current.transition.detailColumnRatio = v;
-      },
-    },
-    "Media gap (px)": {
-      value: state.current.transition.mediaGap ?? 32,
-      min: 0,
-      max: 120,
-      step: 2,
-      onChange: (v: number) => {
-        state.current.transition.mediaGap = v;
-      },
-    },
-    "Slide-in offset (px)": {
-      value: state.current.transition.burstSlideOffset ?? 400,
-      min: 0,
-      max: 1200,
-      step: 20,
-      onChange: (v: number) => {
-        state.current.transition.burstSlideOffset = v;
-      },
-    },
-    "Camera zoom in detail": {
-      value: state.current.transition.burstZoom ?? 0.85,
-      min: 0.40,
-      max: 1.80,
-      step: 0.02,
-      onChange: (v: number) => {
-        state.current.transition.burstZoom = v;
-      },
-    },
-    "Entrance duration (s)": {
-      value: state.current.transition.burstDuration ?? 0.8,
-      min: 0.2,
-      max: 3.0,
-      step: 0.05,
-      onChange: (v: number) => {
-        state.current.transition.burstDuration = v;
-      },
-    },
-    "Scroll damping (lerp)": {
-      value: state.current.transition.detailScrollDamping ?? 12,
-      min: 2,
-      max: 30,
-      step: 1,
-      onChange: (v: number) => {
-        state.current.transition.detailScrollDamping = v;
-      },
-    },
-    "Scroll speed multiplier": {
-      value: state.current.transition.detailScrollSpeed ?? 1.0,
-      min: 0.2,
-      max: 3.0,
-      step: 0.1,
-      onChange: (v: number) => {
-        state.current.transition.detailScrollSpeed = v;
-      },
-    },
-  }));
+    [],
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (runtime?.current) {
+        const curPhase = runtime.current.transition.phase;
+        const curScroll = Math.round(runtime.current.transition.columnScrollY || 0);
+        const slug = selectedArtifact?.slug ?? (curPhase === "idle" ? "none" : "...");
+        const mediaCount = selectedArtifact?.gallery?.length ? selectedArtifact.gallery.length + 1 : 1;
+        set({
+          Phase: curPhase,
+          "Target Slug": slug,
+          "API Status": apiStatus,
+          "Media Count": mediaCount,
+          "Scroll Y": curScroll,
+        });
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [runtime, selectedArtifact, apiStatus, set]);
 
   return null;
 }
@@ -1280,6 +1502,10 @@ export function PlayDebug({
   onReplayLock,
   onSimulateSelect,
   onResetTransition,
+  runtime,
+  selectedArtifact,
+  apiStatus = "idle",
+  onCloseDetail,
 }: {
   state: PlayDebugRef;
   stats?: LayoutStats;
@@ -1287,6 +1513,10 @@ export function PlayDebug({
   onReplayLock: () => void;
   onSimulateSelect: () => void;
   onResetTransition: () => void;
+  runtime?: RefObject<PlayRuntimeState>;
+  selectedArtifact?: ArtifactDetail | null;
+  apiStatus?: "idle" | "fetching" | "ready" | "error";
+  onCloseDetail?: () => void;
 }) {
   const initializedRef = useRef<boolean | null>(null);
   if (initializedRef.current == null) {
@@ -1365,6 +1595,10 @@ export function PlayDebug({
           state={state}
           onSimulateSelect={onSimulateSelect}
           onResetTransition={onResetTransition}
+          runtime={runtime}
+          selectedArtifact={selectedArtifact}
+          apiStatus={apiStatus}
+          onCloseDetail={onCloseDetail}
         />
       )}
       {visibility.transition && <TransitionSection state={state} />}

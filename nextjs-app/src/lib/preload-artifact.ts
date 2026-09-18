@@ -30,7 +30,7 @@ export function preloadArtifact(
       const data: ArtifactDetail = await res.json();
       artifactDataCache.set(slug, data);
 
-      // Preload gallery media assets into browser cache
+      // Preload gallery media assets into browser cache & three.js texture cache
       if (Array.isArray(data.gallery)) {
         for (const item of data.gallery) {
           if (item._type === "galleryImage" && item.imageRef) {
@@ -38,12 +38,14 @@ export function preloadArtifact(
               width: 1400,
             });
             const img = new Image();
+            img.crossOrigin = "anonymous";
             img.src = url;
             preloadedElements.add(img);
           } else if (item._type === "galleryVideo") {
             const videoUrl = item.videoUrl || fileRefToUrl(item.videoRef);
             if (videoUrl) {
               const video = document.createElement("video");
+              video.crossOrigin = "anonymous";
               video.preload = "auto";
               video.src = videoUrl;
               video.load();

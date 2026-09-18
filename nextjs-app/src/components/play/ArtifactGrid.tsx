@@ -23,6 +23,19 @@ import { ArtifactPlane } from "./ArtifactPlane";
  */
 const COPIES = 9;
 
+/** Modifie le curseur sur le body et le canvas pour un support cross-browser complet */
+export function setAppCursor(cursor: "pointer" | "auto" | "default" | "grabbing") {
+  if (typeof document !== "undefined") {
+    if (document.body.style.cursor !== cursor) {
+      document.body.style.cursor = cursor;
+    }
+    const canvas = document.querySelector("canvas");
+    if (canvas && canvas.style.cursor !== cursor) {
+      canvas.style.cursor = cursor;
+    }
+  }
+}
+
 /**
  * Applique un changement de survol à l'état runtime déjà déréférencé (`rc`
  * n'est pas une ref/prop, fonction top-level pour respecter `react-hooks/immutability`).
@@ -36,20 +49,20 @@ function applyHover(
   height: number,
   hovering: boolean,
 ) {
-  if (rc.transition.phase !== "idle") return;
+  if (rc.transition.phase !== "idle") {
+    setAppCursor("auto");
+    return;
+  }
   if (hovering) {
     rc.hovered = pointIndex;
+    rc.selected = pointIndex;
+    rc.selectedPos = world;
     rc.indicatorTarget = { x: world.x, y: world.y, width, height };
+    setAppCursor("pointer");
   } else {
-    rc.hovered = null;
-    const selected = points[rc.selected];
-    if (selected) {
-      rc.indicatorTarget = {
-        x: rc.selectedPos.x,
-        y: rc.selectedPos.y,
-        width: selected.width,
-        height: selected.height,
-      };
+    if (rc.hovered === pointIndex) {
+      rc.hovered = null;
+      setAppCursor("auto");
     }
   }
 }
@@ -113,6 +126,8 @@ function stepKinematicMeshes(
 
   const isSelecting = rc.transition.phase === "selecting" || rc.transition.phase === "lock";
   const isBursting = rc.transition.phase === "burst";
+  const isReeling = rc.transition.phase === "reel";
+  const isDezooming = rc.transition.phase === "dezoom";
   const isIsolated = rc.transition.phase === "isolated";
   const isReturning = rc.transition.phase === "returning";
   const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
@@ -127,10 +142,9 @@ function stepKinematicMeshes(
     targetD = transition.selectRepulse * repulseProgress;
   } else if (isBursting) {
     targetD = transition.selectRepulse + (maxD - transition.selectRepulse) * rc.transition.easedBurstProgress;
-  } else if (isIsolated) {
+  } else if (isReeling || isDezooming || isIsolated) {
     targetD = maxD;
   } else if (isReturning) {
-    rc.transition.returnTimer += delta;
     const returnDelay = Math.max(0, transition.repulseReturnDelay);
     if (rc.transition.returnTimer < returnDelay) {
       targetD = maxD;
@@ -144,13 +158,7 @@ function stepKinematicMeshes(
   // Amortissement propre vers targetD (rapide et direct en transition, fluide au retour)
   const dampSpeed = (rc.transition.phase === "idle" || isReturning) ? Math.max(8, phys.damping) : 24;
   displacementRef.current = dampTowards(displacementRef.current, targetD, dampSpeed, delta);
-  if (isReturning && targetD === 0 && Math.abs(displacementRef.current) < 0.5) {
-    displacementRef.current = 0;
-    rc.transition.phase = "idle";
-    rc.transition.targetIndex = -1;
-    rc.repulsor.active = false;
-    rc.repulsor.pointIndex = -1;
-  } else if (rc.transition.phase === "idle" && Math.abs(displacementRef.current) < 0.05) {
+  if (rc.transition.phase === "idle" && Math.abs(displacementRef.current) < 0.05) {
     displacementRef.current = 0;
   }
   const currentD = displacementRef.current;
@@ -217,14 +225,16 @@ function stepKinematicMeshes(
         let targetOpacity = 1;
         if (isBursting) {
           targetOpacity = Math.max(0, 1 - rc.transition.easedBurstProgress);
-        } else if (isIsolated) {
+        } else if (isReeling || isDezooming || isIsolated) {
           targetOpacity = 0;
         } else if (isReturning) {
           const returnDelay = Math.max(0, transition.repulseReturnDelay);
+          const exitDur = Math.max(0.2, transition.exitDuration ?? 0.6);
           if (rc.transition.returnTimer < returnDelay) {
             targetOpacity = 0;
           } else {
-            targetOpacity = Math.min(1, (rc.transition.returnTimer - returnDelay) / 0.35);
+            const fadeDur = Math.max(0.1, exitDur - returnDelay);
+            targetOpacity = Math.min(1, (rc.transition.returnTimer - returnDelay) / fadeDur);
           }
         }
         mat.opacity = dampTowards(mat.opacity, targetOpacity, dampSpeed, delta);
@@ -331,7 +341,10 @@ export function ArtifactGrid({
     height: number,
     hovering: boolean,
   ) {
-    if (hovering && dragMoved.current) return;
+    if (hovering && dragMoved.current) {
+      setAppCursor("grabbing");
+      return;
+    }
     applyHover(runtime.current, points, pointIndex, world, width, height, hovering);
   }
 

@@ -206,9 +206,16 @@ export function FocusIndicator({
     const target = runtime.current.indicatorTarget;
     const tr = runtime.current.transition;
 
-    // En burst, isolé ou pendant le délai de retour, les brackets restent éteints
-    const isReturningDelayed = tr.phase === "returning" && tr.returnTimer < transition.repulseReturnDelay;
-    if (tr.phase === "burst" || tr.phase === "isolated" || isReturningDelayed) {
+    // Les brackets ne s'affichent QUE sur la grille (idle, selecting, lock).
+    // Pendant burst, reel (rouleau 777), dezoom, isolated ou returning, ils sont STRICTEMENT masqués.
+    const isDetailActive =
+      tr.phase === "burst" ||
+      tr.phase === "reel" ||
+      tr.phase === "dezoom" ||
+      tr.phase === "isolated" ||
+      tr.phase === "returning";
+
+    if (isDetailActive) {
       mesh.visible = false;
       opacityRef.current = 0;
       return;
