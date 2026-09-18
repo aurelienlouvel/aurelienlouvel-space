@@ -120,8 +120,9 @@ type ArtifactPlaneProps = {
  * le reste (taille, position, survol, clic, découpe du shader) à
  * `ArtifactPlaneMesh`, strictement identique quel que soit le média.
  */
-export function ArtifactPlane({ kind, ...rest }: ArtifactPlaneProps) {
-  return kind === "video" ? <ArtifactPlaneVideo {...rest} /> : <ArtifactPlaneImage {...rest} />;
+export function ArtifactPlane({ kind, url, ...rest }: ArtifactPlaneProps) {
+  if (!url) return null;
+  return kind === "video" ? <ArtifactPlaneVideo url={url} {...rest} /> : <ArtifactPlaneImage url={url} {...rest} />;
 }
 
 type ArtifactPlaneMediaProps = Omit<ArtifactPlaneProps, "kind">;
@@ -171,14 +172,21 @@ function ArtifactPlaneMesh({
   useFrame(() => {
     const uniforms = uniformsOf<PlaneUniforms>(materialRef.current);
     if (uniforms) {
-      uniforms.uSize.value.set(width, height);
-      uniforms.uRadius.value = clampRadius(debug.current.plane.radius, width, height);
+      const rawSx = localMeshRef.current ? localMeshRef.current.scale.x : width;
+      const rawSy = localMeshRef.current ? localMeshRef.current.scale.y : height;
+      const sx = Math.max(1, rawSx);
+      const sy = Math.max(1, rawSy);
+      uniforms.uSize.value.set(sx, sy);
+      uniforms.uRadius.value = clampRadius(debug.current.plane.radius, sx, sy);
     }
   });
 
   function worldPosition() {
+    const mesh = localMeshRef.current;
+    if (!mesh) return { x, y };
+    mesh.updateWorldMatrix(true, false);
     const vector = new Vector3();
-    localMeshRef.current?.getWorldPosition(vector);
+    mesh.getWorldPosition(vector);
     return { x: vector.x, y: vector.y };
   }
 
@@ -192,8 +200,22 @@ function ArtifactPlaneMesh({
       ref={handleRef}
       position={[x, y, 0]}
       scale={[width, height, 1]}
-      onPointerOver={() => onHoverChange(true, worldPosition())}
-      onPointerOut={() => onHoverChange(false, worldPosition())}
+      onPointerEnter={(e) => {
+        e.stopPropagation();
+        onHoverChange(true, worldPosition());
+      }}
+      onPointerLeave={(e) => {
+        e.stopPropagation();
+        onHoverChange(false, worldPosition());
+      }}
+      onPointerOver={(e) => {
+        e.stopPropagation();
+        onHoverChange(true, worldPosition());
+      }}
+      onPointerOut={(e) => {
+        e.stopPropagation();
+        onHoverChange(false, worldPosition());
+      }}
       onPointerDown={(e) => {
         const btn = e.button ?? e.nativeEvent?.button;
         if (btn === 0) {

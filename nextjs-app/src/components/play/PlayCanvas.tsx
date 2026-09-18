@@ -9,13 +9,25 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { AnimatePresence, motion } from "motion/react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Calendar02Icon } from "@hugeicons/core-free-icons";
+import { Canvas, events, useFrame } from "@react-three/fiber";
+import { Stats, useTexture } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
+import { useActionBar } from "@/contexts/ActionBarContext";
+import { preloadArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
-import type { PlayArtifact } from "@/sanity/queries";
-import { ArtifactGrid } from "./ArtifactGrid";
+import { fileRefToUrl } from "@/lib/sanity-utils";
+import type { PlayArtifact, ArtifactDetail, Mate } from "@/sanity/queries";
+import { Tag } from "@/components/primitives/Tag";
+import { MatesBlock } from "@/components/blocks/MatesBlock";
+import { formatDateRange } from "@/lib/date-utils";
+import { ArtifactGrid, setAppCursor } from "./ArtifactGrid";
+import { SecondaryGalleryPlanes } from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
 import { dampTowards } from "./damp";
+import { FisheyeEffect } from "./FisheyeEffect";
 import { FocusIndicator } from "./FocusIndicator";
 import {
   buildGravityTile,
@@ -63,6 +75,60 @@ export const PHYSICS_DEFAULTS: PhysicsParams = {
   mass: 1,
 };
 
+export type FisheyeParams = {
+  enabled: boolean;
+  strength: number;
+};
+
+export const FISHEYE_DEFAULTS: FisheyeParams = {
+  enabled: true,
+  strength: 0.032,
+};
+
+export type WaveDirection =
+  | "bottom-to-top"
+  | "top-to-bottom"
+  | "left-to-right"
+  | "right-to-left"
+  | "bl-to-tr"
+  | "tl-to-br";
+
+export type SelectOverlayParams = {
+  direction: WaveDirection;
+  crestSoftness: number;
+  waveAmplitude: number;
+  waveFrequency: number;
+  waveSpeed: number;
+  iridescence: number;
+  baseOpacity: number;
+  glowIntensity: number;
+};
+
+export const OVERLAY_DEFAULTS: SelectOverlayParams = {
+  direction: "tl-to-br",
+  crestSoftness: 0.24,
+  waveAmplitude: 0.06,
+  waveFrequency: 6,
+  waveSpeed: 2.6,
+  iridescence: 0.64,
+  baseOpacity: 0.64,
+  glowIntensity: 0.6,
+};
+
+export type AnimationStudioParams = {
+  speed: number;
+  loopLock: boolean;
+  scrubMode: boolean;
+  scrubProgress: number;
+};
+
+export const STUDIO_DEFAULTS: AnimationStudioParams = {
+  speed: 1.0,
+  loopLock: false,
+  scrubMode: false,
+  scrubProgress: 0,
+};
+
 export type PlayDebugState = {
   plane: { radius: number };
   brackets: {
@@ -79,6 +145,9 @@ export type PlayDebugState = {
   pan: { dragThreshold: number; velocityWindowMs: number; friction: number };
   physics: PhysicsParams;
   transition: TransitionConfig;
+  fisheye: FisheyeParams;
+  overlay: SelectOverlayParams;
+  studio: AnimationStudioParams;
 };
 
 export type PlayDebugRef = RefObject<PlayDebugState>;
@@ -104,14 +173,35 @@ export type PlayRuntimeState = {
     y: number;
   };
   transition: {
-    phase: "idle" | "selecting" | "burst" | "isolated";
+    phase:
+      | "idle"
+      | "selecting"
+      | "lock"
+      | "burst"
+      | "reel"
+      | "dezoom"
+      | "isolated"
+      | "returning";
     selectProgress: number;
     easedSelectProgress: number;
+    lockTimer: number;
+    lockProgress: number;
     burstProgress: number;
     easedBurstProgress: number;
+    reelTimer: number;
+    reelProgress: number;
+    easedReelProgress: number;
+    dezoomTimer: number;
+    dezoomProgress: number;
+    easedDezoomProgress: number;
+    returnTimer: number;
+    returnProgress: number;
+    easedReturnProgress: number;
     targetIndex: number;
     holding: boolean;
     trigger: "pointer" | "key" | null;
+    columnScrollY: number;
+    targetColumnScrollY: number;
   };
 };
 
@@ -122,10 +212,6 @@ export function applyPointerDown(
   pointIndex: number,
   canonicalPos: { x: number; y: number },
 ) {
-  if (rc.transition.phase === "isolated") {
-    applyResetTransition(rc);
-    return;
-  }
   if (rc.transition.phase !== "idle") return;
 
   rc.repulsor.active = true;
@@ -138,6 +224,9 @@ export function applyPointerDown(
   rc.transition.trigger = "pointer";
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
+  rc.transition.lockTimer = 0;
+  rc.transition.lockProgress = 0;
+  rc.transition.returnTimer = 0;
 }
 
 export function applyPointerUp(rc: PlayRuntimeState) {
@@ -148,12 +237,41 @@ export function applyPointerUp(rc: PlayRuntimeState) {
 }
 
 export function applyResetTransition(rc: PlayRuntimeState) {
+  rc.transition.targetColumnScrollY = 0;
+  setAppCursor("auto");
+  if (
+    rc.transition.phase === "isolated" ||
+    rc.transition.phase === "burst" ||
+    rc.transition.phase === "reel" ||
+    rc.transition.phase === "dezoom"
+  ) {
+    rc.transition.phase = "returning";
+    rc.transition.returnTimer = 0;
+    rc.transition.returnProgress = 0;
+    rc.transition.easedReturnProgress = 0;
+    rc.transition.holding = false;
+    rc.transition.trigger = null;
+    rc.camera.mode = "settle";
+    return;
+  }
   rc.transition.phase = "idle";
+  rc.transition.columnScrollY = 0;
   rc.transition.holding = false;
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
+  rc.transition.lockTimer = 0;
+  rc.transition.lockProgress = 0;
   rc.transition.burstProgress = 0;
   rc.transition.easedBurstProgress = 0;
+  rc.transition.reelTimer = 0;
+  rc.transition.reelProgress = 0;
+  rc.transition.easedReelProgress = 0;
+  rc.transition.dezoomTimer = 0;
+  rc.transition.dezoomProgress = 0;
+  rc.transition.easedDezoomProgress = 0;
+  rc.transition.returnTimer = 0;
+  rc.transition.returnProgress = 0;
+  rc.transition.easedReturnProgress = 0;
   rc.transition.trigger = null;
   rc.transition.targetIndex = -1;
   rc.repulsor.active = false;
@@ -165,7 +283,7 @@ function applyKeyDownEnter(
   rc: PlayRuntimeState,
   points: readonly { x: number; y: number }[],
 ) {
-  if (rc.transition.phase === "isolated") {
+  if (rc.transition.phase === "isolated" || rc.transition.phase === "returning") {
     applyResetTransition(rc);
     return;
   }
@@ -183,6 +301,8 @@ function applyKeyDownEnter(
   rc.transition.trigger = "key";
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
+  rc.transition.lockTimer = 0;
+  rc.transition.lockProgress = 0;
   rc.camera.mode = "settle";
   rc.camera.targetX = rc.selectedPos.x;
   rc.camera.targetY = rc.selectedPos.y;
@@ -245,8 +365,8 @@ const BRACKET_THICKNESS = 4;
 const BRACKET_COLOR = "#a6a09b";
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
-const INDICATOR_FADE_SPEED = 14;
-const INDICATOR_MOVE_SPEED = 10;
+const INDICATOR_FADE_SPEED = 26;
+const INDICATOR_MOVE_SPEED = 6;
 
 // ── Ouverture — caméra ────────────────────────────────────────────────────
 const CAMERA_ZOOM = 0.8;
@@ -287,26 +407,38 @@ function stepCamera(
   baseZoom: number,
   config: TransitionConfig,
   delta: number,
+  studio?: AnimationStudioParams,
+  screenSize?: { width: number; height: number },
+  onBurstComplete?: () => void,
+  onReturnComplete?: () => void,
 ) {
+  const speed = studio?.speed ?? 1.0;
+  const effDelta = delta * speed;
   const tr = rc.transition;
 
-  // ── Temps 1 : Sélection progressive maintenue (Hold to Select) ─────────
+  // ── Temps 1 : Progression du select (Hold to Select) ───────────────────
   if (tr.phase === "selecting") {
     if (tr.holding) {
       tr.selectProgress = Math.min(
         1,
-        tr.selectProgress + delta / Math.max(0.1, config.selectDuration),
+        tr.selectProgress + effDelta / Math.max(0.1, config.selectDuration),
       );
       if (tr.selectProgress >= 1) {
         tr.selectProgress = 1;
-        tr.phase = "burst";
-        tr.burstProgress = 0;
-        tr.easedBurstProgress = 0;
+        if (config.lockDuration > 0.01 || config.burstDelay > 0.01) {
+          tr.phase = "lock";
+          tr.lockTimer = 0;
+          tr.lockProgress = 0;
+        } else {
+          tr.phase = "burst";
+          tr.burstProgress = 0;
+          tr.easedBurstProgress = 0;
+        }
       }
     } else {
       tr.selectProgress = Math.max(
         0,
-        tr.selectProgress - delta / Math.max(0.05, config.selectDuration * 0.4),
+        tr.selectProgress - effDelta / Math.max(0.05, config.selectDuration * 0.4),
       );
       if (tr.selectProgress <= 0.02) {
         tr.selectProgress = 0;
@@ -318,60 +450,217 @@ function stepCamera(
     tr.easedSelectProgress = evaluateEasing(config.selectEasing, tr.selectProgress);
 
     const targetZoom = baseZoom * (1 + (config.selectZoom - 1) * tr.easedSelectProgress);
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
-  // ── Temps 2 : Explosion / Burst (Maxi zoom + Maxi répulsion) ───────────
+  // ── Temps 2 : Animation de select (Lock confirmation & délai pré-burst) ─
+  if (tr.phase === "lock") {
+    if (studio?.scrubMode) {
+      tr.lockProgress = Math.min(1, Math.max(0, studio.scrubProgress));
+      tr.lockTimer = tr.lockProgress * Math.max(0.01, config.lockDuration);
+    } else {
+      tr.lockTimer += effDelta;
+      tr.lockProgress = Math.min(1, tr.lockTimer / Math.max(0.01, config.lockDuration));
+      const totalLockTime = Math.max(0.01, config.lockDuration) + Math.max(0, config.burstDelay);
+      if (tr.lockTimer >= totalLockTime) {
+        if (studio?.loopLock) {
+          tr.lockTimer = 0;
+          tr.lockProgress = 0;
+        } else {
+          tr.phase = "burst";
+          tr.burstProgress = 0;
+          tr.easedBurstProgress = 0;
+        }
+      }
+    }
+
+    const targetZoom = baseZoom * config.selectZoom;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
+    return;
+  }
+
+  // ── Temps 3 : Transition vers la vue détail (Burst & Centrage sur M0) ───
   if (tr.phase === "burst") {
     tr.burstProgress = Math.min(
       1,
-      tr.burstProgress + delta / Math.max(0.1, config.burstDuration),
+      tr.burstProgress + effDelta / Math.max(0.1, config.burstDuration),
     );
     tr.easedBurstProgress = evaluateEasing(config.burstEasing, tr.burstProgress);
     if (tr.burstProgress >= 1) {
       tr.burstProgress = 1;
-      tr.phase = "isolated";
+      tr.phase = "reel";
+      tr.reelTimer = 0;
+      tr.reelProgress = 0;
+      tr.easedReelProgress = 0;
     }
 
+    // Le zoom reste au zoom de base (pas de dézoom anticipé)
     const startZoom = baseZoom * config.selectZoom;
-    const endZoom = baseZoom * config.burstZoom;
-    const targetZoom = startZoom + (endZoom - startZoom) * tr.easedBurstProgress;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    const targetZoom = startZoom + (baseZoom - startZoom) * tr.easedBurstProgress;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    // Caméra maintenue STRICTEMENT au centre sur le média principal
+    camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
-  // ── Mode Isolé (Maintenu centré et zoomé jusqu'à Escape / Clic) ─────────
-  if (tr.phase === "isolated") {
-    const targetZoom = baseZoom * config.burstZoom;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+  // ── Temps 3b : Machine à sous 777 (Reel Spin - 3 tours complets au centre) ──
+  if (tr.phase === "reel") {
+    const reelDur = Math.max(0.2, config.reelDuration ?? 1.4);
+    tr.reelTimer += effDelta;
+    tr.reelProgress = Math.min(1, tr.reelTimer / reelDur);
+    tr.easedReelProgress = evaluateEasing(config.reelEasing ?? "easeInOutCubic", tr.reelProgress);
+
+    if (tr.reelProgress >= 1) {
+      tr.reelProgress = 1;
+      tr.phase = "dezoom";
+      tr.dezoomTimer = 0;
+      tr.dezoomProgress = 0;
+      tr.easedDezoomProgress = 0;
+      tr.columnScrollY = 0;
+      tr.targetColumnScrollY = 0;
+      onBurstComplete?.(); // Révélation du panneau texte dès l'amorce du dézoom
+    }
+
+    const targetZoom = baseZoom;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    // Caméra toujours centrée sur le média principal pendant les 3 tours
+    camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
+    return;
+  }
+
+  // ── Temps 3c : Dézoom et décalage horizontal vers la gauche (40% / 60%) ────
+  if (tr.phase === "dezoom") {
+    const dezoomDur = Math.max(0.2, config.dezoomDuration ?? 0.75);
+    tr.dezoomTimer += effDelta;
+    tr.dezoomProgress = Math.min(1, tr.dezoomTimer / dezoomDur);
+    tr.easedDezoomProgress = evaluateEasing(config.dezoomEasing ?? "easeInOutCubic", tr.dezoomProgress);
+
+    if (tr.dezoomProgress >= 1) {
+      tr.dezoomProgress = 1;
+      tr.phase = "isolated";
+    }
+
+    const startZoom = baseZoom;
+    const endZoom = baseZoom * config.burstZoom; // 0.85
+    const targetZoom = startZoom + (endZoom - startZoom) * tr.easedDezoomProgress;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    const screenW = screenSize?.width ?? 1920;
+    const screenH = screenSize?.height ?? 1080;
+    const isDesktop = screenW >= 1024 && screenW >= screenH;
+    const visibleW = screenW / Math.max(0.1, camera.zoom);
+    const colRatio = config.detailColumnRatio ?? 0.50;
+    const offsetRatio = 0.5 - colRatio * 0.5;
+
+    // Déplacement horizontal : le média principal passe du centre vers le centre de la colonne gauche
+    const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
+    const curTargetX = rc.selectedPos.x + (targetPosX - rc.selectedPos.x) * tr.easedDezoomProgress;
+    const targetPosY = rc.selectedPos.y;
+
+    camera.position.x = dampTowards(camera.position.x, curTargetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, targetPosY, CAMERA_SETTLE_SPEED, effDelta);
+    return;
+  }
+
+  // ── Mode Isolé (Maintenu centré à gauche avec dézoom et défilement colonne) ─
+  if (tr.phase === "isolated") {
+    const scrollDamping = config.detailScrollDamping ?? 12;
+    tr.columnScrollY = dampTowards(tr.columnScrollY, tr.targetColumnScrollY, scrollDamping, effDelta);
+
+    const targetZoom = baseZoom * config.burstZoom;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    const screenW = screenSize?.width ?? 1920;
+    const screenH = screenSize?.height ?? 1080;
+    const isDesktop = screenW >= 1024 && screenW >= screenH;
+    const visibleW = screenW / Math.max(0.1, camera.zoom);
+    const colRatio = config.detailColumnRatio ?? 0.50;
+    const offsetRatio = 0.5 - colRatio * 0.5;
+
+    const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
+    const targetPosY = rc.selectedPos.y;
+
+    camera.position.x = dampTowards(camera.position.x, targetPosX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, targetPosY, CAMERA_SETTLE_SPEED, effDelta);
+    return;
+  }
+
+  // ── Mode Retour vers la page de base (Exit / Return) ─────────────────
+  if (tr.phase === "returning") {
+    tr.targetColumnScrollY = 0;
+    tr.columnScrollY = dampTowards(tr.columnScrollY, 0, 16, effDelta);
+
+    const exitDur = Math.max(0.2, config.exitDuration ?? 0.6);
+    tr.returnTimer += effDelta;
+    const returnT = Math.min(1, tr.returnTimer / exitDur);
+    tr.returnProgress = returnT;
+    tr.easedReturnProgress = evaluateEasing(config.exitEasing ?? "easeInOutCubic", returnT);
+
+    const targetZoom = baseZoom;
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 10, effDelta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
+
+    if (returnT >= 1 && ((Math.abs(camera.zoom - baseZoom) < 0.01 && Math.abs(camera.position.x - rc.camera.targetX) < 2.0) || tr.returnTimer >= exitDur + 0.3)) {
+      camera.zoom = baseZoom;
+      camera.position.x = rc.camera.targetX;
+      camera.position.y = rc.camera.targetY;
+      camera.updateProjectionMatrix();
+      tr.phase = "idle";
+      tr.returnTimer = 0;
+      tr.returnProgress = 0;
+      tr.easedReturnProgress = 0;
+      tr.targetIndex = -1;
+      rc.repulsor.active = false;
+      rc.repulsor.pointIndex = -1;
+      onReturnComplete?.();
+    }
     return;
   }
 
   // ── Phase Idle : Retour au zoom de base et pan inertiel ────────────────
   if (Math.abs(camera.zoom - baseZoom) > 0.0005) {
-    camera.zoom = dampTowards(camera.zoom, baseZoom, 8, delta);
+    camera.zoom = dampTowards(camera.zoom, baseZoom, 8, effDelta);
     camera.updateProjectionMatrix();
   }
 
@@ -390,8 +679,8 @@ function stepCamera(
     camera.position.x = rc.camera.targetX;
     camera.position.y = rc.camera.targetY;
   } else {
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
   }
 }
 
@@ -399,10 +688,14 @@ function CameraRig({
   debug,
   runtime,
   velocity,
+  onBurstComplete,
+  onReturnComplete,
 }: {
   debug: PlayDebugRef;
   runtime: PlayRuntimeRef;
   velocity: RefObject<{ x: number; y: number }>;
+  onBurstComplete?: () => void;
+  onReturnComplete?: () => void;
 }) {
   useFrame((state, delta) => {
     stepCamera(
@@ -413,6 +706,10 @@ function CameraRig({
       debug.current.camera.zoom,
       debug.current.transition,
       delta,
+      debug.current.studio,
+      state.size,
+      onBurstComplete,
+      onReturnComplete,
     );
   });
 
@@ -440,13 +737,78 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     },
     physics: { ...PHYSICS_DEFAULTS },
     transition: { ...DEFAULT_TRANSITION_CONFIG },
+    fisheye: { ...FISHEYE_DEFAULTS },
+    overlay: { ...OVERLAY_DEFAULTS },
+    studio: { ...STUDIO_DEFAULTS },
   });
+
+  const runtime = useRef<PlayRuntimeState>({
+    selected: 0,
+    selectedPos: { x: 0, y: 0 },
+    hovered: null,
+    camera: { targetX: 0, targetY: 0, mode: "follow" },
+    indicatorTarget: {
+      x: 0,
+      y: 0,
+      width: GRAVITY_DEFAULTS.maxWidth,
+      height: GRAVITY_DEFAULTS.maxHeight,
+    },
+    repulsor: {
+      active: false,
+      pointIndex: -1,
+      x: 0,
+      y: 0,
+    },
+    transition: {
+      phase: "idle",
+      selectProgress: 0,
+      easedSelectProgress: 0,
+      lockTimer: 0,
+      lockProgress: 0,
+      burstProgress: 0,
+      easedBurstProgress: 0,
+      reelTimer: 0,
+      reelProgress: 0,
+      easedReelProgress: 0,
+      dezoomTimer: 0,
+      dezoomProgress: 0,
+      easedDezoomProgress: 0,
+      returnTimer: 0,
+      returnProgress: 0,
+      easedReturnProgress: 0,
+      targetIndex: -1,
+      holding: false,
+      trigger: null,
+      columnScrollY: 0,
+      targetColumnScrollY: 0,
+    },
+  });
+  const velocity = useRef({ x: 0, y: 0 });
+  const dragMoved = useRef(false);
+  const initializedTileRef = useRef<boolean | null>(null);
 
   const [gravityParams, setGravityParams] = useState<GravityParams>(() => ({
     ...GRAVITY_DEFAULTS,
   }));
   const handleLayoutChange = useCallback(() => {
     setGravityParams({ ...debug.current.gravity });
+  }, []);
+
+  const handleReplayLock = useCallback(() => {
+    const rc = runtime.current;
+    const selIndex = rc.selected >= 0 ? rc.selected : 0;
+    rc.transition.targetIndex = selIndex;
+    rc.transition.phase = "lock";
+    rc.transition.lockTimer = 0;
+    rc.transition.lockProgress = 0;
+    rc.repulsor.active = true;
+    rc.repulsor.pointIndex = selIndex;
+    rc.repulsor.x = rc.selectedPos.x;
+    rc.repulsor.y = rc.selectedPos.y;
+  }, []);
+
+  const handleResetTransition = useCallback(() => {
+    applyResetTransition(runtime.current);
   }, []);
 
   const [viewport, setViewport] = useState(() => {
@@ -523,6 +885,99 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
   const [tile, setTile] = useState<LayoutTile | null>(null);
   const [isCalculated, setIsCalculated] = useState(false);
+  const [selectedArtifactIndex, setSelectedArtifactIndex] = useState<number | null>(null);
+  const [selectedArtifactDetail, setSelectedArtifactDetail] = useState<ArtifactDetail | null>(null);
+  const [principalPoint, setPrincipalPoint] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [isDetailVisible, setIsDetailVisible] = useState(false);
+  const [apiStatus, setApiStatus] = useState<"idle" | "fetching" | "ready" | "error">("idle");
+
+  const handleStartSelect = useCallback(
+    (artifactIndex: number, point?: { x: number; y: number; width: number; height: number }) => {
+      if (point) setPrincipalPoint(point);
+      setSelectedArtifactIndex(artifactIndex);
+      const artifact = artifacts[artifactIndex];
+      if (artifact?.slug) {
+        setApiStatus("fetching");
+        preloadArtifact(artifact.slug)
+          .then((data) => {
+            if (data) {
+              setSelectedArtifactDetail(data);
+              setApiStatus("ready");
+            } else {
+              setApiStatus("error");
+            }
+          })
+          .catch(() => {
+            setApiStatus("error");
+          });
+      }
+    },
+    [artifacts],
+  );
+
+  const handleBurstComplete = useCallback(() => {
+    setIsDetailVisible(true);
+  }, []);
+
+  const { setProject, clearProject } = useActionBar();
+
+  const handleCloseDetail = useCallback(() => {
+    setIsDetailVisible(false);
+    clearProject();
+    applyResetTransition(runtime.current);
+  }, [clearProject]);
+
+  const handleReturnComplete = useCallback(() => {
+    setSelectedArtifactDetail(null);
+    setPrincipalPoint(null);
+    setSelectedArtifactIndex(null);
+    setApiStatus("idle");
+  }, []);
+
+  useEffect(() => {
+    if (selectedArtifactDetail && isDetailVisible) {
+      setProject({
+        title: selectedArtifactDetail.title || "Artifact",
+        redirectUrl: null,
+        onBack: handleCloseDetail,
+      });
+    } else {
+      clearProject();
+    }
+    return () => {
+      clearProject();
+    };
+  }, [selectedArtifactDetail, isDetailVisible, setProject, clearProject, handleCloseDetail]);
+
+  const handleSimulateSelect = useCallback(() => {
+    const rc = runtime.current;
+    if (rc.transition.phase !== "idle") return;
+    const selIndex = rc.selected >= 0 ? rc.selected : 0;
+    rc.transition.targetIndex = selIndex;
+    rc.transition.phase = "burst";
+    rc.transition.holding = false;
+    rc.transition.selectProgress = 1;
+    rc.transition.easedSelectProgress = 1;
+    rc.transition.burstProgress = 0;
+    rc.transition.easedBurstProgress = 0;
+    rc.transition.reelTimer = 0;
+    rc.transition.reelProgress = 0;
+    rc.transition.easedReelProgress = 0;
+    rc.transition.dezoomTimer = 0;
+    rc.transition.dezoomProgress = 0;
+    rc.transition.easedDezoomProgress = 0;
+    rc.repulsor.active = true;
+    rc.repulsor.pointIndex = selIndex;
+    rc.repulsor.x = rc.selectedPos.x;
+    rc.repulsor.y = rc.selectedPos.y;
+    if (tile?.points[selIndex]) {
+      handleStartSelect(tile.points[selIndex].artifactIndex, {
+        ...tile.points[selIndex],
+        x: rc.selectedPos.x,
+        y: rc.selectedPos.y,
+      });
+    }
+  }, [handleStartSelect, tile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -555,37 +1010,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     [media, ratios, gravityParams],
   );
 
-  const runtime = useRef<PlayRuntimeState>({
-    selected: 0,
-    selectedPos: { x: 0, y: 0 },
-    hovered: null,
-    camera: { targetX: 0, targetY: 0, mode: "follow" },
-    indicatorTarget: {
-      x: 0,
-      y: 0,
-      width: gravityParams.maxWidth,
-      height: gravityParams.maxHeight,
-    },
-    repulsor: {
-      active: false,
-      pointIndex: -1,
-      x: 0,
-      y: 0,
-    },
-    transition: {
-      phase: "idle",
-      selectProgress: 0,
-      easedSelectProgress: 0,
-      burstProgress: 0,
-      easedBurstProgress: 0,
-      targetIndex: -1,
-      holding: false,
-      trigger: null,
-    },
-  });
-  const velocity = useRef({ x: 0, y: 0 });
-  const dragMoved = useRef(false);
-  const initializedTileRef = useRef(false);
 
   useEffect(() => {
     if (!tile || tile.points.length === 0) return;
@@ -595,17 +1019,54 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       const origin = tile.points[tile.originIndex];
       rc.selected = tile.originIndex;
       rc.hovered = null;
-      rc.selectedPos = { x: 0, y: 0 };
-      rc.camera = { targetX: 0, targetY: 0, mode: "follow" };
+      const ox = origin ? origin.x : 0;
+      const oy = origin ? origin.y : 0;
+      rc.selectedPos = { x: ox, y: oy };
+      rc.camera = { targetX: ox, targetY: oy, mode: "follow" };
       if (origin) {
-        rc.indicatorTarget = { x: 0, y: 0, width: origin.width, height: origin.height };
+        rc.indicatorTarget = { x: ox, y: oy, width: origin.width, height: origin.height };
       }
     }
   }, [tile]);
 
-  // ── Préchargement DOM des textures (images et vidéos) ────────────────────
+  // ── Préchargement DOM & Drei des textures (mosaïque et galeries de détail) ─
   const [loaded, setLoaded] = useState(0);
-  const total = textureUrls.length;
+
+  // Rassemble tous les médias nécessaires au canvas ET aux galeries de détails
+  const allMediaToPreload = useMemo(() => {
+    const list: { url: string; kind: "image" | "video" }[] = [];
+    const seen = new Set<string>();
+
+    // 1. Médias de la mosaïque principale
+    textureUrls.forEach((url, i) => {
+      if (url && !seen.has(url)) {
+        seen.add(url);
+        list.push({ url, kind: mediaKinds[i] ?? "image" });
+      }
+    });
+
+    // 2. Médias secondaires des galeries de détails
+    artifacts.forEach((art) => {
+      if (Array.isArray(art.gallery)) {
+        art.gallery.forEach((g) => {
+          const isVideo = g._type === "galleryVideo";
+          const url = isVideo
+            ? (g.videoUrl || fileRefToUrl(g.videoRef) || "")
+            : (g.imageRef
+                ? buildImageUrl(g.imageRef, g.imageUrl ?? null, null, null, { width: 1400 })
+                : (g.imageUrl ?? ""));
+          if (url && !seen.has(url)) {
+            seen.add(url);
+            list.push({ url, kind: isVideo ? "video" : "image" });
+          }
+        });
+      }
+    });
+
+    return list;
+  }, [textureUrls, mediaKinds, artifacts]);
+
+  const total = allMediaToPreload.length;
 
   useEffect(() => {
     if (total === 0) return;
@@ -619,11 +1080,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       setLoaded(count);
     }
 
-    textureUrls.forEach((url, i) => {
-      if (mediaKinds[i] === "video") {
+    allMediaToPreload.forEach((m) => {
+      if (m.kind === "video") {
         const video = document.createElement("video");
+        video.crossOrigin = "anonymous";
         video.preload = "auto";
-        video.src = url;
+        video.src = m.url;
         let fired = false;
         const onDone = () => {
           if (fired) return;
@@ -636,9 +1098,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         elements.push(video);
         return;
       }
+      try {
+        useTexture.preload(m.url);
+      } catch {}
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.onload = img.onerror = bump;
-      img.src = url;
+      img.src = m.url;
       elements.push(img);
     });
 
@@ -654,7 +1120,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         }
       }
     };
-  }, [textureUrls, mediaKinds, total]);
+  }, [allMediaToPreload, total]);
 
   const isReady =
     isCalculated &&
@@ -680,6 +1146,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         return;
       }
 
+      if (runtime.current.transition.phase === "isolated") {
+        const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 1.8);
+        const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
+        runtime.current.transition.targetColumnScrollY += (e.deltaY / (zoom || 1)) * 0.9 * speed;
+        return;
+      }
+
       // ── Pan : défilement standard au trackpad / molette ─────────────────────
       velocity.current.x = 0;
       velocity.current.y = 0;
@@ -688,8 +1161,18 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     function onPointerDown(e: PointerEvent) {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      if (runtime.current.transition.phase === "isolated") {
-        applyResetTransition(runtime.current);
+      const curPhase = runtime.current.transition.phase;
+      if (
+        curPhase === "isolated" ||
+        curPhase === "burst" ||
+        curPhase === "reel" ||
+        curPhase === "dezoom"
+      ) {
+        // Un clic dans le vide ne fait pas retourner dans le canvas !
+        dragging = true;
+        dragMoved.current = false;
+        startX = lastX = e.clientX;
+        startY = lastY = e.clientY;
         return;
       }
       dragging = true;
@@ -703,8 +1186,19 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onPointerMove(e: PointerEvent) {
-      if (runtime.current.transition.phase === "burst" || runtime.current.transition.phase === "isolated") return;
+      const curPhase = runtime.current.transition.phase;
+      if (curPhase === "burst" || curPhase === "reel" || curPhase === "dezoom") return;
       if (!dragging) return;
+
+      if (curPhase === "isolated") {
+        const dy = e.clientY - lastY;
+        lastY = e.clientY;
+        const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 1.8);
+        const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
+        runtime.current.transition.targetColumnScrollY -= (dy / (zoom || 1)) * 1.1 * speed;
+        return;
+      }
+
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       lastX = e.clientX;
@@ -720,6 +1214,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           return;
         }
         dragMoved.current = true;
+        setAppCursor("grabbing");
         if (runtime.current.transition.phase === "selecting") {
           applyResetTransition(runtime.current);
         }
@@ -730,6 +1225,17 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onPointerUp() {
+      const curPhase = runtime.current.transition.phase;
+      if (
+        curPhase === "isolated" ||
+        curPhase === "burst" ||
+        curPhase === "reel" ||
+        curPhase === "dezoom"
+      ) {
+        dragging = false;
+        setAppCursor("auto");
+        return;
+      }
       if (dragging && dragMoved.current && recent.length >= 2) {
         const first = recent[0];
         const last = recent[recent.length - 1];
@@ -740,6 +1246,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         }
       }
       dragging = false;
+      if (curPhase === "idle") {
+        if (runtime.current.hovered !== null) {
+          setAppCursor("pointer");
+        } else {
+          setAppCursor("auto");
+        }
+      } else {
+        setAppCursor("auto");
+      }
     }
 
     window.addEventListener("wheel", onWheel, { passive: false });
@@ -773,16 +1288,48 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     function onKeyDown(e: KeyboardEvent) {
       if (
         e.target instanceof HTMLElement &&
-        (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")
+        (e.target.tagName === "INPUT" ||
+          e.target.tagName === "TEXTAREA" ||
+          e.target.isContentEditable ||
+          Boolean(e.target.closest("#leva__root")))
       ) {
         return;
       }
 
-      // Touche Escape : annule immédiatement la transition ou quitte l'isolation
+      // Raccourcis Studio Animation :
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        const rc = runtime.current;
+        const selIndex = rc.selected >= 0 ? rc.selected : 0;
+        rc.transition.targetIndex = selIndex;
+        rc.transition.phase = "lock";
+        rc.transition.lockTimer = 0;
+        rc.transition.lockProgress = 0;
+        rc.repulsor.active = true;
+        rc.repulsor.pointIndex = selIndex;
+        rc.repulsor.x = rc.selectedPos.x;
+        rc.repulsor.y = rc.selectedPos.y;
+        if (tile?.points[selIndex]) {
+          handleStartSelect(tile.points[selIndex].artifactIndex, {
+            ...tile.points[selIndex],
+            x: rc.selectedPos.x,
+            y: rc.selectedPos.y,
+          });
+        }
+        return;
+      }
+
+      if (e.key === "l" || e.key === "L") {
+        e.preventDefault();
+        debug.current.studio.loopLock = !debug.current.studio.loopLock;
+        return;
+      }
+
+      // Touche Escape : ferme la vue détail ou annule la transition
       if (e.key === "Escape") {
-        if (runtime.current.transition.phase !== "idle") {
+        if (isDetailVisible || runtime.current.transition.phase !== "idle") {
           e.preventDefault();
-          applyResetTransition(runtime.current);
+          handleCloseDetail();
           return;
         }
       }
@@ -792,6 +1339,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         if (e.repeat) return;
         e.preventDefault();
         applyKeyDownEnter(runtime.current, points);
+        const pt = points[runtime.current.selected];
+        if (pt) handleStartSelect(pt.artifactIndex, pt);
         return;
       }
 
@@ -824,16 +1373,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [tile]);
+  }, [tile, isDetailVisible, handleCloseDetail, handleStartSelect]);
 
   return (
     <div data-lenis-prevent className="fixed inset-0 bg-white">
       <PlayLoader loaded={loaded} total={total} isReady={isReady} />
 
       <div
-        className={`h-full w-full transition-opacity duration-700 ease-out ${
-          isReady ? "opacity-100" : "pointer-events-none opacity-0"
-        }`}
+        className={`h-full w-full transition-opacity duration-700 ease-out ${isReady ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
       >
         {isCalculated && tile && tile.points.length > 0 && (
           <Canvas
@@ -841,8 +1389,39 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
             orthographic
             dpr={[1, 2]}
             camera={{ position: [0, 0, 100], zoom: CAMERA_ZOOM, near: 0.1, far: 1000 }}
+            events={(store) => {
+              const base = events(store);
+              return {
+                ...base,
+                compute(event, state) {
+                  const px = (event.offsetX / state.size.width) * 2 - 1;
+                  const py = -(event.offsetY / state.size.height) * 2 + 1;
+                  const fish = debug.current.fisheye;
+                  if (fish?.enabled && fish.strength > 0.001) {
+                    const aspect = state.size.width / Math.max(state.size.height, 1);
+                    const cx = px * aspect;
+                    const cy = py;
+                    const r2 = cx * cx + cy * cy;
+                    const rCorner2 = aspect * aspect + 1.0;
+                    const normR2 = r2 / rCorner2;
+                    const factor = (1.0 + fish.strength * normR2) / (1.0 + fish.strength);
+                    state.pointer.set((cx * factor) / aspect, cy * factor);
+                  } else {
+                    state.pointer.set(px, py);
+                  }
+                  state.raycaster.setFromCamera(state.pointer, state.camera);
+                },
+              };
+            }}
           >
-            <CameraRig debug={debug} runtime={runtime} velocity={velocity} />
+            <Stats className="!top-4 !left-4" />
+            <CameraRig
+              debug={debug}
+              runtime={runtime}
+              velocity={velocity}
+              onBurstComplete={handleBurstComplete}
+              onReturnComplete={handleReturnComplete}
+            />
             <ArtifactGrid
               textureUrls={textureUrls}
               mediaKinds={mediaKinds}
@@ -850,18 +1429,118 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               debug={debug}
               runtime={runtime}
               dragMoved={dragMoved}
+              onStartSelect={handleStartSelect}
             />
+            {selectedArtifactIndex !== null && principalPoint && (
+              <SecondaryGalleryPlanes
+                gallery={artifacts[selectedArtifactIndex]?.gallery ?? selectedArtifactDetail?.gallery ?? []}
+                principalPoint={principalPoint}
+                primaryMedia={{
+                  url: textureUrls[selectedArtifactIndex] ?? "",
+                  kind: mediaKinds[selectedArtifactIndex] ?? "image",
+                  ratio: ratios[selectedArtifactIndex] ?? 1.5,
+                }}
+                runtime={runtime}
+                debug={debug}
+                gap={32}
+              />
+            )}
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
             <FocusIndicator debug={debug} runtime={runtime} />
+            <FisheyeEffect debug={debug} />
           </Canvas>
         )}
       </div>
+
+      {/* Panneau d'informations transparent sur les 50% droits de l'écran (aucun fond blanc opaque) */}
+      <AnimatePresence>
+        {selectedArtifactDetail && isDetailVisible && (
+          <motion.div
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed right-0 top-0 bottom-0 w-full lg:w-[50%] flex flex-col justify-center px-8 sm:px-16 pointer-events-none z-10 select-none"
+          >
+            <div className="max-w-xl pointer-events-auto flex flex-col">
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-950 mb-6 text-balance">
+                {selectedArtifactDetail.title}
+              </h1>
+
+              {selectedArtifactDetail.tags && selectedArtifactDetail.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {selectedArtifactDetail.tags.map((tag) => (
+                    <Tag
+                      key={tag._id}
+                      name={tag.name}
+                      color={tag.color}
+                      icon={tag.icon}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {selectedArtifactDetail.startDate && (
+                <div className="flex items-center gap-2 text-sm text-zinc-500 font-medium mb-6">
+                  <HugeiconsIcon icon={Calendar02Icon} size={16} strokeWidth={2} />
+                  <span>
+                    {formatDateRange(
+                      selectedArtifactDetail.startDate,
+                      selectedArtifactDetail.endDate ?? null,
+                    )}
+                  </span>
+                </div>
+              )}
+
+              {selectedArtifactDetail.description && (
+                <div className="text-base sm:text-lg text-zinc-600 leading-relaxed whitespace-pre-line mb-8 max-h-48 overflow-y-auto">
+                  {selectedArtifactDetail.description}
+                </div>
+              )}
+
+              {selectedArtifactDetail.contributors && selectedArtifactDetail.contributors.length > 0 && (
+                <div className="space-y-3 pt-4 border-t border-zinc-200/60 mb-6">
+                  <span className="text-xs uppercase tracking-wider font-semibold text-zinc-400">
+                    Collaborators
+                  </span>
+                  <MatesBlock mates={selectedArtifactDetail.contributors as unknown as Mate[]} />
+                </div>
+              )}
+
+              {selectedArtifactDetail.roles && selectedArtifactDetail.roles.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <span className="text-xs uppercase tracking-wider font-semibold text-zinc-400">
+                    Roles
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedArtifactDetail.roles.map((r) => (
+                      <span
+                        key={r._id}
+                        className="px-2.5 py-1 text-xs font-medium rounded-md bg-zinc-100 text-zinc-700"
+                      >
+                        {r.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {showDebug && (
         <PlayDebug
           state={debug}
           stats={tile?.stats}
           onLayoutChange={handleLayoutChange}
+          onReplayLock={handleReplayLock}
+          onSimulateSelect={handleSimulateSelect}
+          onResetTransition={handleResetTransition}
+          runtime={runtime}
+          selectedArtifact={selectedArtifactDetail}
+          apiStatus={apiStatus}
+          onCloseDetail={handleCloseDetail}
         />
       )}
     </div>

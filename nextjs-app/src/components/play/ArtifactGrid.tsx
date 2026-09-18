@@ -2,14 +2,9 @@
 
 import { Suspense, useEffect, useRef, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Group, Mesh } from "three";
-import {
-  Physics,
-  RigidBody,
-  CuboidCollider,
-  type RapierRigidBody,
-} from "@react-three/rapier";
+import { Group, Mesh, type MeshBasicMaterial } from "three";
 import type { MediaKind } from "./artifact-media";
+import { dampTowards } from "./damp";
 import {
   applyPointerDown,
   applyPointerUp,
@@ -28,6 +23,19 @@ import { ArtifactPlane } from "./ArtifactPlane";
  */
 const COPIES = 9;
 
+/** Modifie le curseur sur le body et le canvas pour un support cross-browser complet */
+export function setAppCursor(cursor: "pointer" | "auto" | "default" | "grabbing") {
+  if (typeof document !== "undefined") {
+    if (document.body.style.cursor !== cursor) {
+      document.body.style.cursor = cursor;
+    }
+    const canvas = document.querySelector("canvas");
+    if (canvas && canvas.style.cursor !== cursor) {
+      canvas.style.cursor = cursor;
+    }
+  }
+}
+
 /**
  * Applique un changement de survol à l'état runtime déjà déréférencé (`rc`
  * n'est pas une ref/prop, fonction top-level pour respecter `react-hooks/immutability`).
@@ -41,20 +49,20 @@ function applyHover(
   height: number,
   hovering: boolean,
 ) {
-  if (rc.transition.phase === "burst" || rc.transition.phase === "isolated") return;
+  if (rc.transition.phase !== "idle") {
+    setAppCursor("auto");
+    return;
+  }
   if (hovering) {
     rc.hovered = pointIndex;
+    rc.selected = pointIndex;
+    rc.selectedPos = world;
     rc.indicatorTarget = { x: world.x, y: world.y, width, height };
+    setAppCursor("pointer");
   } else {
-    rc.hovered = null;
-    const selected = points[rc.selected];
-    if (selected) {
-      rc.indicatorTarget = {
-        x: rc.selectedPos.x,
-        y: rc.selectedPos.y,
-        width: selected.width,
-        height: selected.height,
-      };
+    if (rc.hovered === pointIndex) {
+      rc.hovered = null;
+      setAppCursor("auto");
     }
   }
 }
@@ -67,7 +75,7 @@ function applySelect(
   width: number,
   height: number,
 ) {
-  if (rc.transition.phase === "burst" || rc.transition.phase === "isolated") return;
+  if (rc.transition.phase !== "idle" && rc.transition.phase !== "selecting") return;
   rc.selected = pointIndex;
   rc.selectedPos = world;
   rc.camera.targetX = world.x;
@@ -77,32 +85,36 @@ function applySelect(
 }
 
 /**
- * Exécute le pas physique Rapier et répercute les déplacements physiques
- * sur l'ensemble des 9 copies de la mosaïque infinie :
- * 1. Force de rappel élastique (ressort vers position canonique de layout)
- * 2. Répulsion physique radiale :
- *    - Temps 1 (sélection) : tension progressive douce
- *    - Temps 2 (burst) : onde de choc massive expulsant tous les autres médias
- * 3. Amortissement et stabilisation angulaire
- * 4. Synchronisation instantanée des 9 copies virtuelles
+ * Calcule et applique le déplacement cinématique uniforme sur la mosaïque :
+ * 1. Sélection maintenue (Hold) :
+ *    - L'artifact sélectionné grossit légèrement (selectScale) sans se déplacer.
+ *    - TOUS les autres artifacts s'écartent avec la MÊME amplitude scalaire le long
+ *      de leur vecteur radial unitaire en coordonnées monde depuis le centre de la cible.
+ *    - Conséquence géométrique : l'espacement relatif entre les artifacts voisins reste
+ *      strictement identique, sans aucune collision ni glissement.
+ * 2. Explosion (Burst) :
+ *    - Onde centrifuge uniforme repoussant tous les médias hors du champ de vision.
+ * 3. Repos / Retour au canvas :
+ *    - Dès que le maintien cesse ou que le mode isolé est quitté, le déplacement s'amortit
+ *      directement et proprement vers 0 (position canonique de repos), sans inertie chaotique.
  */
-function stepPhysicsAndMeshes(
+function stepKinematicMeshes(
   phys: PhysicsParams,
   transition: TransitionConfig,
   rc: PlayRuntimeState,
   points: LayoutPoint[],
-  rbs: (RapierRigidBody | null)[],
+  groupRefs: (Group | null)[],
   meshRefs: (Mesh | null)[][],
-  tileW: number,
-  tileH: number,
+  displacementRef: { current: number },
   delta: number,
 ) {
   if (!phys.enabled) {
-    for (let i = 0; i < points.length; i++) {
-      const pt = points[i];
-      for (let k = 0; k < COPIES; k++) {
+    displacementRef.current = 0;
+    for (let k = 0; k < COPIES; k++) {
+      for (let i = 0; i < points.length; i++) {
         const mesh = meshRefs[k]?.[i];
         if (mesh) {
+          const pt = points[i];
           mesh.position.set(pt.x, pt.y, 0);
           mesh.rotation.z = 0;
           mesh.scale.set(pt.width, pt.height, 1);
@@ -112,159 +124,131 @@ function stepPhysicsAndMeshes(
     return;
   }
 
-  const dt = Math.min(delta, 0.04);
-  const repulsor = rc.repulsor;
-  const isSelecting = rc.transition.phase === "selecting";
-  const isBursting = rc.transition.phase === "burst" || rc.transition.phase === "isolated";
+  const isSelecting = rc.transition.phase === "selecting" || rc.transition.phase === "lock";
+  const isBursting = rc.transition.phase === "burst";
+  const isReeling = rc.transition.phase === "reel";
+  const isDezooming = rc.transition.phase === "dezoom";
+  const isIsolated = rc.transition.phase === "isolated";
+  const isReturning = rc.transition.phase === "returning";
   const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
+  const targetPt = targetIdx >= 0 ? points[targetIdx] : null;
 
-  const selectScaleFactor = isSelecting
-    ? 1 + (transition.selectScale - 1) * rc.transition.easedSelectProgress
-    : 1;
+  // Calcul du scalaire de déplacement cible
+  let targetD = 0;
+  const maxD = Math.max(0, transition.burstRepulse);
 
-  for (let i = 0; i < points.length; i++) {
-    const rb = rbs[i];
-    if (!rb) continue;
-    const pt = points[i];
-    const trans = rb.translation();
-
-    // Damping linéaire dynamique
-    rb.setLinearDamping(phys.damping);
-
-    // Déplacement par rapport à la position canonique de repos
-    const curDx = trans.x - pt.x;
-    const curDy = trans.y - pt.y;
-
-    // Si sélectionné, l'indicateur suit le déplacement physique et le scale
-    if (i === rc.selected) {
-      rc.indicatorTarget.x = rc.selectedPos.x + curDx;
-      rc.indicatorTarget.y = rc.selectedPos.y + curDy;
-      rc.indicatorTarget.width = pt.width * selectScaleFactor;
-      rc.indicatorTarget.height = pt.height * selectScaleFactor;
+  if (isSelecting) {
+    const repulseProgress = rc.transition.phase === "lock" ? 1 : rc.transition.easedSelectProgress;
+    targetD = transition.selectRepulse * repulseProgress;
+  } else if (isBursting) {
+    targetD = transition.selectRepulse + (maxD - transition.selectRepulse) * rc.transition.easedBurstProgress;
+  } else if (isReeling || isDezooming || isIsolated) {
+    targetD = maxD;
+  } else if (isReturning) {
+    const returnDelay = Math.max(0, transition.repulseReturnDelay);
+    if (rc.transition.returnTimer < returnDelay) {
+      targetD = maxD;
+    } else {
+      targetD = 0;
     }
+  } else {
+    targetD = 0;
+  }
 
-    // Répercussion du déplacement, de la rotation et du scale sur les 9 copies de la mosaïque
-    let rotZ = 0;
-    if (!phys.lockRotation) {
-      const rot = rb.rotation();
-      rotZ = 2 * Math.atan2(rot.z, rot.w);
-    }
+  // Amortissement propre vers targetD (rapide et direct en transition, fluide au retour)
+  const dampSpeed = (rc.transition.phase === "idle" || isReturning) ? Math.max(8, phys.damping) : 24;
+  displacementRef.current = dampTowards(displacementRef.current, targetD, dampSpeed, delta);
+  if (rc.transition.phase === "idle" && Math.abs(displacementRef.current) < 0.05) {
+    displacementRef.current = 0;
+  }
+  const currentD = displacementRef.current;
 
-    const meshScale = i === targetIdx && isSelecting ? selectScaleFactor : 1;
+  // Facteur d'échelle du média ciblé avec micro-punch tactile au lock
+  let selectScaleFactor = 1;
+  if (rc.transition.phase === "selecting") {
+    selectScaleFactor = 1 + (transition.selectScale - 1) * rc.transition.easedSelectProgress;
+  } else if (rc.transition.phase === "lock") {
+    const lockT = rc.transition.lockProgress;
+    const punch = Math.sin(lockT * Math.PI) * transition.lockScalePunch;
+    selectScaleFactor = transition.selectScale + punch;
+  }
 
-    for (let k = 0; k < COPIES; k++) {
+  // Mise à jour de la cible de l'indicateur
+  if (targetPt && targetIdx === rc.selected) {
+    rc.indicatorTarget.x = rc.selectedPos.x;
+    rc.indicatorTarget.y = rc.selectedPos.y;
+    rc.indicatorTarget.width = targetPt.width * selectScaleFactor;
+    rc.indicatorTarget.height = targetPt.height * selectScaleFactor;
+  }
+
+  const selX = rc.selectedPos.x;
+  const selY = rc.selectedPos.y;
+
+  // Répulsion radiale unifiée en coordonnées monde depuis l'artifact sélectionné
+  for (let k = 0; k < COPIES; k++) {
+    const group = groupRefs[k];
+    const gx = group ? group.position.x : 0;
+    const gy = group ? group.position.y : 0;
+
+    for (let i = 0; i < points.length; i++) {
       const mesh = meshRefs[k]?.[i];
-      if (mesh) {
-        mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
-        mesh.rotation.z = rotZ;
-        mesh.scale.set(pt.width * meshScale, pt.height * meshScale, 1);
-      }
-    }
+      if (!mesh) continue;
 
-    // Si c'est la tuile cliquée/maintenue, elle reste ancrée fermement à sa place
-    if ((isSelecting || isBursting) && i === targetIdx) {
-      rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
-      rb.setTranslation({ x: pt.x, y: pt.y, z: 0 }, true);
-      continue;
-    }
-
-    // 1. Force de rappel élastique vers la position initiale dans le layout
-    // (désactivée en mode burst/isolé pour ne pas entraver l'expulsion hors champ)
-    let fx = 0;
-    let fy = 0;
-    if (!isBursting) {
-      const pullX = pt.x - trans.x;
-      const pullY = pt.y - trans.y;
-      fx = pullX * phys.spring * 60 * phys.mass;
-      fy = pullY * phys.spring * 60 * phys.mass;
-    }
-
-    // 2. Répulsion physique radiale depuis le repulsor
-    if (isSelecting) {
-      let rx = trans.x - repulsor.x;
-      let ry = trans.y - repulsor.y;
-
-      if (tileW > 0) {
-        if (rx > tileW * 0.5) rx -= tileW;
-        else if (rx < -tileW * 0.5) rx += tileW;
-      }
-      if (tileH > 0) {
-        if (ry > tileH * 0.5) ry -= tileH;
-        else if (ry < -tileH * 0.5) ry += tileH;
-      }
-
+      const pt = points[i];
+      const worldX = gx + pt.x;
+      const worldY = gy + pt.y;
+      const rx = worldX - selX;
+      const ry = worldY - selY;
       const dist = Math.hypot(rx, ry);
 
-      if (dist < phys.radius && dist > 0.01) {
-        const t = 1 - dist / phys.radius;
-        const falloff = t * t;
-        const forceMag =
-          transition.selectRepulse * falloff * 50 * phys.mass * rc.transition.easedSelectProgress;
+      const isTarget = i === targetIdx && dist < Math.max(pt.width, pt.height) * 0.5;
 
-        fx += (rx / dist) * forceMag;
-        fy += (ry / dist) * forceMag;
-      }
-    } else if (isBursting) {
-      let rx = trans.x - repulsor.x;
-      let ry = trans.y - repulsor.y;
+      let curDx = 0;
+      let curDy = 0;
+      let scale = 1;
 
-      if (tileW > 0) {
-        if (rx > tileW * 0.5) rx -= tileW;
-        else if (rx < -tileW * 0.5) rx += tileW;
-      }
-      if (tileH > 0) {
-        if (ry > tileH * 0.5) ry -= tileH;
-        else if (ry < -tileH * 0.5) ry += tileH;
+      if (isTarget) {
+        scale = selectScaleFactor;
+      } else if (currentD > 0.001) {
+        if (dist > 0.001) {
+          curDx = (rx / dist) * currentD;
+          curDy = (ry / dist) * currentD;
+        }
       }
 
-      let dist = Math.hypot(rx, ry);
-      if (dist < 0.01) {
-        rx = (Math.random() - 0.5) * 10;
-        ry = (Math.random() - 0.5) * 10;
-        dist = Math.hypot(rx, ry) || 1;
+      mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
+      mesh.rotation.z = 0;
+      mesh.scale.set(pt.width * scale, pt.height * scale, 1);
+
+      const mat = mesh.material as MeshBasicMaterial | undefined;
+      if (mat) {
+        let targetOpacity = 1;
+        if (isBursting) {
+          targetOpacity = Math.max(0, 1 - rc.transition.easedBurstProgress);
+        } else if (isReeling || isDezooming || isIsolated) {
+          targetOpacity = 0;
+        } else if (isReturning) {
+          const returnDelay = Math.max(0, transition.repulseReturnDelay);
+          const exitDur = Math.max(0.2, transition.exitDuration ?? 0.6);
+          if (rc.transition.returnTimer < returnDelay) {
+            targetOpacity = 0;
+          } else {
+            const fadeDur = Math.max(0.1, exitDur - returnDelay);
+            targetOpacity = Math.min(1, (rc.transition.returnTimer - returnDelay) / fadeDur);
+          }
+        }
+        mat.opacity = dampTowards(mat.opacity, targetOpacity, dampSpeed, delta);
       }
-
-      // Expulsion calibrée : pousse les tuiles hors champ avec atténuation aux grandes distances
-      const burstRadius = 3500;
-      if (dist < burstRadius) {
-        const falloff = 1 - dist / burstRadius;
-        const burstFactor = Math.max(0.3, rc.transition.easedBurstProgress);
-        const forceMag = transition.burstRepulse * falloff * 0.4 * phys.mass * burstFactor;
-
-        fx += (rx / dist) * forceMag;
-        fy += (ry / dist) * forceMag;
-      }
-    }
-
-    // 3. Application de l'impulsion physique avec limitation de vélocité
-    rb.applyImpulse({ x: fx * dt, y: fy * dt, z: 0 }, true);
-
-    const vel = rb.linvel();
-    const speed = Math.hypot(vel.x, vel.y);
-    const maxSpeed = isBursting ? 3500 : 1500;
-    if (speed > maxSpeed) {
-      const s = maxSpeed / speed;
-      rb.setLinvel({ x: vel.x * s, y: vel.y * s, z: 0 }, true);
-    }
-
-    // 4. Maintien de l'alignement en rotation
-    if (phys.lockRotation) {
-      rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
-      rb.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
-    } else {
-      const torqueZ = -rotZ * phys.spring * 100;
-      rb.applyTorqueImpulse({ x: 0, y: 0, z: torqueZ * dt }, true);
     }
   }
 }
 
 /**
- * Rend la mosaïque infinie 3×3 combinée au moteur physique Rapier :
+ * Rend la mosaïque infinie 3×3 :
  * - Un système de tuilage 3×3 virtualisé garantit l'illusion d'une grille infinie
  *   au pan dans toutes les directions.
- * - 96 RigidBodies Rapier animent la physique avec colliders cubiques exacts.
- * - Le maintien du clic repousse dynamiquement les tuiles voisines.
+ * - Déplacement cinématique radial uniforme au clic/maintien, préservant strictement
+ *   l'espacement entre artifacts voisins, sans simulation physique chaotique ni glissement.
  */
 export function ArtifactGrid({
   textureUrls,
@@ -273,6 +257,7 @@ export function ArtifactGrid({
   debug,
   runtime,
   dragMoved,
+  onStartSelect,
 }: {
   textureUrls: string[];
   mediaKinds: MediaKind[];
@@ -280,6 +265,7 @@ export function ArtifactGrid({
   debug: PlayDebugRef;
   runtime: PlayRuntimeRef;
   dragMoved: RefObject<boolean>;
+  onStartSelect?: (artifactIndex: number, point: LayoutPoint) => void;
 }) {
   const { camera } = useThree();
   const { TILE_W, TILE_H, points } = tile;
@@ -287,17 +273,11 @@ export function ArtifactGrid({
   const groupRefs = useRef<(Group | null)[]>(Array(COPIES).fill(null));
   const meshRefs = useRef<(Mesh | null)[][]>(Array.from({ length: COPIES }, () => []));
   const prevTile = useRef({ x: NaN, y: NaN });
-  const rigidBodiesRef = useRef<(RapierRigidBody | null)[]>([]);
+  const displacementRef = useRef(0);
 
-
-  // Repositionne et stabilise les corps physiques dès que le layout est recalculé
+  // Réinitialise le déplacement si le layout est recalculé
   useEffect(() => {
-    rigidBodiesRef.current.forEach((rb, i) => {
-      if (!rb || !points[i]) return;
-      rb.setTranslation({ x: points[i].x, y: points[i].y, z: 0 }, true);
-      rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    });
+    displacementRef.current = 0;
   }, [points]);
 
   // Relâchement global du clic de répulsion / transition
@@ -316,7 +296,7 @@ export function ArtifactGrid({
 
   // Boucle par frame :
   // 1. Tuilage 3×3 infini virtualisé autour de la caméra
-  // 2. Simulation physique Rapier et mise à jour des positions des meshes
+  // 2. Déplacement cinématique uniforme et mise à jour des positions des meshes
   useFrame((_, delta) => {
     if (
       !runtime.current.transition.holding &&
@@ -342,15 +322,14 @@ export function ArtifactGrid({
       }
     }
 
-    stepPhysicsAndMeshes(
+    stepKinematicMeshes(
       debug.current.physics,
       debug.current.transition,
       runtime.current,
       points,
-      rigidBodiesRef.current,
+      groupRefs.current,
       meshRefs.current,
-      TILE_W,
-      TILE_H,
+      displacementRef,
       delta,
     );
   });
@@ -362,7 +341,10 @@ export function ArtifactGrid({
     height: number,
     hovering: boolean,
   ) {
-    if (hovering && dragMoved.current) return;
+    if (hovering && dragMoved.current) {
+      setAppCursor("grabbing");
+      return;
+    }
     applyHover(runtime.current, points, pointIndex, world, width, height, hovering);
   }
 
@@ -372,11 +354,19 @@ export function ArtifactGrid({
     width: number,
     height: number,
   ) {
-    applyPointerDown(runtime.current, pointIndex, {
-      x: points[pointIndex].x,
-      y: points[pointIndex].y,
-    });
+    if (runtime.current.transition.phase !== "idle") return;
     applySelect(runtime.current, pointIndex, world, width, height);
+    applyPointerDown(runtime.current, pointIndex, {
+      x: world.x,
+      y: world.y,
+    });
+    if (points[pointIndex]) {
+      onStartSelect?.(points[pointIndex].artifactIndex, {
+        ...points[pointIndex],
+        x: world.x,
+        y: world.y,
+      });
+    }
   }
 
   function handleSelect(
@@ -391,34 +381,6 @@ export function ArtifactGrid({
 
   return (
     <>
-      {/* Simulation physique Rapier (96 corps rigides avec colliders cubiques) */}
-      <Suspense fallback={null}>
-        <Physics gravity={[0, 0, 0]}>
-          {points.map((point, i) => (
-            <RigidBody
-              key={`${i}-${point.artifactIndex}-${point.x}-${point.y}`}
-              ref={(el) => {
-                rigidBodiesRef.current[i] = el;
-              }}
-              position={[point.x, point.y, 0]}
-              colliders={false}
-              canSleep={false}
-              enabledTranslations={[true, true, false]}
-              enabledRotations={[false, false, !debug.current.physics.lockRotation]}
-              linearDamping={debug.current.physics.damping}
-              angularDamping={5}
-              friction={debug.current.physics.friction}
-              restitution={debug.current.physics.restitution}
-            >
-              <CuboidCollider
-                args={[point.width * 0.5, point.height * 0.5, 5]}
-                mass={debug.current.physics.mass}
-              />
-            </RigidBody>
-          ))}
-        </Physics>
-      </Suspense>
-
       {/* Mosaïque 3×3 virtuelle infinie */}
       {Array.from({ length: COPIES }, (_, k) => {
         const dx = (k % 3) - 1;

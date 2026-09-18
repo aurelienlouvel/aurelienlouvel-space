@@ -42,12 +42,6 @@ type BracketUniforms = {
 
 /**
  * De combien le quad déborde l'image, sur chaque axe.
- *
- * Le bras est compté en entier : sous 90° d'ouverture il part en biais et
- * s'écarte du cadre, au plus de sa propre longueur. À 90° il longe le bord et
- * la marge est simplement trop généreuse, ce qui ne coûte que des fragments
- * transparents — la finesse de l'antialiasing, elle, ne dépend pas de la taille
- * du quad, puisqu'elle se mesure en unités monde.
  */
 function oversize(padding: number, arm: number, thickness: number) {
   return 2 * (padding + arm + thickness / 2 + MARGIN);
@@ -183,25 +177,12 @@ function carveBrackets(
  * matériaux qui injectent du code.
  */
 function carveBracketsCacheKey() {
-  return "play-focus-brackets";
+  return "play-focus-brackets-v3";
 }
 
 /**
  * Quatre brackets d'angle qui encadrent le point actuellement ciblé — la
  * sélection au repos, ou le survol le temps qu'il dure.
- *
- * Un seul quad, une seule passe de shader : les brackets sont symétriques, donc
- * le fragment shader replie le plan avec `abs()` et ne décrit la forme qu'une
- * fois. Le quad ne dépasse que de ce que la forme réclame, pour ne pas ombrer
- * tout l'écran au survol.
- *
- * Position et taille suivent `runtime.current.indicatorTarget` avec un
- * amortissement propre (cf. `damp.ts`), séparé de celui de l'opacité : la
- * cible peut sauter d'un coup (survol, sélection) sans que l'indicateur ne
- * saute avec elle, il glisse. L'opacité, elle, ne vise plus le survol — elle
- * est fixée à 1 en permanence, et l'amortissement ne joue plus que le temps
- * d'un fondu d'entrée au montage (repos = indicateur visible sur la
- * sélection courante, pas éteint comme du temps de l'artifact unique).
  */
 export function FocusIndicator({
   debug,
@@ -221,8 +202,24 @@ export function FocusIndicator({
     const material = materialRef.current;
     if (!mesh || !material) return;
 
-    const { brackets, indicator } = debug.current;
+    const { brackets, indicator, transition } = debug.current;
     const target = runtime.current.indicatorTarget;
+    const tr = runtime.current.transition;
+
+    // Les brackets ne s'affichent QUE sur la grille (idle, selecting, lock).
+    // Pendant burst, reel (rouleau 777), dezoom, isolated ou returning, ils sont STRICTEMENT masqués.
+    const isDetailActive =
+      tr.phase === "burst" ||
+      tr.phase === "reel" ||
+      tr.phase === "dezoom" ||
+      tr.phase === "isolated" ||
+      tr.phase === "returning";
+
+    if (isDetailActive) {
+      mesh.visible = false;
+      opacityRef.current = 0;
+      return;
+    }
 
     // Posée même quand l'indicateur est éteint : le matériau resterait sinon au
     // blanc de three jusqu'à la première frame visible. Le garde évite de
@@ -233,12 +230,42 @@ export function FocusIndicator({
       material.color.set(brackets.color);
     }
 
-    const opacity = dampTowards(opacityRef.current, 1, indicator.fadeSpeed, delta);
-    opacityRef.current = opacity;
+    // Gestion du pincement doux, retour à la position initiale, et fade vers l'extérieur
+    let currentPadding = brackets.padding;
+    let lockAlpha = 1;
 
-    mesh.visible = opacity > OPACITY_EPSILON;
+    if (tr.phase === "lock") {
+      const t = tr.lockProgress;
+
+      // 1ère phase (0.0 -> 0.55) : Pincement très doux et soyeux puis retour exact à la position initiale
+      const pinchWindow = 0.55;
+      if (t <= pinchWindow) {
+        const u = t / pinchWindow;
+        // sin²(u * π) : vitesse nulle au début, sommet doux à u=0.5, arrivée à vitesse nulle à u=1.0
+        const s = Math.sin(u * Math.PI);
+        const pinchPx = s * s * transition.lockBracketTighten;
+        currentPadding = Math.max(0, brackets.padding - pinchPx);
+        lockAlpha = 1;
+      } else {
+        // 2ème phase (0.55 -> 1.0) : Expansion légère vers l'extérieur tout en s'estompant (fade out)
+        const v = (t - pinchWindow) / (1 - pinchWindow);
+        // Smoothstep (départ à vitesse nulle continue avec le retour du pincement)
+        const vEased = v * v * (3 - 2 * v);
+        const expandPx = vEased * transition.lockBracketExpand;
+        currentPadding = brackets.padding + expandPx;
+        // Fondu progressif et doux
+        const fadeProgress = Math.cos(v * Math.PI * 0.5);
+        lockAlpha = Math.max(0, fadeProgress);
+      }
+    }
+
+    const baseOpacity = dampTowards(opacityRef.current, 1, indicator.fadeSpeed, delta);
+    opacityRef.current = baseOpacity;
+    const finalOpacity = baseOpacity * lockAlpha;
+
+    mesh.visible = finalOpacity > OPACITY_EPSILON;
     if (!mesh.visible) return;
-    material.opacity = opacity;
+    material.opacity = finalOpacity;
 
     const pos = posRef.current;
     pos.x = dampTowards(pos.x, target.x, indicator.moveSpeed, delta);
@@ -246,14 +273,14 @@ export function FocusIndicator({
     pos.width = dampTowards(pos.width, target.width, indicator.moveSpeed, delta);
     pos.height = dampTowards(pos.height, target.height, indicator.moveSpeed, delta);
 
-    const margin = oversize(brackets.padding, brackets.arm, brackets.thickness);
+    const margin = oversize(currentPadding, brackets.arm, brackets.thickness);
     mesh.position.set(pos.x, pos.y, Z);
     mesh.scale.set(pos.width + margin, pos.height + margin, 1);
 
     const uniforms = uniformsOf<BracketUniforms>(material);
     if (!uniforms) return;
     uniforms.uSize.value.set(pos.width, pos.height);
-    uniforms.uPadding.value = brackets.padding;
+    uniforms.uPadding.value = currentPadding;
     uniforms.uRadius.value = brackets.radius;
     // Le pane raisonne en degrés, le shader en radians.
     uniforms.uAngle.value = (brackets.angle * Math.PI) / 180;
