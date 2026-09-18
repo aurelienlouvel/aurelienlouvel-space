@@ -24,7 +24,11 @@ import { Tag } from "@/components/primitives/Tag";
 import { MatesBlock } from "@/components/blocks/MatesBlock";
 import { formatDateRange } from "@/lib/date-utils";
 import { ArtifactGrid, setAppCursor } from "./ArtifactGrid";
-import { SecondaryGalleryPlanes } from "./SecondaryGalleryPlanes";
+import {
+  SecondaryGalleryPlanes,
+  getOrCreateImageTexture,
+  getOrCreateVideoTexture,
+} from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
 import { dampTowards } from "./damp";
 import { FisheyeEffect } from "./FisheyeEffect";
@@ -186,6 +190,7 @@ export type PlayRuntimeState = {
     easedSelectProgress: number;
     lockTimer: number;
     lockProgress: number;
+    burstTimer: number;
     burstProgress: number;
     easedBurstProgress: number;
     reelTimer: number;
@@ -194,6 +199,7 @@ export type PlayRuntimeState = {
     dezoomTimer: number;
     dezoomProgress: number;
     easedDezoomProgress: number;
+    textRevealed: boolean;
     returnTimer: number;
     returnProgress: number;
     easedReturnProgress: number;
@@ -261,6 +267,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.easedSelectProgress = 0;
   rc.transition.lockTimer = 0;
   rc.transition.lockProgress = 0;
+  rc.transition.burstTimer = 0;
   rc.transition.burstProgress = 0;
   rc.transition.easedBurstProgress = 0;
   rc.transition.reelTimer = 0;
@@ -269,6 +276,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.dezoomTimer = 0;
   rc.transition.dezoomProgress = 0;
   rc.transition.easedDezoomProgress = 0;
+  rc.transition.textRevealed = false;
   rc.transition.returnTimer = 0;
   rc.transition.returnProgress = 0;
   rc.transition.easedReturnProgress = 0;
@@ -476,6 +484,7 @@ function stepCamera(
           tr.lockProgress = 0;
         } else {
           tr.phase = "burst";
+          tr.burstTimer = 0;
           tr.burstProgress = 0;
           tr.easedBurstProgress = 0;
         }
@@ -496,12 +505,13 @@ function stepCamera(
 
   // ── Temps 3 : Transition vers la vue détail (Burst & Centrage sur M0) ───
   if (tr.phase === "burst") {
-    tr.burstProgress = Math.min(
-      1,
-      tr.burstProgress + effDelta / Math.max(0.1, config.burstDuration),
-    );
+    const burstDur = Math.max(0.1, config.burstDuration);
+    tr.burstTimer += effDelta;
+    tr.burstProgress = Math.min(1, tr.burstTimer / burstDur);
     tr.easedBurstProgress = evaluateEasing(config.burstEasing, tr.burstProgress);
-    if (tr.burstProgress >= 1) {
+
+    const reelStartDelay = Math.max(0, config.reelStartDelay ?? 0);
+    if (tr.burstTimer >= burstDur + reelStartDelay) {
       tr.burstProgress = 1;
       tr.phase = "reel";
       tr.reelTimer = 0;
@@ -531,7 +541,8 @@ function stepCamera(
     tr.reelProgress = Math.min(1, tr.reelTimer / reelDur);
     tr.easedReelProgress = evaluateEasing(config.reelEasing ?? "easeInOutCubic", tr.reelProgress);
 
-    if (tr.reelProgress >= 1) {
+    const reelEndDelay = Math.max(0, config.reelEndDelay ?? 0);
+    if (tr.reelTimer >= reelDur + reelEndDelay) {
       tr.reelProgress = 1;
       tr.phase = "dezoom";
       tr.dezoomTimer = 0;
@@ -539,7 +550,7 @@ function stepCamera(
       tr.easedDezoomProgress = 0;
       tr.columnScrollY = 0;
       tr.targetColumnScrollY = 0;
-      onBurstComplete?.(); // Révélation du panneau texte dès l'amorce du dézoom
+      tr.textRevealed = false;
     }
 
     const targetZoom = baseZoom;
@@ -562,13 +573,23 @@ function stepCamera(
     tr.dezoomProgress = Math.min(1, tr.dezoomTimer / dezoomDur);
     tr.easedDezoomProgress = evaluateEasing(config.dezoomEasing ?? "easeInOutCubic", tr.dezoomProgress);
 
+    const textDelay = Math.max(0, config.textRevealDelay ?? 0);
+    if (!tr.textRevealed && tr.dezoomTimer >= textDelay) {
+      tr.textRevealed = true;
+      onBurstComplete?.(); // Révélation du panneau texte après le délai configuré
+    }
+
     if (tr.dezoomProgress >= 1) {
       tr.dezoomProgress = 1;
+      if (!tr.textRevealed) {
+        tr.textRevealed = true;
+        onBurstComplete?.();
+      }
       tr.phase = "isolated";
     }
 
     const startZoom = baseZoom;
-    const endZoom = baseZoom * config.burstZoom; // 0.85
+    const endZoom = baseZoom * config.burstZoom; // ex: 1.8
     const targetZoom = startZoom + (endZoom - startZoom) * tr.easedDezoomProgress;
     const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
@@ -631,17 +652,26 @@ function stepCamera(
     tr.returnProgress = returnT;
     tr.easedReturnProgress = evaluateEasing(config.exitEasing ?? "easeInOutCubic", returnT);
 
+    const cameraDelay = Math.max(0, config.cameraReturnDelay ?? 0);
+    const cameraCanMove = tr.returnTimer >= cameraDelay;
+
     const targetZoom = baseZoom;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 10, effDelta);
-    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
-      camera.zoom = smoothedZoom;
-      camera.updateProjectionMatrix();
+    if (cameraCanMove) {
+      const smoothedZoom = dampTowards(camera.zoom, targetZoom, 10, effDelta);
+      if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+        camera.zoom = smoothedZoom;
+        camera.updateProjectionMatrix();
+      }
+      camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+      camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
-
-    if (returnT >= 1 && ((Math.abs(camera.zoom - baseZoom) < 0.01 && Math.abs(camera.position.x - rc.camera.targetX) < 2.0) || tr.returnTimer >= exitDur + 0.3)) {
+    if (
+      returnT >= 1 &&
+      ((Math.abs(camera.zoom - baseZoom) < 0.01 &&
+        Math.abs(camera.position.x - rc.camera.targetX) < 2.0) ||
+        tr.returnTimer >= exitDur + cameraDelay + 0.3)
+    ) {
       camera.zoom = baseZoom;
       camera.position.x = rc.camera.targetX;
       camera.position.y = rc.camera.targetY;
@@ -765,6 +795,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       easedSelectProgress: 0,
       lockTimer: 0,
       lockProgress: 0,
+      burstTimer: 0,
       burstProgress: 0,
       easedBurstProgress: 0,
       reelTimer: 0,
@@ -773,6 +804,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       dezoomTimer: 0,
       dezoomProgress: 0,
       easedDezoomProgress: 0,
+      textRevealed: false,
       returnTimer: 0,
       returnProgress: 0,
       easedReturnProgress: 0,
@@ -958,6 +990,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     rc.transition.holding = false;
     rc.transition.selectProgress = 1;
     rc.transition.easedSelectProgress = 1;
+    rc.transition.burstTimer = 0;
     rc.transition.burstProgress = 0;
     rc.transition.easedBurstProgress = 0;
     rc.transition.reelTimer = 0;
@@ -966,6 +999,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     rc.transition.dezoomTimer = 0;
     rc.transition.dezoomProgress = 0;
     rc.transition.easedDezoomProgress = 0;
+    rc.transition.textRevealed = false;
     rc.repulsor.active = true;
     rc.repulsor.pointIndex = selIndex;
     rc.repulsor.x = rc.selectedPos.x;
@@ -1082,6 +1116,9 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     allMediaToPreload.forEach((m) => {
       if (m.kind === "video") {
+        try {
+          getOrCreateVideoTexture(m.url);
+        } catch {}
         const video = document.createElement("video");
         video.crossOrigin = "anonymous";
         video.preload = "auto";
@@ -1100,6 +1137,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       }
       try {
         useTexture.preload(m.url);
+        getOrCreateImageTexture(m.url);
       } catch {}
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -1339,8 +1377,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         if (e.repeat) return;
         e.preventDefault();
         applyKeyDownEnter(runtime.current, points);
-        const pt = points[runtime.current.selected];
-        if (pt) handleStartSelect(pt.artifactIndex, pt);
+        const selIndex = runtime.current.selected;
+        const pt = points[selIndex];
+        if (pt) {
+          handleStartSelect(pt.artifactIndex, {
+            ...pt,
+            x: runtime.current.selectedPos.x,
+            y: runtime.current.selectedPos.y,
+          });
+        }
         return;
       }
 
@@ -1414,7 +1459,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               };
             }}
           >
-            <Stats className="!top-4 !left-4" />
+            {showDebug && <Stats className="!top-4 !left-4" />}
             <CameraRig
               debug={debug}
               runtime={runtime}
