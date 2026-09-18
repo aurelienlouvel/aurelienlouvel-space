@@ -286,6 +286,7 @@ export function SecondaryGalleryPlanes({
   const { size, camera } = useThree();
   const groupRef = useRef<Group>(null);
   const meshRefs = useRef<(Mesh | null)[]>([]);
+  const wrappedSlotsRef = useRef<boolean[]>([]);
 
   // Détection responsive : desktop (>= 1024px et paysage) vs mobile
   const isDesktop = size.width >= 1024 && size.width >= size.height;
@@ -343,9 +344,11 @@ export function SecondaryGalleryPlanes({
     }
 
     const K = uMedia.length;
-    // On garantit au moins 21 slots au total pour couvrir tout viewport jusqu'à 4K
-    const targetSlots = 21;
-    const baseCycles = Math.max(7, Math.ceil(targetSlots / K));
+    // Estimation de la hauteur moyenne d'un cycle pour dimensionner le pool
+    const approxCycleHeight = uMedia.reduce((acc, m) => acc + (450 / Math.max(0.3, m.ratio)) + 32, 0);
+    // Couvre au moins 3600px de span vertical pour garantir un enroulement sans rupture
+    const minCycles = Math.ceil(3600 / Math.max(300, approxCycleHeight));
+    const baseCycles = Math.max(3, minCycles);
     // Nombre impair de cycles C garantissant une symétrie parfaite autour du slot central
     const C = baseCycles % 2 === 0 ? baseCycles + 1 : baseCycles;
     const halfCycles = Math.floor(C / 2);
@@ -481,34 +484,33 @@ export function SecondaryGalleryPlanes({
       restingY[s] = restingY[s + 1] + nextH * 0.5 + effectiveGap + curH * 0.5;
     }
 
+    // ── Réinitialisation de la mémoire anti-pop lors d'une nouvelle sélection
+    if (tr.phase === "idle" || tr.phase === "selecting" || tr.phase === "lock" || tr.phase === "burst") {
+      if (wrappedSlotsRef.current.length !== pool.length || wrappedSlotsRef.current.some(Boolean)) {
+        wrappedSlotsRef.current = new Array(pool.length).fill(false);
+      }
+    }
+
+    const stackM0Rise = debug.current.transition.stackM0Rise ?? 90;
+
     // ── Animation et défilement ─────────────────────────────────────────────
     let scrollY = 0;
     if (isSpinDezoom) {
       const reelLoops = debug.current.transition.reelLoops ?? 3;
       const spinProgress = tr.easedSpinDezoomProgress ?? 0;
-      scrollY = reelLoops * oneCycleHeight * spinProgress;
+      const spinDist = reelLoops * oneCycleHeight * spinProgress;
+      // Continuité totale : l'ascension m0Rise acquise lors de stackEntrance
+      // s'enchaîne directement dans la course du rouleau 777
+      const residualRise = stackM0Rise * (1 - spinProgress);
+      scrollY = spinDist + residualRise;
     } else if (isIsolated || isReturning) {
       scrollY = tr.columnScrollY;
     }
 
     const anchorY = principalPoint.y;
-    const halfSpan = totalPoolSpan * 0.5;
-    const topLimit = anchorY + halfSpan;
-
-    // Progression de la courbure en arc de cercle 3D :
-    // S'active progressivement pendant spinDezoom, plein effet en vue isolated
-    let arcProgress = 0;
-    if (isSpinDezoom) {
-      arcProgress = tr.easedSpinDezoomProgress ?? 0;
-    } else if (isIsolated) {
-      arcProgress = 1;
-    } else if (isReturning) {
-      arcProgress = Math.max(0, 1 - (tr.easedReturnProgress ?? 0));
-    }
-
-    const arcR = Math.max(400, debug.current.transition.arcRadius ?? 1800);
-    const maxAngleRad = ((debug.current.transition.arcMaxAngleDeg ?? 22) * Math.PI) / 180;
-    const convergence = debug.current.transition.arcCenterConvergence ?? 0.12;
+    // Seuil de sortie haute du champ visible : au-delà, le slot boucle sous l'écran
+    const visibleHalfH = (size.height / Math.max(0.1, camera.zoom)) * 0.5;
+    const topLimit = anchorY + Math.max(visibleHalfH + 300, oneCycleHeight * 0.75);
 
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
@@ -519,13 +521,21 @@ export function SecondaryGalleryPlanes({
 
       let y = restingY[s] + scrollY;
 
-      // Émergence séquentielle :
+      // ── Émergence séquentielle (Temps 6) ──────────────────────────────────
       if (isStackEntrance) {
-        if (offset === 1) {
-          // La première carte inférieure glisse vers le haut depuis le bas pour amorcer le déroulé
-          const entranceT = tr.easedStackEntranceProgress ?? 0;
-          const slideDist = (1 - entranceT) * stackSlideOffset;
-          y -= slideDist;
+        const entranceT = tr.easedStackEntranceProgress ?? 0;
+        const m0Rise = stackM0Rise * entranceT;
+        const slideDist = (1 - entranceT) * stackSlideOffset;
+
+        if (isMain) {
+          // M0 commence à monter vers le haut dès que M1 entre, mais moins vite que M1
+          y = restingY[centerSlotIdx] + m0Rise;
+        } else if (offset >= 1) {
+          // M1 (et suivants) montent depuis le bas plus rapidement pour rattraper le bon espacement
+          y = restingY[s] + m0Rise - slideDist;
+        } else {
+          // Cartes au-dessus : restent strictement invisibles
+          y = restingY[s] + m0Rise;
         }
       } else if (isReturning) {
         if (!isMain) {
@@ -542,27 +552,18 @@ export function SecondaryGalleryPlanes({
       // Bouclage infini périodique modulaire
       if (pool.length > 1 && totalPoolSpan > 100) {
         if (isSpinDezoom || isIsolated || isReturning) {
-          y = anchorY + wrapPeriodic(y - anchorY, totalPoolSpan, topLimit);
+          const unwrappedY = y;
+          // Dès qu'une carte supérieure (offset < 0) a franchi le haut et bouclé par le bas, elle est mémorisée
+          if (unwrappedY > topLimit) {
+            wrappedSlotsRef.current[s] = true;
+          }
+          y = wrapPeriodic(unwrappedY, totalPoolSpan, topLimit);
         }
       }
 
-      // ── Courbure en Arc de Cercle 3D & Orientation vers le Centre ────────
-      const dy = y - principalPoint.y;
-      const rawTheta = dy / arcR;
-      const theta = Math.max(-maxAngleRad, Math.min(maxAngleRad, rawTheta)) * arcProgress;
-
-      // 1. Inclinaison cylindrique X & Profondeur Z (effet tambour incurvé vers le centre) :
-      const rotX = theta;
-      const posZ = arcR * (Math.cos(theta) - 1);
-
-      // 2. Orientation vers le centre de l'écran (Convergence Y) :
-      // Sur desktop, la colonne est à gauche, les médias sont orientés vers le centre horizontal
-      const rotY = isDesktop ? convergence * arcProgress : 0;
-
-      mesh.position.set(principalPoint.x, y, posZ);
-      mesh.rotation.x = rotX;
-      mesh.rotation.y = rotY;
-      mesh.rotation.z = 0;
+      // Rendu strictement 2D plat (suppression de l'arc de cercle 3D)
+      mesh.position.set(principalPoint.x, y, 0);
+      mesh.rotation.set(0, 0, 0);
 
       // Priorité de rendu : M0 au premier plan
       mesh.renderOrder = isMain ? 10 : 5;
@@ -593,13 +594,26 @@ export function SecondaryGalleryPlanes({
           // Pendant burst, zoom avant et pause, seule l'image principale M0 est visible
           mat.opacity = 0;
         } else if (isStackEntrance) {
-          // Seule la première image inférieure (offset === 1) apparaît en fondu glissé
+          // Règle stricte anti-pop du haut : aucune carte au-dessus de M0 n'est visible !
+          // Seules les cartes en-dessous de M0 (offset >= 1) émergent depuis le bas
           if (offset === 1) {
-            mat.opacity = tr.easedStackEntranceProgress ?? 0;
+            mat.opacity = Math.min(1, (tr.easedStackEntranceProgress ?? 0) * 1.5);
+          } else if (offset > 1) {
+            mat.opacity = Math.max(0, Math.min(1, ((tr.easedStackEntranceProgress ?? 0) - 0.25) * 1.5));
           } else {
             mat.opacity = 0;
           }
-        } else if (isSpinDezoom || isIsolated) {
+        } else if (isSpinDezoom) {
+          // Règle stricte anti-pop :
+          // - Les cartes sous M0 (offset >= 0) montent et tournent
+          // - Les cartes au-dessus de M0 (offset < 0) sont STRICTEMENT invisibles
+          //   tant qu'elles n'ont pas bouclé par le bas de l'écran (wrappedSlotsRef)
+          if (offset >= 0) {
+            mat.opacity = 1;
+          } else {
+            mat.opacity = wrappedSlotsRef.current[s] ? 1 : 0;
+          }
+        } else if (isIsolated) {
           mat.opacity = 1;
         } else if (isReturning) {
           mat.opacity = Math.max(0, 1 - (tr.easedReturnProgress ?? 0));

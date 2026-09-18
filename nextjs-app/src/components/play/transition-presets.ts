@@ -65,6 +65,7 @@ export type TransitionConfig = {
   // ── 6. Émergence de la Première Carte Inférieure ────────────────
   stackEntranceDuration: number; // Durée d'émergence de M1 en glissant sous M0 (ex: 0.35s)
   stackSlideOffset: number; // Amplitude de glissement vertical depuis le bas (ex: 350px)
+  stackM0Rise: number; // Montée vers le haut de M0 lors de l'arrivée de M1 (ex: 90px)
   stackEntranceEasing: EasingName;
 
   // ── 7. Rouleau 777 & Dézoom Simultanés (Climax) ────────────────
@@ -120,6 +121,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     mainHoldDuration: 0.25,
     stackEntranceDuration: 0.38,
     stackSlideOffset: 350,
+    stackM0Rise: 90,
     stackEntranceEasing: "easeOutQuad",
     spinDezoomDuration: 1.6,
     reelDuration: 1.6,
@@ -167,6 +169,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     mainHoldDuration: 0.15,
     stackEntranceDuration: 0.25,
     stackSlideOffset: 320,
+    stackM0Rise: 70,
     stackEntranceEasing: "easeOutExpo",
     spinDezoomDuration: 1.2,
     reelDuration: 1.2,
@@ -214,6 +217,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     mainHoldDuration: 0.35,
     stackEntranceDuration: 0.45,
     stackSlideOffset: 400,
+    stackM0Rise: 110,
     stackEntranceEasing: "easeOutQuint",
     spinDezoomDuration: 1.8,
     reelDuration: 1.8,
@@ -275,6 +279,7 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   // 6. Émergence de la Première Carte Inférieure (0.35s)
   stackEntranceDuration: 0.35,
   stackSlideOffset: 350,
+  stackM0Rise: 90,
   stackEntranceEasing: "easeOutQuad",
 
   // 7. Rouleau 777 & Dézoom Simultanés (1.5s)

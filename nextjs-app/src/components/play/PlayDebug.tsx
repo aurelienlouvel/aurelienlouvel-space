@@ -510,6 +510,7 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
             "Main zoom easing": p.mainZoomEasing,
             "Main hold duration (s)": p.mainHoldDuration,
             "Stack slide offset (px)": p.stackSlideOffset,
+            "M0 upward rise (px)": p.stackM0Rise,
             "Stack entrance duration (s)": p.stackEntranceDuration,
             "Stack entrance easing": p.stackEntranceEasing,
             "Spin duration (s)": p.spinDezoomDuration,
@@ -518,9 +519,6 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
             "Dezoom easing": p.dezoomEasing,
             "Text reveal delay (s)": p.textRevealDelay,
             "Pause after spin (s)": p.reelEndDelay,
-            "Arc radius (px)": p.arcRadius,
-            "Arc max angle (deg)": p.arcMaxAngleDeg,
-            "Center convergence": p.arcCenterConvergence,
             "Burst zoom (dezoom)": p.burstZoom,
             "Media column ratio": p.detailColumnRatio,
             "Media width % (desktop)": p.desktopMediaWidthRatio,
@@ -741,6 +739,15 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
             state.current.transition.stackSlideOffset = v;
           },
         },
+        "M0 upward rise (px)": {
+          value: state.current.transition.stackM0Rise ?? 90,
+          min: 0,
+          max: 400,
+          step: 5,
+          onChange: (v: number) => {
+            state.current.transition.stackM0Rise = v;
+          },
+        },
         "Stack entrance easing": {
           value: state.current.transition.stackEntranceEasing ?? "easeOutQuad",
           options: EASING_OPTIONS,
@@ -809,35 +816,8 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
       },
       { collapsed: false },
     ),
-    "8 • Arc de Cercle 3D & Vue Détail": folder(
+    "8 • Vue Détail & Cadrage": folder(
       {
-        "Arc radius (px)": {
-          value: state.current.transition.arcRadius ?? 1800,
-          min: 600,
-          max: 4000,
-          step: 50,
-          onChange: (v: number) => {
-            state.current.transition.arcRadius = v;
-          },
-        },
-        "Arc max angle (deg)": {
-          value: state.current.transition.arcMaxAngleDeg ?? 22,
-          min: 0,
-          max: 45,
-          step: 1,
-          onChange: (v: number) => {
-            state.current.transition.arcMaxAngleDeg = v;
-          },
-        },
-        "Center convergence": {
-          value: state.current.transition.arcCenterConvergence ?? 0.12,
-          min: -0.5,
-          max: 0.5,
-          step: 0.01,
-          onChange: (v: number) => {
-            state.current.transition.arcCenterConvergence = v;
-          },
-        },
         "Burst zoom (dezoom)": {
           value: state.current.transition.burstZoom,
           min: 0.4,
@@ -1167,35 +1147,8 @@ function ArtifactDetailsSection({
         },
         { collapsed: false },
       ),
-      "6 • Arc de Cercle 3D & Vue Détail": folder(
+      "6 • Vue Détail & Cadrage": folder(
         {
-          "Arc radius (px)": {
-            value: state.current.transition.arcRadius ?? 1800,
-            min: 600,
-            max: 4000,
-            step: 50,
-            onChange: (v: number) => {
-              state.current.transition.arcRadius = v;
-            },
-          },
-          "Arc max angle (deg)": {
-            value: state.current.transition.arcMaxAngleDeg ?? 22,
-            min: 0,
-            max: 45,
-            step: 1,
-            onChange: (v: number) => {
-              state.current.transition.arcMaxAngleDeg = v;
-            },
-          },
-          "Center convergence": {
-            value: state.current.transition.arcCenterConvergence ?? 0.12,
-            min: -0.5,
-            max: 0.5,
-            step: 0.01,
-            onChange: (v: number) => {
-              state.current.transition.arcCenterConvergence = v;
-            },
-          },
           "Width % (desktop)": {
             value: state.current.transition.desktopMediaWidthRatio ?? 0.34,
             min: 0.15,
