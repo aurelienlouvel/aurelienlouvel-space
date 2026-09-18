@@ -94,6 +94,7 @@ function stepKinematicMeshes(
   meshRefs: (Mesh | null)[][],
   displacementRef: { current: number },
   delta: number,
+  visibleW: number,
 ) {
   if (!phys.enabled) {
     displacementRef.current = 0;
@@ -116,28 +117,25 @@ function stepKinematicMeshes(
   const isIsolated = rc.transition.phase === "isolated";
   const isReturning = rc.transition.phase === "returning";
   const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
-  const targetPt = points[targetIdx] ?? points[0];
+  const targetPt = targetIdx >= 0 ? points[targetIdx] : null;
 
   // Calcul du scalaire de déplacement cible
   let targetD = 0;
+  const maxD = Math.max(0, transition.burstRepulse);
+
   if (isSelecting) {
     const repulseProgress = rc.transition.phase === "lock" ? 1 : rc.transition.easedSelectProgress;
     targetD = transition.selectRepulse * repulseProgress;
   } else if (isBursting) {
-    const startD = transition.selectRepulse;
-    const endD = transition.burstRepulse > 10000 ? 3500 : Math.max(2500, transition.burstRepulse);
-    targetD = startD + (endD - startD) * rc.transition.easedBurstProgress;
+    targetD = transition.selectRepulse + (maxD - transition.selectRepulse) * rc.transition.easedBurstProgress;
   } else if (isIsolated) {
-    targetD = transition.burstRepulse > 10000 ? 3500 : Math.max(2500, transition.burstRepulse);
+    targetD = maxD;
   } else if (isReturning) {
     rc.transition.returnTimer += delta;
-    const maxD = transition.burstRepulse > 10000 ? 3500 : Math.max(2500, transition.burstRepulse);
     const returnDelay = Math.max(0, transition.repulseReturnDelay);
     if (rc.transition.returnTimer < returnDelay) {
-      // Pendant le délai de retour : maintien de la répulsion maximale
       targetD = maxD;
     } else {
-      // Délai écoulé : retour progressif des voisins à leur position initiale
       targetD = 0;
     }
   } else {
@@ -158,7 +156,10 @@ function stepKinematicMeshes(
   }
   const currentD = displacementRef.current;
 
-  // Facteur d'échelle du média ciblé avec micro-punch tactile de confirmation au lock
+  // Largeur cible en coordonnées monde pour valoir exactement 1/6 de la largeur d'écran
+  const targetColWidth = visibleW / 6;
+
+  // Facteur d'échelle du média ciblé avec transition douce vers 1/6 de la largeur d'écran
   let selectScaleFactor = 1;
   if (rc.transition.phase === "selecting") {
     selectScaleFactor = 1 + (transition.selectScale - 1) * rc.transition.easedSelectProgress;
@@ -166,16 +167,36 @@ function stepKinematicMeshes(
     const lockT = rc.transition.lockProgress;
     const punch = Math.sin(lockT * Math.PI) * transition.lockScalePunch;
     selectScaleFactor = transition.selectScale + punch;
-  } else if (isBursting || isIsolated) {
-    selectScaleFactor = transition.selectScale;
+  } else if (isBursting) {
+    if (targetPt) {
+      const startScale = transition.selectScale;
+      const finalScale = targetColWidth / targetPt.width;
+      selectScaleFactor = startScale + (finalScale - startScale) * rc.transition.easedBurstProgress;
+    } else {
+      selectScaleFactor = transition.selectScale;
+    }
+  } else if (isIsolated) {
+    if (targetPt) {
+      selectScaleFactor = targetColWidth / targetPt.width;
+    } else {
+      selectScaleFactor = 1;
+    }
   } else if (isReturning) {
-    selectScaleFactor = 1;
+    if (targetPt) {
+      const returnDelay = Math.max(0, transition.repulseReturnDelay);
+      const returnT = rc.transition.returnTimer < returnDelay ? 0 : Math.min(1, (rc.transition.returnTimer - returnDelay) / 0.35);
+      const finalScale = targetColWidth / targetPt.width;
+      selectScaleFactor = finalScale + (1 - finalScale) * returnT;
+    } else {
+      selectScaleFactor = 1;
+    }
   }
 
   // Mise à jour de la cible de l'indicateur
   if (targetPt && targetIdx === rc.selected) {
+    const scrollOffset = isIsolated ? rc.transition.columnScrollY : 0;
     rc.indicatorTarget.x = rc.selectedPos.x;
-    rc.indicatorTarget.y = rc.selectedPos.y;
+    rc.indicatorTarget.y = rc.selectedPos.y + scrollOffset;
     rc.indicatorTarget.width = targetPt.width * selectScaleFactor;
     rc.indicatorTarget.height = targetPt.height * selectScaleFactor;
   }
@@ -215,7 +236,8 @@ function stepKinematicMeshes(
         }
       }
 
-      mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
+      const scrollOffset = isTarget && isIsolated ? rc.transition.columnScrollY : 0;
+      mesh.position.set(pt.x + curDx, pt.y + curDy + scrollOffset, 0);
       mesh.rotation.z = 0;
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
 
@@ -268,7 +290,7 @@ export function ArtifactGrid({
   dragMoved: RefObject<boolean>;
   onStartSelect?: (artifactIndex: number, point: LayoutPoint) => void;
 }) {
-  const { camera } = useThree();
+  const { camera, size } = useThree();
   const { TILE_W, TILE_H, points } = tile;
 
   const groupRefs = useRef<(Group | null)[]>(Array(COPIES).fill(null));
@@ -323,6 +345,7 @@ export function ArtifactGrid({
       }
     }
 
+    const visibleW = size.width / Math.max(0.01, camera.zoom);
     stepKinematicMeshes(
       debug.current.physics,
       debug.current.transition,
@@ -332,6 +355,7 @@ export function ArtifactGrid({
       meshRefs.current,
       displacementRef,
       delta,
+      visibleW,
     );
   });
 
@@ -352,6 +376,7 @@ export function ArtifactGrid({
     width: number,
     height: number,
   ) {
+    if (runtime.current.transition.phase !== "idle") return;
     applySelect(runtime.current, pointIndex, world, width, height);
     applyPointerDown(runtime.current, pointIndex, {
       x: points[pointIndex].x,

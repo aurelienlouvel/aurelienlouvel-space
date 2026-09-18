@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useMemo, Suspense } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import type { Group, Mesh, MeshBasicMaterial } from "three";
 import type { ArtifactGalleryItem } from "@/sanity/queries";
 import type { PlayDebugRef, PlayRuntimeRef } from "./PlayCanvas";
@@ -33,18 +33,34 @@ export function SecondaryGalleryPlanes({
   debug,
   gap = 32,
 }: SecondaryGalleryPlanesProps) {
+  const { size, camera } = useThree();
   const groupRef = useRef<Group>(null);
   const meshRefs = useRef<(Mesh | null)[]>([]);
 
-  // Secondary items are items from index 1, or repeat index 0 if only 1 item exists
-  const itemsToDisplay = useMemo(() => {
-    if (!gallery || gallery.length === 0 || !principalPoint) return [];
-    const rawItems = gallery.length > 1 ? gallery.slice(1) : [gallery[0]];
+  // Largeur cible : exactement 1/6 de la largeur d'écran en coordonnées monde
+  const visibleW = size.width / Math.max(0.01, camera.zoom);
+  const targetColWidth = visibleW / 6;
 
-    let currentTop = principalPoint.y - principalPoint.height * 0.5;
+  // Liste des items secondaires avec répétition pour garantir un défilement infini
+  const { itemsToDisplay, totalHeight } = useMemo(() => {
+    if (!gallery || gallery.length === 0 || !principalPoint) {
+      return { itemsToDisplay: [], totalHeight: 0 };
+    }
+
+    // Si la galerie a 1 seul média, on le répète. Sinon on prend les médias à partir de l'index 1.
+    const rawBase = gallery.length > 1 ? gallery.slice(1) : [gallery[0]];
+    const repeats = Math.max(1, Math.ceil(8 / rawBase.length));
+    const fullList: ArtifactGalleryItem[] = [];
+    for (let r = 0; r < repeats; r++) {
+      fullList.push(...rawBase);
+    }
+
+    const principalRatio = principalPoint.width / Math.max(1, principalPoint.height);
+    const principalH = targetColWidth / principalRatio;
+    let currentTop = principalPoint.y - principalH * 0.5;
     const prepared: PreparedItem[] = [];
 
-    rawItems.forEach((item, idx) => {
+    fullList.forEach((item, idx) => {
       const isVideo = item._type === "galleryVideo";
       const url = isVideo
         ? (item.videoUrl || fileRefToUrl(item.videoRef) || "")
@@ -61,7 +77,7 @@ export function SecondaryGalleryPlanes({
             ? 16 / 9
             : 1.5;
 
-      const width = principalPoint.width;
+      const width = targetColWidth;
       const height = width / ratio;
       const restingY = currentTop - gap - height * 0.5;
       currentTop = restingY - height * 0.5;
@@ -76,8 +92,9 @@ export function SecondaryGalleryPlanes({
       });
     });
 
-    return prepared;
-  }, [gallery, principalPoint, gap]);
+    const computedTotalHeight = Math.abs(currentTop - (principalPoint.y - principalH * 0.5));
+    return { itemsToDisplay: prepared, totalHeight: computedTotalHeight };
+  }, [gallery, principalPoint, gap, targetColWidth]);
 
   useFrame(() => {
     const group = groupRef.current;
@@ -110,16 +127,31 @@ export function SecondaryGalleryPlanes({
       }
     }
 
-    // Secondary items slide up from the bottom (offset downwards when progress < 1)
+    // Apparition par le bas lors du burst
     const slideOffset = (1 - progress) * 350;
+    const scrollY = isIsolated ? tr.columnScrollY : 0;
+    const halfH = (size.height / Math.max(0.01, camera.zoom)) * 0.5;
+    const anchorY = principalPoint?.y ?? 0;
 
     itemsToDisplay.forEach((item, idx) => {
       const mesh = meshRefs.current[idx];
       if (!mesh) return;
 
+      let y = item.restingY - slideOffset + scrollY;
+
+      // Bouclage infini régulier sans à-coup
+      if (totalHeight > 100) {
+        while (y - anchorY > halfH + 200) {
+          y -= totalHeight;
+        }
+        while (y - anchorY < -halfH - 200 - totalHeight * 0.5) {
+          y += totalHeight;
+        }
+      }
+
       mesh.position.set(
         principalPoint?.x ?? 0,
-        item.restingY - slideOffset,
+        y,
         0,
       );
       mesh.scale.set(item.width, item.height, 1);

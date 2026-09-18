@@ -621,8 +621,8 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
         "Media column ratio": {
           value: state.current.transition.detailColumnRatio,
           min: 0.25,
-          max: 0.60,
-          step: 0.05,
+          max: 0.70,
+          step: 0.02,
           onChange: (v: number) => {
             state.current.transition.detailColumnRatio = v;
           },

@@ -11,10 +11,11 @@ import {
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft02Icon, Calendar02Icon } from "@hugeicons/core-free-icons";
+import { Calendar02Icon } from "@hugeicons/core-free-icons";
 import { Canvas, events, useFrame } from "@react-three/fiber";
 import { Stats } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
+import { useActionBar } from "@/contexts/ActionBarContext";
 import { preloadArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
 import type { PlayArtifact, ArtifactDetail, Mate } from "@/sanity/queries";
@@ -182,6 +183,8 @@ export type PlayRuntimeState = {
     targetIndex: number;
     holding: boolean;
     trigger: "pointer" | "key" | null;
+    columnScrollY: number;
+    targetColumnScrollY: number;
   };
 };
 
@@ -192,10 +195,6 @@ export function applyPointerDown(
   pointIndex: number,
   canonicalPos: { x: number; y: number },
 ) {
-  if (rc.transition.phase === "isolated" || rc.transition.phase === "returning") {
-    applyResetTransition(rc);
-    return;
-  }
   if (rc.transition.phase !== "idle") return;
 
   rc.repulsor.active = true;
@@ -221,6 +220,7 @@ export function applyPointerUp(rc: PlayRuntimeState) {
 }
 
 export function applyResetTransition(rc: PlayRuntimeState) {
+  rc.transition.targetColumnScrollY = 0;
   if (rc.transition.phase === "isolated" || rc.transition.phase === "burst") {
     rc.transition.phase = "returning";
     rc.transition.returnTimer = 0;
@@ -230,6 +230,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
     return;
   }
   rc.transition.phase = "idle";
+  rc.transition.columnScrollY = 0;
   rc.transition.holding = false;
   rc.transition.selectProgress = 0;
   rc.transition.easedSelectProgress = 0;
@@ -484,10 +485,10 @@ function stepCamera(
     const screenW = screenSize?.width ?? 1920;
     const isDesktop = screenW >= 1024;
     const visibleW = screenW / Math.max(0.1, camera.zoom);
-    const colRatio = config.detailColumnRatio ?? 0.40;
-    const offsetRatio = 0.5 - colRatio * 0.5; // (0.40 * 0.5) - 0.5 = -0.30 -> offset +0.30
+    const colRatio = config.detailColumnRatio ?? 0.50;
+    const offsetRatio = 0.5 - colRatio * 0.5;
 
-    // Déplacement horizontal : le média principal se positionne au centre de la colonne gauche (40%)
+    // Déplacement horizontal : le média principal se positionne au centre de la colonne gauche
     const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
     const targetPosY = rc.selectedPos.y; // Centrage vertical
 
@@ -499,8 +500,10 @@ function stepCamera(
     return;
   }
 
-  // ── Mode Isolé (Maintenu centré à gauche dans la colonne 40% avec dézoom) ─
+  // ── Mode Isolé (Maintenu centré à gauche avec dézoom et défilement colonne) ─
   if (tr.phase === "isolated") {
+    tr.columnScrollY = dampTowards(tr.columnScrollY, tr.targetColumnScrollY, 12, effDelta);
+
     const targetZoom = baseZoom * config.burstZoom;
     const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
@@ -511,7 +514,7 @@ function stepCamera(
     const screenW = screenSize?.width ?? 1920;
     const isDesktop = screenW >= 1024;
     const visibleW = screenW / Math.max(0.1, camera.zoom);
-    const colRatio = config.detailColumnRatio ?? 0.40;
+    const colRatio = config.detailColumnRatio ?? 0.50;
     const offsetRatio = 0.5 - colRatio * 0.5;
 
     const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
@@ -524,6 +527,9 @@ function stepCamera(
 
   // ── Mode Retour vers la page de base ─────────────────────────────────
   if (tr.phase === "returning") {
+    tr.targetColumnScrollY = 0;
+    tr.columnScrollY = dampTowards(tr.columnScrollY, 0, 14, effDelta);
+
     const targetZoom = baseZoom;
     const smoothedZoom = dampTowards(camera.zoom, targetZoom, 8, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
@@ -646,6 +652,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       targetIndex: -1,
       holding: false,
       trigger: null,
+      columnScrollY: 0,
+      targetColumnScrollY: 0,
     },
   });
   const velocity = useRef({ x: 0, y: 0 });
@@ -771,14 +779,32 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     setIsDetailVisible(true);
   }, []);
 
+  const { setProject, clearProject } = useActionBar();
+
   const handleCloseDetail = useCallback(() => {
     setIsDetailVisible(false);
+    clearProject();
     applyResetTransition(runtime.current);
     setTimeout(() => {
       setSelectedArtifactDetail(null);
       setPrincipalPoint(null);
     }, 600);
-  }, []);
+  }, [clearProject]);
+
+  useEffect(() => {
+    if (selectedArtifactDetail && isDetailVisible) {
+      setProject({
+        title: selectedArtifactDetail.title || "Artifact",
+        redirectUrl: null,
+        onBack: handleCloseDetail,
+      });
+    } else {
+      clearProject();
+    }
+    return () => {
+      clearProject();
+    };
+  }, [selectedArtifactDetail, isDetailVisible, setProject, clearProject, handleCloseDetail]);
 
   const handleSimulateSelect = useCallback(() => {
     const rc = runtime.current;
@@ -925,6 +951,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         return;
       }
 
+      if (runtime.current.transition.phase === "isolated") {
+        const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 0.85);
+        runtime.current.transition.targetColumnScrollY -= (e.deltaY / (zoom || 1)) * 0.9;
+        return;
+      }
+
       // ── Pan : défilement standard au trackpad / molette ─────────────────────
       velocity.current.x = 0;
       velocity.current.y = 0;
@@ -933,8 +965,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     function onPointerDown(e: PointerEvent) {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      if (runtime.current.transition.phase === "isolated") {
-        applyResetTransition(runtime.current);
+      if (runtime.current.transition.phase === "isolated" || runtime.current.transition.phase === "burst") {
+        // Un clic dans le vide ne fait pas retourner dans le canvas !
+        dragging = true;
+        dragMoved.current = false;
+        startX = lastX = e.clientX;
+        startY = lastY = e.clientY;
         return;
       }
       dragging = true;
@@ -948,8 +984,17 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onPointerMove(e: PointerEvent) {
-      if (runtime.current.transition.phase === "burst" || runtime.current.transition.phase === "isolated") return;
+      if (runtime.current.transition.phase === "burst") return;
       if (!dragging) return;
+
+      if (runtime.current.transition.phase === "isolated") {
+        const dy = e.clientY - lastY;
+        lastY = e.clientY;
+        const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 0.85);
+        runtime.current.transition.targetColumnScrollY += (dy / (zoom || 1)) * 1.1;
+        return;
+      }
+
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       lastX = e.clientX;
@@ -975,6 +1020,10 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onPointerUp() {
+      if (runtime.current.transition.phase === "isolated" || runtime.current.transition.phase === "burst") {
+        dragging = false;
+        return;
+      }
       if (dragging && dragMoved.current && recent.length >= 2) {
         const first = recent[0];
         const last = recent[recent.length - 1];
@@ -1169,7 +1218,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         )}
       </div>
 
-      {/* Panneau d'informations transparent sur les 60% droits de l'écran (aucun fond blanc opaque) */}
+      {/* Panneau d'informations transparent sur les 50% droits de l'écran (aucun fond blanc opaque) */}
       <AnimatePresence>
         {selectedArtifactDetail && isDetailVisible && (
           <motion.div
@@ -1177,26 +1226,9 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed right-0 top-0 bottom-0 w-full lg:w-[60%] flex flex-col justify-center px-8 sm:px-16 pointer-events-none z-10 select-none"
+            className="fixed right-0 top-0 bottom-0 w-full lg:w-[50%] flex flex-col justify-center px-8 sm:px-16 pointer-events-none z-10 select-none"
           >
             <div className="max-w-xl pointer-events-auto flex flex-col">
-              <div className="mb-6">
-                <button
-                  type="button"
-                  onClick={handleCloseDetail}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-950 transition-colors cursor-pointer group"
-                >
-                  <motion.span
-                    whileHover={{ x: -3 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 20 }}
-                    className="flex items-center justify-center h-8 w-8 rounded-full bg-zinc-100/80 backdrop-blur-sm group-hover:bg-zinc-200 transition-colors"
-                  >
-                    <HugeiconsIcon icon={ArrowLeft02Icon} size={15} strokeWidth={2} />
-                  </motion.span>
-                  <span>back to canvas</span>
-                </button>
-              </div>
-
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-950 mb-6 text-balance">
                 {selectedArtifactDetail.title}
               </h1>
