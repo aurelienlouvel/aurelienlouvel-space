@@ -49,32 +49,48 @@ export type TransitionConfig = {
   lockScalePunch: number; // Intensité du rebond / scale punch de confirmation (ex: 0.02)
   overlayExitDuration: number; // Durée d'évacuation de l'overlay vague (ex: 0.5s)
 
-  // ── 3. Transition Burst & Apparition des médias ─────────────────
-  burstDuration: number; // Durée de la transition initiale et apparition (ex: 0.6s)
-  reelStartDelay: number; // Pause après apparition avant de démarrer le rouleau (ex: 0.0s)
-  burstSlideOffset: number; // Distance de glissement vertical lors de l'apparition (ex: 400px)
+  // ── 3. Burst (Isolement M0 & Répulsion Voisins Mosaïque) ─────────
+  burstDuration: number; // Durée d'évacuation des voisins de la mosaïque (ex: 0.35s)
   burstRepulse: number; // Répulsion radiale des autres médias (ex: 40000)
   burstEasing: EasingName;
 
-  // ── 3b. Machine à sous 777 (Slot machine reel spin - 3 tours) ────
-  reelDuration: number; // Durée du défilement des tours (ex: 1.4s)
-  reelLoops: number; // Nombre de tours de rouleau (ex: 3)
-  reelEasing: EasingName; // Easing du rouleau (ex: "easeInOutCubic")
-  reelEndDelay: number; // Pause de confirmation sur le média gagnant avant le dézoom (ex: 0.15s)
+  // ── 4. Zoom Avant Focalisé sur M0 ──────────────────────────────
+  mainZoomFactor: number; // Facteur multiplicateur de zoom avant sur M0 (ex: 1.28x)
+  mainZoomDuration: number; // Durée du zoom avant sur M0 seule au centre (ex: 0.40s)
+  mainZoomEasing: EasingName; // Easing du zoom avant (ex: "easeOutQuint")
 
-  // ── 3c. Dézoom & Décalage vers la gauche (Révélation Texte) ──────
-  dezoomDuration: number; // Durée du dézoom et glissement à gauche (ex: 0.75s)
-  dezoomEasing: EasingName; // Easing du dézoom (ex: "easeInOutCubic")
-  textRevealDelay: number; // Délai avant la révélation du panneau texte lors du dézoom (ex: 0.1s)
-  burstZoom: number; // Facteur de zoom caméra appliqué en vue détail (ex: 1.8x)
+  // ── 5. Pause Contemplative sur M0 ──────────────────────────────
+  mainHoldDuration: number; // Pause contemplative sur M0 agrandie avant l'émergence (ex: 0.25s)
+
+  // ── 6. Émergence de la Première Carte Inférieure ────────────────
+  stackEntranceDuration: number; // Durée d'émergence de M1 en glissant sous M0 (ex: 0.35s)
+  stackSlideOffset: number; // Amplitude de glissement vertical depuis le bas (ex: 350px)
+  stackEntranceEasing: EasingName;
+
+  // ── 7. Rouleau 777 & Dézoom Simultanés (Climax) ────────────────
+  spinDezoomDuration: number; // Durée conjointe du rouleau 777 et du dézoom (ex: 1.5s)
+  reelDuration: number; // Alias durée défilement (ex: 1.5s)
+  reelLoops: number; // Nombre de tours de rouleau (ex: 3)
+  spinEasing: EasingName; // Easing du défilement des cartes (ex: "easeInOutCubic")
+  reelEasing: EasingName; // Alias easing défilement
+  dezoomDuration: number; // Alias durée dézoom (ex: 1.5s)
+  dezoomEasing: EasingName; // Easing du recul caméra (ex: "easeInOutCubic")
+  textRevealDelay: number; // Délai avant apparition du texte pendant le spin (ex: 0.25s)
+  reelEndDelay: number; // Pause de confirmation sur le média gagnant stabilisé (ex: 0.15s)
+
+  // ── 8. Vue Détail & Courbure en Arc de Cercle 3D ───────────────
+  burstZoom: number; // Facteur de cadrage caméra en vue détail (ex: 1.8x)
   detailColumnRatio: number; // Position horizontale du centre de la colonne (ex: 0.50 = 50%)
   desktopMediaWidthRatio: number; // Largeur des médias sur desktop (ex: 0.34 = 34% de l'écran)
   mobileMediaHeightRatio: number; // Hauteur des médias sur mobile (ex: 0.48 = 48% de l'écran)
   mediaGap: number; // Espace entre médias consécutifs en px (ex: 32)
   detailScrollDamping: number; // Amortissement fluide du défilement infini (ex: 12)
   detailScrollSpeed: number; // Multiplicateur de vitesse de défilement (ex: 1.0)
+  arcRadius: number; // Rayon de l'arc cylindrique 3D (ex: 1800px)
+  arcMaxAngleDeg: number; // Angle maximal d'inclinaison tangentielle en degrés (ex: 22°)
+  arcCenterConvergence: number; // Intensité d'orientation vers le centre horizontal (ex: 0.12)
 
-  // ── 4. Retour vers la page de base (Exit / Return) ─────────────────
+  // ── 9. Retour vers la page de base (Exit / Return) ─────────────
   exitDuration: number; // Durée de retour au canvas (ex: 0.6s)
   exitSlideOffset: number; // Glissement des secondaires vers le bas lors de la sortie (ex: 350)
   exitEasing: EasingName; // Easing du retour
@@ -95,18 +111,25 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockBracketExpand: 10,
     lockScalePunch: 0.02,
     overlayExitDuration: 0.6,
-    burstDuration: 0.8,
-    reelStartDelay: 0.1,
-    burstSlideOffset: 400,
+    burstDuration: 0.4,
     burstRepulse: 40000,
     burstEasing: "easeInOutCubic",
+    mainZoomFactor: 1.28,
+    mainZoomDuration: 0.45,
+    mainZoomEasing: "easeOutQuint",
+    mainHoldDuration: 0.25,
+    stackEntranceDuration: 0.38,
+    stackSlideOffset: 350,
+    stackEntranceEasing: "easeOutQuad",
+    spinDezoomDuration: 1.6,
     reelDuration: 1.6,
     reelLoops: 3,
+    spinEasing: "easeInOutCubic",
     reelEasing: "easeInOutCubic",
-    reelEndDelay: 0.2,
-    dezoomDuration: 0.85,
+    dezoomDuration: 1.6,
     dezoomEasing: "easeInOutCubic",
-    textRevealDelay: 0.15,
+    textRevealDelay: 0.3,
+    reelEndDelay: 0.2,
     burstZoom: 1.8,
     detailColumnRatio: 0.50,
     desktopMediaWidthRatio: 0.34,
@@ -114,6 +137,9 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     mediaGap: 32,
     detailScrollDamping: 12,
     detailScrollSpeed: 1.0,
+    arcRadius: 1800,
+    arcMaxAngleDeg: 22,
+    arcCenterConvergence: 0.12,
     exitDuration: 0.7,
     exitSlideOffset: 350,
     exitEasing: "easeInOutCubic",
@@ -132,18 +158,25 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockBracketExpand: 12,
     lockScalePunch: 0.03,
     overlayExitDuration: 0.38,
-    burstDuration: 0.5,
-    reelStartDelay: 0.0,
-    burstSlideOffset: 400,
+    burstDuration: 0.3,
     burstRepulse: 40000,
     burstEasing: "easeOutExpo",
-    reelDuration: 1.1,
+    mainZoomFactor: 1.30,
+    mainZoomDuration: 0.30,
+    mainZoomEasing: "easeOutExpo",
+    mainHoldDuration: 0.15,
+    stackEntranceDuration: 0.25,
+    stackSlideOffset: 320,
+    stackEntranceEasing: "easeOutExpo",
+    spinDezoomDuration: 1.2,
+    reelDuration: 1.2,
     reelLoops: 3,
+    spinEasing: "easeOutExpo",
     reelEasing: "easeOutExpo",
-    reelEndDelay: 0.1,
-    dezoomDuration: 0.6,
+    dezoomDuration: 1.2,
     dezoomEasing: "easeOutExpo",
-    textRevealDelay: 0.05,
+    textRevealDelay: 0.15,
+    reelEndDelay: 0.1,
     burstZoom: 1.8,
     detailColumnRatio: 0.50,
     desktopMediaWidthRatio: 0.34,
@@ -151,6 +184,9 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     mediaGap: 32,
     detailScrollDamping: 14,
     detailScrollSpeed: 1.2,
+    arcRadius: 1600,
+    arcMaxAngleDeg: 24,
+    arcCenterConvergence: 0.14,
     exitDuration: 0.45,
     exitSlideOffset: 300,
     exitEasing: "easeOutExpo",
@@ -169,18 +205,25 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockBracketExpand: 12,
     lockScalePunch: 0.025,
     overlayExitDuration: 0.7,
-    burstDuration: 1.0,
-    reelStartDelay: 0.2,
-    burstSlideOffset: 450,
+    burstDuration: 0.5,
     burstRepulse: 50000,
     burstEasing: "easeOutQuint",
+    mainZoomFactor: 1.35,
+    mainZoomDuration: 0.55,
+    mainZoomEasing: "easeOutQuint",
+    mainHoldDuration: 0.35,
+    stackEntranceDuration: 0.45,
+    stackSlideOffset: 400,
+    stackEntranceEasing: "easeOutQuint",
+    spinDezoomDuration: 1.8,
     reelDuration: 1.8,
     reelLoops: 3,
+    spinEasing: "easeOutQuint",
     reelEasing: "easeOutQuint",
-    reelEndDelay: 0.3,
-    dezoomDuration: 1.0,
+    dezoomDuration: 1.8,
     dezoomEasing: "easeOutQuint",
-    textRevealDelay: 0.25,
+    textRevealDelay: 0.4,
+    reelEndDelay: 0.25,
     burstZoom: 1.8,
     detailColumnRatio: 0.50,
     desktopMediaWidthRatio: 0.36,
@@ -188,6 +231,9 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     mediaGap: 36,
     detailScrollDamping: 10,
     detailScrollSpeed: 0.9,
+    arcRadius: 2000,
+    arcMaxAngleDeg: 20,
+    arcCenterConvergence: 0.10,
     exitDuration: 0.85,
     exitSlideOffset: 400,
     exitEasing: "easeOutQuint",
@@ -205,7 +251,7 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   selectRepulse: 200,
   selectEasing: "easeOutQuint",
 
-  // 2. Animation de select (Lock : 0.6s) — très léger et calme
+  // 2. Animation de select (Lock : 0.6s)
   lockDuration: 0.6,
   burstDelay: 0.25,
   lockBracketTighten: 6,
@@ -213,23 +259,36 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   lockScalePunch: 0.02,
   overlayExitDuration: 0.5,
 
-  // 3. Transition initiale & Apparition des médias (0.6s)
-  burstDuration: 0.6,
-  reelStartDelay: 0.0,
-  burstSlideOffset: 400,
+  // 3. Burst (Isolement M0 & Répulsion Voisins Mosaïque : 0.35s)
+  burstDuration: 0.35,
   burstRepulse: 40000,
   burstEasing: "easeInQuad",
 
-  // 3b. Machine à sous 777 (3 tours : 1.4s)
-  reelDuration: 1.4,
+  // 4. Zoom Avant Focalisé sur M0 (0.40s)
+  mainZoomFactor: 1.28,
+  mainZoomDuration: 0.40,
+  mainZoomEasing: "easeOutQuint",
+
+  // 5. Pause Contemplative sur M0 (0.25s)
+  mainHoldDuration: 0.25,
+
+  // 6. Émergence de la Première Carte Inférieure (0.35s)
+  stackEntranceDuration: 0.35,
+  stackSlideOffset: 350,
+  stackEntranceEasing: "easeOutQuad",
+
+  // 7. Rouleau 777 & Dézoom Simultanés (1.5s)
+  spinDezoomDuration: 1.5,
+  reelDuration: 1.5,
   reelLoops: 3,
+  spinEasing: "easeInOutCubic",
   reelEasing: "easeInOutCubic",
+  dezoomDuration: 1.5,
+  dezoomEasing: "easeInOutCubic",
+  textRevealDelay: 0.25,
   reelEndDelay: 0.15,
 
-  // 3c. Dézoom & Révélation Texte (0.75s)
-  dezoomDuration: 0.75,
-  dezoomEasing: "easeInOutCubic",
-  textRevealDelay: 0.1,
+  // 8. Vue Détail & Courbure en Arc 3D
   burstZoom: 1.8,
   detailColumnRatio: 0.5,
   desktopMediaWidthRatio: 0.34,
@@ -237,8 +296,11 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   mediaGap: 32,
   detailScrollDamping: 12,
   detailScrollSpeed: 1,
+  arcRadius: 1800,
+  arcMaxAngleDeg: 22,
+  arcCenterConvergence: 0.12,
 
-  // 4. Retour vers la page de base (Exit / Return : 0.6s)
+  // 9. Retour vers la page de base (Exit / Return : 0.6s)
   exitDuration: 0.6,
   exitSlideOffset: 350,
   exitEasing: "easeInOutCubic",

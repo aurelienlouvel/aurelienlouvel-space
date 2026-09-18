@@ -382,31 +382,41 @@ export function SecondaryGalleryPlanes({
 
     const tr = runtime.current.transition;
     const isBursting = tr.phase === "burst";
-    const isReeling = tr.phase === "reel";
-    const isDezooming = tr.phase === "dezoom";
+    const isMainZoom = tr.phase === "mainZoom";
+    const isMainHold = tr.phase === "mainHold";
+    const isStackEntrance = tr.phase === "stackEntrance";
+    const isSpinDezoom = tr.phase === "spinDezoom";
     const isIsolated = tr.phase === "isolated";
     const isReturning = tr.phase === "returning";
 
-    if (!isBursting && !isReeling && !isDezooming && !isIsolated && !isReturning) {
+    if (
+      !isBursting &&
+      !isMainZoom &&
+      !isMainHold &&
+      !isStackEntrance &&
+      !isSpinDezoom &&
+      !isIsolated &&
+      !isReturning
+    ) {
       group.visible = false;
       return;
     }
 
     group.visible = true;
 
-    let progress = 1;
+    let burstProgress = 1;
     if (isBursting) {
-      progress = tr.easedBurstProgress;
-    } else if (isReeling || isDezooming || isIsolated) {
-      progress = 1;
+      burstProgress = tr.easedBurstProgress;
+    } else if (isMainZoom || isMainHold || isStackEntrance || isSpinDezoom || isIsolated) {
+      burstProgress = 1;
     } else if (isReturning) {
       const returnProg = tr.easedReturnProgress ?? 0;
-      progress = Math.max(0, 1 - returnProg);
+      burstProgress = Math.max(0, 1 - returnProg);
     }
 
     const currentZoom = Math.max(0.01, camera.zoom);
     const effectiveGap = debug.current.transition.mediaGap ?? gap;
-    const burstSlideOffset = debug.current.transition.burstSlideOffset ?? 400;
+    const stackSlideOffset = debug.current.transition.stackSlideOffset ?? 350;
     const exitSlideOffset = debug.current.transition.exitSlideOffset ?? 350;
 
     // ── Dimensions responsive ───────────────────────────────────────────────
@@ -473,10 +483,11 @@ export function SecondaryGalleryPlanes({
 
     // ── Animation et défilement ─────────────────────────────────────────────
     let scrollY = 0;
-    if (isReeling) {
+    if (isSpinDezoom) {
       const reelLoops = debug.current.transition.reelLoops ?? 3;
-      scrollY = reelLoops * oneCycleHeight * (tr.easedReelProgress ?? 0);
-    } else if (isDezooming || isIsolated || isReturning) {
+      const spinProgress = tr.easedSpinDezoomProgress ?? 0;
+      scrollY = reelLoops * oneCycleHeight * spinProgress;
+    } else if (isIsolated || isReturning) {
       scrollY = tr.columnScrollY;
     }
 
@@ -484,12 +495,20 @@ export function SecondaryGalleryPlanes({
     const halfSpan = totalPoolSpan * 0.5;
     const topLimit = anchorY + halfSpan;
 
-    // Slide offset pour l'animation d'entrée burst / sortie return
-    const slideOffsetDistance = isBursting
-      ? (1 - progress) * burstSlideOffset
-      : isReturning
-        ? (1 - progress) * exitSlideOffset
-        : 0;
+    // Progression de la courbure en arc de cercle 3D :
+    // S'active progressivement pendant spinDezoom, plein effet en vue isolated
+    let arcProgress = 0;
+    if (isSpinDezoom) {
+      arcProgress = tr.easedSpinDezoomProgress ?? 0;
+    } else if (isIsolated) {
+      arcProgress = 1;
+    } else if (isReturning) {
+      arcProgress = Math.max(0, 1 - (tr.easedReturnProgress ?? 0));
+    }
+
+    const arcR = Math.max(400, debug.current.transition.arcRadius ?? 1800);
+    const maxAngleRad = ((debug.current.transition.arcMaxAngleDeg ?? 22) * Math.PI) / 180;
+    const convergence = debug.current.transition.arcCenterConvergence ?? 0.12;
 
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
@@ -500,23 +519,53 @@ export function SecondaryGalleryPlanes({
 
       let y = restingY[s] + scrollY;
 
-      // Pendant burst ou return, les secondaires glissent délicatement pour apparaître/disparaître
-      if (!isMain && (isBursting || isReturning)) {
-        if (offset > 0) {
-          y -= slideOffsetDistance;
-        } else if (offset < 0) {
-          y += slideOffsetDistance;
+      // Émergence séquentielle :
+      if (isStackEntrance) {
+        if (offset === 1) {
+          // La première carte inférieure glisse vers le haut depuis le bas pour amorcer le déroulé
+          const entranceT = tr.easedStackEntranceProgress ?? 0;
+          const slideDist = (1 - entranceT) * stackSlideOffset;
+          y -= slideDist;
+        }
+      } else if (isReturning) {
+        if (!isMain) {
+          const returnProg = tr.easedReturnProgress ?? 0;
+          const slideDist = returnProg * exitSlideOffset;
+          if (offset > 0) {
+            y -= slideDist;
+          } else if (offset < 0) {
+            y += slideDist;
+          }
         }
       }
 
       // Bouclage infini périodique modulaire
       if (pool.length > 1 && totalPoolSpan > 100) {
-        if (isReeling || isDezooming || isIsolated) {
+        if (isSpinDezoom || isIsolated || isReturning) {
           y = anchorY + wrapPeriodic(y - anchorY, totalPoolSpan, topLimit);
         }
       }
 
-      mesh.position.set(principalPoint.x, y, 0);
+      // ── Courbure en Arc de Cercle 3D & Orientation vers le Centre ────────
+      const dy = y - principalPoint.y;
+      const rawTheta = dy / arcR;
+      const theta = Math.max(-maxAngleRad, Math.min(maxAngleRad, rawTheta)) * arcProgress;
+
+      // 1. Inclinaison cylindrique X & Profondeur Z (effet tambour incurvé vers le centre) :
+      const rotX = theta;
+      const posZ = arcR * (Math.cos(theta) - 1);
+
+      // 2. Orientation vers le centre de l'écran (Convergence Y) :
+      // Sur desktop, la colonne est à gauche, les médias sont orientés vers le centre horizontal
+      const rotY = isDesktop ? convergence * arcProgress : 0;
+
+      mesh.position.set(principalPoint.x, y, posZ);
+      mesh.rotation.x = rotX;
+      mesh.rotation.y = rotY;
+      mesh.rotation.z = 0;
+
+      // Priorité de rendu : M0 au premier plan
+      mesh.renderOrder = isMain ? 10 : 5;
 
       const curItemIdx = slot.galleryIdx % K;
       const targetW = uniqueWidths[curItemIdx];
@@ -526,8 +575,8 @@ export function SecondaryGalleryPlanes({
         if (isBursting || isReturning) {
           const startW = principalPoint.width * (debug.current.transition.selectScale || 1.0);
           const startH = principalPoint.height * (debug.current.transition.selectScale || 1.0);
-          const curW = startW + (targetW - startW) * progress;
-          const curH = startH + (targetH - startH) * progress;
+          const curW = startW + (targetW - startW) * burstProgress;
+          const curH = startH + (targetH - startH) * burstProgress;
           mesh.scale.set(curW, curH, 1);
         } else {
           mesh.scale.set(targetW, targetH, 1);
@@ -540,8 +589,20 @@ export function SecondaryGalleryPlanes({
       if (mat) {
         if (isMain) {
           mat.opacity = 1;
-        } else {
-          mat.opacity = isBursting || isReturning ? progress : 1;
+        } else if (isBursting || isMainZoom || isMainHold) {
+          // Pendant burst, zoom avant et pause, seule l'image principale M0 est visible
+          mat.opacity = 0;
+        } else if (isStackEntrance) {
+          // Seule la première image inférieure (offset === 1) apparaît en fondu glissé
+          if (offset === 1) {
+            mat.opacity = tr.easedStackEntranceProgress ?? 0;
+          } else {
+            mat.opacity = 0;
+          }
+        } else if (isSpinDezoom || isIsolated) {
+          mat.opacity = 1;
+        } else if (isReturning) {
+          mat.opacity = Math.max(0, 1 - (tr.easedReturnProgress ?? 0));
         }
       }
     });

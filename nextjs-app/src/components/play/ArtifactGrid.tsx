@@ -126,9 +126,12 @@ function stepKinematicMeshes(
 
   const isSelecting = rc.transition.phase === "selecting" || rc.transition.phase === "lock";
   const isBursting = rc.transition.phase === "burst";
-  const isReeling = rc.transition.phase === "reel";
-  const isDezooming = rc.transition.phase === "dezoom";
-  const isIsolated = rc.transition.phase === "isolated";
+  const isDetailActive =
+    rc.transition.phase === "mainZoom" ||
+    rc.transition.phase === "mainHold" ||
+    rc.transition.phase === "stackEntrance" ||
+    rc.transition.phase === "spinDezoom" ||
+    rc.transition.phase === "isolated";
   const isReturning = rc.transition.phase === "returning";
   const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
   const targetPt = targetIdx >= 0 ? points[targetIdx] : null;
@@ -142,7 +145,7 @@ function stepKinematicMeshes(
     targetD = transition.selectRepulse * repulseProgress;
   } else if (isBursting) {
     targetD = transition.selectRepulse + (maxD - transition.selectRepulse) * rc.transition.easedBurstProgress;
-  } else if (isReeling || isDezooming || isIsolated) {
+  } else if (isDetailActive) {
     targetD = maxD;
   } else if (isReturning) {
     const returnDelay = Math.max(0, transition.repulseReturnDelay);
@@ -225,7 +228,7 @@ function stepKinematicMeshes(
         let targetOpacity = 1;
         if (isBursting) {
           targetOpacity = Math.max(0, 1 - rc.transition.easedBurstProgress);
-        } else if (isReeling || isDezooming || isIsolated) {
+        } else if (isDetailActive) {
           targetOpacity = 0;
         } else if (isReturning) {
           const returnDelay = Math.max(0, transition.repulseReturnDelay);

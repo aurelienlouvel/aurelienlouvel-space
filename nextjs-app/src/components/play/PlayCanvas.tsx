@@ -182,8 +182,10 @@ export type PlayRuntimeState = {
       | "selecting"
       | "lock"
       | "burst"
-      | "reel"
-      | "dezoom"
+      | "mainZoom"
+      | "mainHold"
+      | "stackEntrance"
+      | "spinDezoom"
       | "isolated"
       | "returning";
     selectProgress: number;
@@ -193,12 +195,16 @@ export type PlayRuntimeState = {
     burstTimer: number;
     burstProgress: number;
     easedBurstProgress: number;
-    reelTimer: number;
-    reelProgress: number;
-    easedReelProgress: number;
-    dezoomTimer: number;
-    dezoomProgress: number;
-    easedDezoomProgress: number;
+    mainZoomTimer: number;
+    mainZoomProgress: number;
+    easedMainZoomProgress: number;
+    mainHoldTimer: number;
+    stackEntranceTimer: number;
+    stackEntranceProgress: number;
+    easedStackEntranceProgress: number;
+    spinDezoomTimer: number;
+    spinDezoomProgress: number;
+    easedSpinDezoomProgress: number;
     textRevealed: boolean;
     returnTimer: number;
     returnProgress: number;
@@ -248,8 +254,10 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   if (
     rc.transition.phase === "isolated" ||
     rc.transition.phase === "burst" ||
-    rc.transition.phase === "reel" ||
-    rc.transition.phase === "dezoom"
+    rc.transition.phase === "mainZoom" ||
+    rc.transition.phase === "mainHold" ||
+    rc.transition.phase === "stackEntrance" ||
+    rc.transition.phase === "spinDezoom"
   ) {
     rc.transition.phase = "returning";
     rc.transition.returnTimer = 0;
@@ -270,12 +278,16 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.burstTimer = 0;
   rc.transition.burstProgress = 0;
   rc.transition.easedBurstProgress = 0;
-  rc.transition.reelTimer = 0;
-  rc.transition.reelProgress = 0;
-  rc.transition.easedReelProgress = 0;
-  rc.transition.dezoomTimer = 0;
-  rc.transition.dezoomProgress = 0;
-  rc.transition.easedDezoomProgress = 0;
+  rc.transition.mainZoomTimer = 0;
+  rc.transition.mainZoomProgress = 0;
+  rc.transition.easedMainZoomProgress = 0;
+  rc.transition.mainHoldTimer = 0;
+  rc.transition.stackEntranceTimer = 0;
+  rc.transition.stackEntranceProgress = 0;
+  rc.transition.easedStackEntranceProgress = 0;
+  rc.transition.spinDezoomTimer = 0;
+  rc.transition.spinDezoomProgress = 0;
+  rc.transition.easedSpinDezoomProgress = 0;
   rc.transition.textRevealed = false;
   rc.transition.returnTimer = 0;
   rc.transition.returnProgress = 0;
@@ -503,84 +515,133 @@ function stepCamera(
     return;
   }
 
-  // ── Temps 3 : Transition vers la vue détail (Burst & Centrage sur M0) ───
+  // ── Temps 3 : Burst (Isolement de M0 et répulsion des voisins) ───────────
   if (tr.phase === "burst") {
-    const burstDur = Math.max(0.1, config.burstDuration);
+    const burstDur = Math.max(0.05, config.burstDuration ?? 0.35);
     tr.burstTimer += effDelta;
     tr.burstProgress = Math.min(1, tr.burstTimer / burstDur);
     tr.easedBurstProgress = evaluateEasing(config.burstEasing, tr.burstProgress);
 
-    const reelStartDelay = Math.max(0, config.reelStartDelay ?? 0);
-    if (tr.burstTimer >= burstDur + reelStartDelay) {
+    if (tr.burstTimer >= burstDur) {
       tr.burstProgress = 1;
-      tr.phase = "reel";
-      tr.reelTimer = 0;
-      tr.reelProgress = 0;
-      tr.easedReelProgress = 0;
+      tr.phase = "mainZoom";
+      tr.mainZoomTimer = 0;
+      tr.mainZoomProgress = 0;
+      tr.easedMainZoomProgress = 0;
     }
 
-    // Le zoom reste au zoom de base (pas de dézoom anticipé)
-    const startZoom = baseZoom * config.selectZoom;
-    const targetZoom = startZoom + (baseZoom - startZoom) * tr.easedBurstProgress;
+    const targetZoom = baseZoom * config.selectZoom;
     const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    // Caméra maintenue STRICTEMENT au centre sur le média principal
     camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
     camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
-  // ── Temps 3b : Machine à sous 777 (Reel Spin - 3 tours complets au centre) ──
-  if (tr.phase === "reel") {
-    const reelDur = Math.max(0.2, config.reelDuration ?? 1.4);
-    tr.reelTimer += effDelta;
-    tr.reelProgress = Math.min(1, tr.reelTimer / reelDur);
-    tr.easedReelProgress = evaluateEasing(config.reelEasing ?? "easeInOutCubic", tr.reelProgress);
+  // ── Temps 4 : Zoom avant focalisé sur M0 (M0 seule à l'écran) ───────────
+  if (tr.phase === "mainZoom") {
+    const zoomDur = Math.max(0.1, config.mainZoomDuration ?? 0.40);
+    tr.mainZoomTimer += effDelta;
+    tr.mainZoomProgress = Math.min(1, tr.mainZoomTimer / zoomDur);
+    tr.easedMainZoomProgress = evaluateEasing(config.mainZoomEasing ?? "easeOutQuint", tr.mainZoomProgress);
 
-    const reelEndDelay = Math.max(0, config.reelEndDelay ?? 0);
-    if (tr.reelTimer >= reelDur + reelEndDelay) {
-      tr.reelProgress = 1;
-      tr.phase = "dezoom";
-      tr.dezoomTimer = 0;
-      tr.dezoomProgress = 0;
-      tr.easedDezoomProgress = 0;
+    if (tr.mainZoomTimer >= zoomDur) {
+      tr.mainZoomProgress = 1;
+      tr.phase = "mainHold";
+      tr.mainHoldTimer = 0;
+    }
+
+    const startZoom = baseZoom * config.selectZoom;
+    const endZoom = baseZoom * (config.mainZoomFactor ?? 1.28);
+    const curZoom = startZoom + (endZoom - startZoom) * tr.easedMainZoomProgress;
+    const smoothedZoom = dampTowards(camera.zoom, curZoom, 16, effDelta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
+    return;
+  }
+
+  // ── Temps 5 : Pause contemplative sur M0 agrandie ──────────────────────
+  if (tr.phase === "mainHold") {
+    const holdDur = Math.max(0.01, config.mainHoldDuration ?? 0.25);
+    tr.mainHoldTimer += effDelta;
+
+    if (tr.mainHoldTimer >= holdDur) {
+      tr.phase = "stackEntrance";
+      tr.stackEntranceTimer = 0;
+      tr.stackEntranceProgress = 0;
+      tr.easedStackEntranceProgress = 0;
+    }
+
+    const targetZoom = baseZoom * (config.mainZoomFactor ?? 1.28);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 16, effDelta);
+    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
+      camera.zoom = smoothedZoom;
+      camera.updateProjectionMatrix();
+    }
+
+    camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
+    return;
+  }
+
+  // ── Temps 6 : Émergence de la 1ère carte sous M0 (amorce déroulante) ─────
+  if (tr.phase === "stackEntrance") {
+    const entranceDur = Math.max(0.1, config.stackEntranceDuration ?? 0.35);
+    tr.stackEntranceTimer += effDelta;
+    tr.stackEntranceProgress = Math.min(1, tr.stackEntranceTimer / entranceDur);
+    tr.easedStackEntranceProgress = evaluateEasing(config.stackEntranceEasing ?? "easeOutQuad", tr.stackEntranceProgress);
+
+    if (tr.stackEntranceTimer >= entranceDur) {
+      tr.stackEntranceProgress = 1;
+      tr.phase = "spinDezoom";
+      tr.spinDezoomTimer = 0;
+      tr.spinDezoomProgress = 0;
+      tr.easedSpinDezoomProgress = 0;
       tr.columnScrollY = 0;
       tr.targetColumnScrollY = 0;
       tr.textRevealed = false;
     }
 
-    const targetZoom = baseZoom;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
+    const targetZoom = baseZoom * (config.mainZoomFactor ?? 1.28);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 16, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    // Caméra toujours centrée sur le média principal pendant les 3 tours
     camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
     camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
-  // ── Temps 3c : Dézoom et décalage horizontal vers la gauche (40% / 60%) ────
-  if (tr.phase === "dezoom") {
-    const dezoomDur = Math.max(0.2, config.dezoomDuration ?? 0.75);
-    tr.dezoomTimer += effDelta;
-    tr.dezoomProgress = Math.min(1, tr.dezoomTimer / dezoomDur);
-    tr.easedDezoomProgress = evaluateEasing(config.dezoomEasing ?? "easeInOutCubic", tr.dezoomProgress);
+  // ── Temps 7 : 🎰 Rouleau 777 & Dézoom Simultanés (Climax) ───────────────
+  if (tr.phase === "spinDezoom") {
+    const spinDur = Math.max(0.3, config.spinDezoomDuration ?? config.reelDuration ?? 1.5);
+    tr.spinDezoomTimer += effDelta;
+    tr.spinDezoomProgress = Math.min(1, tr.spinDezoomTimer / spinDur);
+    tr.easedSpinDezoomProgress = evaluateEasing(config.spinEasing ?? config.reelEasing ?? "easeInOutCubic", tr.spinDezoomProgress);
 
-    const textDelay = Math.max(0, config.textRevealDelay ?? 0);
-    if (!tr.textRevealed && tr.dezoomTimer >= textDelay) {
+    const dezoomT = evaluateEasing(config.dezoomEasing ?? "easeInOutCubic", tr.spinDezoomProgress);
+
+    // Révélation du panneau texte pendant le mouvement
+    const textDelay = Math.max(0, config.textRevealDelay ?? 0.25);
+    if (!tr.textRevealed && tr.spinDezoomTimer >= textDelay) {
       tr.textRevealed = true;
-      onBurstComplete?.(); // Révélation du panneau texte après le délai configuré
+      onBurstComplete?.();
     }
 
-    if (tr.dezoomProgress >= 1) {
-      tr.dezoomProgress = 1;
+    const endDelay = Math.max(0, config.reelEndDelay ?? 0.15);
+    if (tr.spinDezoomTimer >= spinDur + endDelay) {
+      tr.spinDezoomProgress = 1;
       if (!tr.textRevealed) {
         tr.textRevealed = true;
         onBurstComplete?.();
@@ -588,15 +649,17 @@ function stepCamera(
       tr.phase = "isolated";
     }
 
-    const startZoom = baseZoom;
-    const endZoom = baseZoom * config.burstZoom; // ex: 1.8
-    const targetZoom = startZoom + (endZoom - startZoom) * tr.easedDezoomProgress;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
+    // Dézoom caméra : du zoom agrandi M0 vers le zoom détail burstZoom (ex: 1.8x)
+    const startZoom = baseZoom * (config.mainZoomFactor ?? 1.28);
+    const endZoom = baseZoom * (config.burstZoom ?? 1.8);
+    const curZoom = startZoom + (endZoom - startZoom) * dezoomT;
+    const smoothedZoom = dampTowards(camera.zoom, curZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
+    // Décalage horizontal : du centre écran vers la gauche (colonne à 50%)
     const screenW = screenSize?.width ?? 1920;
     const screenH = screenSize?.height ?? 1080;
     const isDesktop = screenW >= 1024 && screenW >= screenH;
@@ -604,9 +667,8 @@ function stepCamera(
     const colRatio = config.detailColumnRatio ?? 0.50;
     const offsetRatio = 0.5 - colRatio * 0.5;
 
-    // Déplacement horizontal : le média principal passe du centre vers le centre de la colonne gauche
     const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
-    const curTargetX = rc.selectedPos.x + (targetPosX - rc.selectedPos.x) * tr.easedDezoomProgress;
+    const curTargetX = rc.selectedPos.x + (targetPosX - rc.selectedPos.x) * dezoomT;
     const targetPosY = rc.selectedPos.y;
 
     camera.position.x = dampTowards(camera.position.x, curTargetX, CAMERA_SETTLE_SPEED, effDelta);
@@ -798,12 +860,16 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       burstTimer: 0,
       burstProgress: 0,
       easedBurstProgress: 0,
-      reelTimer: 0,
-      reelProgress: 0,
-      easedReelProgress: 0,
-      dezoomTimer: 0,
-      dezoomProgress: 0,
-      easedDezoomProgress: 0,
+      mainZoomTimer: 0,
+      mainZoomProgress: 0,
+      easedMainZoomProgress: 0,
+      mainHoldTimer: 0,
+      stackEntranceTimer: 0,
+      stackEntranceProgress: 0,
+      easedStackEntranceProgress: 0,
+      spinDezoomTimer: 0,
+      spinDezoomProgress: 0,
+      easedSpinDezoomProgress: 0,
       textRevealed: false,
       returnTimer: 0,
       returnProgress: 0,
@@ -993,12 +1059,16 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     rc.transition.burstTimer = 0;
     rc.transition.burstProgress = 0;
     rc.transition.easedBurstProgress = 0;
-    rc.transition.reelTimer = 0;
-    rc.transition.reelProgress = 0;
-    rc.transition.easedReelProgress = 0;
-    rc.transition.dezoomTimer = 0;
-    rc.transition.dezoomProgress = 0;
-    rc.transition.easedDezoomProgress = 0;
+    rc.transition.mainZoomTimer = 0;
+    rc.transition.mainZoomProgress = 0;
+    rc.transition.easedMainZoomProgress = 0;
+    rc.transition.mainHoldTimer = 0;
+    rc.transition.stackEntranceTimer = 0;
+    rc.transition.stackEntranceProgress = 0;
+    rc.transition.easedStackEntranceProgress = 0;
+    rc.transition.spinDezoomTimer = 0;
+    rc.transition.spinDezoomProgress = 0;
+    rc.transition.easedSpinDezoomProgress = 0;
     rc.transition.textRevealed = false;
     rc.repulsor.active = true;
     rc.repulsor.pointIndex = selIndex;
@@ -1203,8 +1273,10 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       if (
         curPhase === "isolated" ||
         curPhase === "burst" ||
-        curPhase === "reel" ||
-        curPhase === "dezoom"
+        curPhase === "mainZoom" ||
+        curPhase === "mainHold" ||
+        curPhase === "stackEntrance" ||
+        curPhase === "spinDezoom"
       ) {
         // Un clic dans le vide ne fait pas retourner dans le canvas !
         dragging = true;
@@ -1225,7 +1297,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     function onPointerMove(e: PointerEvent) {
       const curPhase = runtime.current.transition.phase;
-      if (curPhase === "burst" || curPhase === "reel" || curPhase === "dezoom") return;
+      if (
+        curPhase === "burst" ||
+        curPhase === "mainZoom" ||
+        curPhase === "mainHold" ||
+        curPhase === "stackEntrance" ||
+        curPhase === "spinDezoom"
+      ) return;
       if (!dragging) return;
 
       if (curPhase === "isolated") {
@@ -1267,8 +1345,10 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       if (
         curPhase === "isolated" ||
         curPhase === "burst" ||
-        curPhase === "reel" ||
-        curPhase === "dezoom"
+        curPhase === "mainZoom" ||
+        curPhase === "mainHold" ||
+        curPhase === "stackEntrance" ||
+        curPhase === "spinDezoom"
       ) {
         dragging = false;
         setAppCursor("auto");
