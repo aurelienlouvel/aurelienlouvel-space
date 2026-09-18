@@ -49,10 +49,11 @@ export type TransitionConfig = {
   overlayExitDuration: number; // Durée d'évacuation de l'overlay vague (ex: 0.5s)
   burstDelay: number; // Délai d'attente après l'animation avant de lancer la transition (ex: 0.25s)
 
-  // ── 3. Transition vers la page artifact (Burst) ──────────────────
-  burstDuration: number; // Durée de l'explosion / zoom final (ex: 0.6s)
-  burstZoom: number; // Gros zoom final (ex: 1.8x)
-  burstRepulse: number; // Maxi-répulsion expulsant tous les autres médias (ex: 40000)
+  // ── 3. Transition vers la page artifact (Burst / Dezoom) ────────
+  burstDuration: number; // Durée de la transition vers la vue détaillée (ex: 0.8s)
+  burstZoom: number; // Dézoom multiplicateur appliqué au baseZoom (ex: 0.85x)
+  detailColumnRatio: number; // Largeur relative de la colonne média (ex: 0.40 = 40% média / 60% infos)
+  burstRepulse: number; // Répulsion radiale des autres médias (ex: 40000)
   burstEasing: EasingName;
 
   // ── 4. Retour vers la page de base ───────────────────────────────
@@ -72,9 +73,10 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockScalePunch: 0.02,
     overlayExitDuration: 0.6,
     burstDelay: 0.35,
-    burstDuration: 1.2,
-    burstZoom: 3.2,
-    burstRepulse: 120000,
+    burstDuration: 1.0,
+    burstZoom: 0.85,
+    detailColumnRatio: 0.40,
+    burstRepulse: 40000,
     burstEasing: "easeInOutCubic",
     repulseReturnDelay: 0.3,
   },
@@ -90,9 +92,10 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockScalePunch: 0.03,
     overlayExitDuration: 0.38,
     burstDelay: 0.12,
-    burstDuration: 0.7,
-    burstZoom: 3.0,
-    burstRepulse: 140000,
+    burstDuration: 0.6,
+    burstZoom: 0.90,
+    detailColumnRatio: 0.40,
+    burstRepulse: 40000,
     burstEasing: "easeOutExpo",
     repulseReturnDelay: 0.15,
   },
@@ -108,9 +111,10 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockScalePunch: 0.025,
     overlayExitDuration: 0.7,
     burstDelay: 0.4,
-    burstDuration: 1.4,
-    burstZoom: 3.6,
-    burstRepulse: 180000,
+    burstDuration: 1.2,
+    burstZoom: 0.80,
+    detailColumnRatio: 0.40,
+    burstRepulse: 50000,
     burstEasing: "easeOutQuint",
     repulseReturnDelay: 0.35,
   },
@@ -131,11 +135,12 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   lockScalePunch: 0.02,
   overlayExitDuration: 0.5,
   burstDelay: 0.25,
-  // 3. Transition vers artifact (Burst : 0.6s)
-  burstDuration: 0.6,
-  burstZoom: 1.8,
-  burstRepulse: 40000,
-  burstEasing: "easeInQuad",
+  // 3. Transition vers artifact (Burst & Dezoom : 0.8s)
+  burstDuration: 0.8,
+  burstZoom: 0.85,
+  detailColumnRatio: 0.40,
+  burstRepulse: 35000,
+  burstEasing: "easeInOutCubic",
   // 4. Retour vers la page de base
   repulseReturnDelay: 0.25,
 };

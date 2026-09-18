@@ -9,15 +9,20 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { AnimatePresence } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowLeft02Icon, Calendar02Icon } from "@hugeicons/core-free-icons";
 import { Canvas, events, useFrame } from "@react-three/fiber";
 import { Stats } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
-import { preloadArtifact, getCachedArtifact } from "@/lib/preload-artifact";
+import { preloadArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
-import type { PlayArtifact, ArtifactDetail } from "@/sanity/queries";
+import type { PlayArtifact, ArtifactDetail, Mate } from "@/sanity/queries";
+import { Tag } from "@/components/primitives/Tag";
+import { MatesBlock } from "@/components/blocks/MatesBlock";
+import { formatDateRange } from "@/lib/date-utils";
 import { ArtifactGrid } from "./ArtifactGrid";
-import { ArtifactDetailOverlay } from "./ArtifactDetailOverlay";
+import { SecondaryGalleryPlanes } from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
 import { dampTowards } from "./damp";
 import { FisheyeEffect } from "./FisheyeEffect";
@@ -369,7 +374,8 @@ function stepCamera(
   config: TransitionConfig,
   delta: number,
   studio?: AnimationStudioParams,
-  onOpenDetail?: (targetIndex: number) => void,
+  screenSize?: { width: number; height: number },
+  onBurstComplete?: () => void,
 ) {
   const speed = studio?.speed ?? 1.0;
   const effDelta = delta * speed;
@@ -453,7 +459,7 @@ function stepCamera(
     return;
   }
 
-  // ── Temps 3 : Transition vers la page artifact (Burst) ─────────────────
+  // ── Temps 3 : Transition vers la vue détail (Burst & Dezoom vers colonne gauche 40%) ─
   if (tr.phase === "burst") {
     tr.burstProgress = Math.min(
       1,
@@ -463,11 +469,11 @@ function stepCamera(
     if (tr.burstProgress >= 1) {
       tr.burstProgress = 1;
       tr.phase = "isolated";
-      onOpenDetail?.(tr.targetIndex);
+      onBurstComplete?.();
     }
 
     const startZoom = baseZoom * config.selectZoom;
-    const endZoom = baseZoom * config.burstZoom;
+    const endZoom = baseZoom * config.burstZoom; // config.burstZoom = 0.85 (dézoom)
     const targetZoom = startZoom + (endZoom - startZoom) * tr.easedBurstProgress;
     const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
@@ -475,12 +481,25 @@ function stepCamera(
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
+    const screenW = screenSize?.width ?? 1920;
+    const isDesktop = screenW >= 1024;
+    const visibleW = screenW / Math.max(0.1, camera.zoom);
+    const colRatio = config.detailColumnRatio ?? 0.40;
+    const offsetRatio = 0.5 - colRatio * 0.5; // (0.40 * 0.5) - 0.5 = -0.30 -> offset +0.30
+
+    // Déplacement horizontal : le média principal se positionne au centre de la colonne gauche (40%)
+    const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
+    const targetPosY = rc.selectedPos.y; // Centrage vertical
+
+    const curTargetX = rc.selectedPos.x + (targetPosX - rc.selectedPos.x) * tr.easedBurstProgress;
+    const curTargetY = rc.selectedPos.y + (targetPosY - rc.selectedPos.y) * tr.easedBurstProgress;
+
+    camera.position.x = dampTowards(camera.position.x, curTargetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, curTargetY, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
-  // ── Mode Isolé (Maintenu centré et zoomé jusqu'à Escape / Clic) ─────────
+  // ── Mode Isolé (Maintenu centré à gauche dans la colonne 40% avec dézoom) ─
   if (tr.phase === "isolated") {
     const targetZoom = baseZoom * config.burstZoom;
     const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
@@ -489,8 +508,17 @@ function stepCamera(
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
+    const screenW = screenSize?.width ?? 1920;
+    const isDesktop = screenW >= 1024;
+    const visibleW = screenW / Math.max(0.1, camera.zoom);
+    const colRatio = config.detailColumnRatio ?? 0.40;
+    const offsetRatio = 0.5 - colRatio * 0.5;
+
+    const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
+    const targetPosY = rc.selectedPos.y;
+
+    camera.position.x = dampTowards(camera.position.x, targetPosX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, targetPosY, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
@@ -538,12 +566,12 @@ function CameraRig({
   debug,
   runtime,
   velocity,
-  onOpenDetail,
+  onBurstComplete,
 }: {
   debug: PlayDebugRef;
   runtime: PlayRuntimeRef;
   velocity: RefObject<{ x: number; y: number }>;
-  onOpenDetail?: (targetIndex: number) => void;
+  onBurstComplete?: () => void;
 }) {
   useFrame((state, delta) => {
     stepCamera(
@@ -555,20 +583,15 @@ function CameraRig({
       debug.current.transition,
       delta,
       debug.current.studio,
-      onOpenDetail,
+      state.size,
+      onBurstComplete,
     );
   });
 
   return null;
 }
 
-export function PlayCanvas({
-  artifacts,
-  initialSlug,
-}: {
-  artifacts: PlayArtifact[];
-  initialSlug?: string;
-}) {
+export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   const debug = useRef<PlayDebugState>({
     plane: { radius: PLANE_RADIUS },
     brackets: {
@@ -727,46 +750,34 @@ export function PlayCanvas({
 
   const [tile, setTile] = useState<LayoutTile | null>(null);
   const [isCalculated, setIsCalculated] = useState(false);
-  const [activeArtifact, setActiveArtifact] = useState<ArtifactDetail | null>(null);
+  const [selectedArtifactDetail, setSelectedArtifactDetail] = useState<ArtifactDetail | null>(null);
+  const [principalPoint, setPrincipalPoint] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [isDetailVisible, setIsDetailVisible] = useState(false);
 
   const handleStartSelect = useCallback(
-    (artifactIndex: number) => {
+    (artifactIndex: number, point?: { x: number; y: number; width: number; height: number }) => {
+      if (point) setPrincipalPoint(point);
       const artifact = artifacts[artifactIndex];
       if (artifact?.slug) {
-        preloadArtifact(artifact.slug);
+        preloadArtifact(artifact.slug).then((data) => {
+          if (data) setSelectedArtifactDetail(data);
+        });
       }
     },
     [artifacts],
   );
 
-  const handleOpenDetail = useCallback(
-    async (pointIndex: number) => {
-      if (!tile || pointIndex < 0 || pointIndex >= tile.points.length) return;
-      const point = tile.points[pointIndex];
-      const artifact = artifacts[point.artifactIndex];
-      if (!artifact?.slug) return;
-
-      if (typeof window !== "undefined") {
-        window.history.pushState({ slug: artifact.slug }, "", `/play/${artifact.slug}`);
-      }
-
-      const cached = getCachedArtifact(artifact.slug);
-      if (cached) {
-        setActiveArtifact(cached);
-      } else {
-        const data = await preloadArtifact(artifact.slug);
-        if (data) setActiveArtifact(data);
-      }
-    },
-    [tile, artifacts],
-  );
+  const handleBurstComplete = useCallback(() => {
+    setIsDetailVisible(true);
+  }, []);
 
   const handleCloseDetail = useCallback(() => {
-    setActiveArtifact(null);
+    setIsDetailVisible(false);
     applyResetTransition(runtime.current);
-    if (typeof window !== "undefined") {
-      window.history.pushState(null, "", "/play");
-    }
+    setTimeout(() => {
+      setSelectedArtifactDetail(null);
+      setPrincipalPoint(null);
+    }, 600);
   }, []);
 
   const handleSimulateSelect = useCallback(() => {
@@ -783,43 +794,9 @@ export function PlayCanvas({
     rc.repulsor.x = rc.selectedPos.x;
     rc.repulsor.y = rc.selectedPos.y;
     if (tile?.points[selIndex]) {
-      handleStartSelect(tile.points[selIndex].artifactIndex);
+      handleStartSelect(tile.points[selIndex].artifactIndex, tile.points[selIndex]);
     }
   }, [handleStartSelect, tile]);
-
-  // Handle browser back/forward buttons seamlessly
-  useEffect(() => {
-    function handlePopState() {
-      const path = window.location.pathname;
-      const match = path.match(/^\/play\/([^/]+)$/);
-      if (match) {
-        const slug = match[1];
-        const cached = getCachedArtifact(slug);
-        if (cached) {
-          setActiveArtifact(cached);
-        } else {
-          preloadArtifact(slug).then((data) => {
-            if (data) setActiveArtifact(data);
-          });
-        }
-      } else {
-        setActiveArtifact(null);
-        applyResetTransition(runtime.current);
-      }
-    }
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-
-  // Initial slug support for direct deep links
-  useEffect(() => {
-    if (initialSlug) {
-      preloadArtifact(initialSlug).then((data) => {
-        if (data) setActiveArtifact(data);
-      });
-    }
-  }, [initialSlug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1073,14 +1050,9 @@ export function PlayCanvas({
 
       // Touche Escape : ferme la vue détail ou annule la transition
       if (e.key === "Escape") {
-        if (activeArtifact) {
+        if (isDetailVisible || runtime.current.transition.phase !== "idle") {
           e.preventDefault();
           handleCloseDetail();
-          return;
-        }
-        if (runtime.current.transition.phase !== "idle") {
-          e.preventDefault();
-          applyResetTransition(runtime.current);
           return;
         }
       }
@@ -1091,7 +1063,7 @@ export function PlayCanvas({
         e.preventDefault();
         applyKeyDownEnter(runtime.current, points);
         const pt = points[runtime.current.selected];
-        if (pt) handleStartSelect(pt.artifactIndex);
+        if (pt) handleStartSelect(pt.artifactIndex, pt);
         return;
       }
 
@@ -1124,16 +1096,15 @@ export function PlayCanvas({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [tile, activeArtifact, handleCloseDetail, handleStartSelect]);
+  }, [tile, isDetailVisible, handleCloseDetail, handleStartSelect]);
 
   return (
     <div data-lenis-prevent className="fixed inset-0 bg-white">
       <PlayLoader loaded={loaded} total={total} isReady={isReady} />
 
       <div
-        className={`h-full w-full transition-opacity duration-700 ease-out ${
-          isReady ? "opacity-100" : "pointer-events-none opacity-0"
-        }`}
+        className={`h-full w-full transition-opacity duration-700 ease-out ${isReady ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
       >
         {isCalculated && tile && tile.points.length > 0 && (
           <Canvas
@@ -1171,7 +1142,7 @@ export function PlayCanvas({
               debug={debug}
               runtime={runtime}
               velocity={velocity}
-              onOpenDetail={handleOpenDetail}
+              onBurstComplete={handleBurstComplete}
             />
             <ArtifactGrid
               textureUrls={textureUrls}
@@ -1182,6 +1153,15 @@ export function PlayCanvas({
               dragMoved={dragMoved}
               onStartSelect={handleStartSelect}
             />
+            {selectedArtifactDetail && principalPoint && (
+              <SecondaryGalleryPlanes
+                gallery={selectedArtifactDetail.gallery}
+                principalPoint={principalPoint}
+                runtime={runtime}
+                debug={debug}
+                gap={32}
+              />
+            )}
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
             <FocusIndicator debug={debug} runtime={runtime} />
             <FisheyeEffect debug={debug} />
@@ -1189,13 +1169,97 @@ export function PlayCanvas({
         )}
       </div>
 
-      {/* In-Canvas Artifact Detail View */}
+      {/* Panneau d'informations transparent sur les 60% droits de l'écran (aucun fond blanc opaque) */}
       <AnimatePresence>
-        {activeArtifact && (
-          <ArtifactDetailOverlay
-            artifact={activeArtifact}
-            onClose={handleCloseDetail}
-          />
+        {selectedArtifactDetail && isDetailVisible && (
+          <motion.div
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed right-0 top-0 bottom-0 w-full lg:w-[60%] flex flex-col justify-center px-8 sm:px-16 pointer-events-none z-10 select-none"
+          >
+            <div className="max-w-xl pointer-events-auto flex flex-col">
+              <div className="mb-6">
+                <button
+                  type="button"
+                  onClick={handleCloseDetail}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-950 transition-colors cursor-pointer group"
+                >
+                  <motion.span
+                    whileHover={{ x: -3 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                    className="flex items-center justify-center h-8 w-8 rounded-full bg-zinc-100/80 backdrop-blur-sm group-hover:bg-zinc-200 transition-colors"
+                  >
+                    <HugeiconsIcon icon={ArrowLeft02Icon} size={15} strokeWidth={2} />
+                  </motion.span>
+                  <span>back to canvas</span>
+                </button>
+              </div>
+
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-950 mb-6 text-balance">
+                {selectedArtifactDetail.title}
+              </h1>
+
+              {selectedArtifactDetail.tags && selectedArtifactDetail.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {selectedArtifactDetail.tags.map((tag) => (
+                    <Tag
+                      key={tag._id}
+                      name={tag.name}
+                      color={tag.color}
+                      icon={tag.icon}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {selectedArtifactDetail.startDate && (
+                <div className="flex items-center gap-2 text-sm text-zinc-500 font-medium mb-6">
+                  <HugeiconsIcon icon={Calendar02Icon} size={16} strokeWidth={2} />
+                  <span>
+                    {formatDateRange(
+                      selectedArtifactDetail.startDate,
+                      selectedArtifactDetail.endDate ?? null,
+                    )}
+                  </span>
+                </div>
+              )}
+
+              {selectedArtifactDetail.description && (
+                <div className="text-base sm:text-lg text-zinc-600 leading-relaxed whitespace-pre-line mb-8 max-h-48 overflow-y-auto">
+                  {selectedArtifactDetail.description}
+                </div>
+              )}
+
+              {selectedArtifactDetail.contributors && selectedArtifactDetail.contributors.length > 0 && (
+                <div className="space-y-3 pt-4 border-t border-zinc-200/60 mb-6">
+                  <span className="text-xs uppercase tracking-wider font-semibold text-zinc-400">
+                    Collaborators
+                  </span>
+                  <MatesBlock mates={selectedArtifactDetail.contributors as unknown as Mate[]} />
+                </div>
+              )}
+
+              {selectedArtifactDetail.roles && selectedArtifactDetail.roles.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <span className="text-xs uppercase tracking-wider font-semibold text-zinc-400">
+                    Roles
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedArtifactDetail.roles.map((r) => (
+                      <span
+                        key={r._id}
+                        className="px-2.5 py-1 text-xs font-medium rounded-md bg-zinc-100 text-zinc-700"
+                      >
+                        {r.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

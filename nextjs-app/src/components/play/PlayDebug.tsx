@@ -479,7 +479,8 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
             "Wave exit duration (s)": p.overlayExitDuration,
             "Delay before burst (s)": p.burstDelay,
             "Burst duration (s)": p.burstDuration,
-            "Burst zoom": p.burstZoom,
+            "Burst zoom (dezoom)": p.burstZoom,
+            "Media column ratio": p.detailColumnRatio,
             "Burst repulsion": p.burstRepulse,
             "Burst easing": p.burstEasing,
             "Repulsion return delay (s)": p.repulseReturnDelay,
@@ -608,13 +609,22 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
             state.current.transition.burstDuration = v;
           },
         },
-        "Burst zoom": {
+        "Burst zoom (dezoom)": {
           value: state.current.transition.burstZoom,
-          min: 1.2,
-          max: 5.0,
-          step: 0.1,
+          min: 0.4,
+          max: 2.0,
+          step: 0.05,
           onChange: (v: number) => {
             state.current.transition.burstZoom = v;
+          },
+        },
+        "Media column ratio": {
+          value: state.current.transition.detailColumnRatio,
+          min: 0.25,
+          max: 0.60,
+          step: 0.05,
+          onChange: (v: number) => {
+            state.current.transition.detailColumnRatio = v;
           },
         },
         "Burst repulsion": {

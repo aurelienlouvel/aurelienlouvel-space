@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Group, Mesh } from "three";
+import { Group, Mesh, type MeshBasicMaterial } from "three";
 import type { MediaKind } from "./artifact-media";
 import { dampTowards } from "./damp";
 import {
@@ -218,6 +218,28 @@ function stepKinematicMeshes(
       mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
       mesh.rotation.z = 0;
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
+
+      const mat = mesh.material as MeshBasicMaterial | undefined;
+      if (mat) {
+        if (isTarget) {
+          mat.opacity = 1;
+        } else {
+          let targetOpacity = 1;
+          if (isBursting) {
+            targetOpacity = Math.max(0, 1 - rc.transition.easedBurstProgress);
+          } else if (isIsolated) {
+            targetOpacity = 0;
+          } else if (isReturning) {
+            const returnDelay = Math.max(0, transition.repulseReturnDelay);
+            if (rc.transition.returnTimer < returnDelay) {
+              targetOpacity = 0;
+            } else {
+              targetOpacity = Math.min(1, (rc.transition.returnTimer - returnDelay) / 0.35);
+            }
+          }
+          mat.opacity = dampTowards(mat.opacity, targetOpacity, dampSpeed, delta);
+        }
+      }
     }
   }
 }
@@ -244,7 +266,7 @@ export function ArtifactGrid({
   debug: PlayDebugRef;
   runtime: PlayRuntimeRef;
   dragMoved: RefObject<boolean>;
-  onStartSelect?: (artifactIndex: number) => void;
+  onStartSelect?: (artifactIndex: number, point: LayoutPoint) => void;
 }) {
   const { camera } = useThree();
   const { TILE_W, TILE_H, points } = tile;
@@ -336,7 +358,7 @@ export function ArtifactGrid({
       y: points[pointIndex].y,
     });
     if (points[pointIndex]) {
-      onStartSelect?.(points[pointIndex].artifactIndex);
+      onStartSelect?.(points[pointIndex].artifactIndex, points[pointIndex]);
     }
   }
 
