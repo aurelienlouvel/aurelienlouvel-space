@@ -95,6 +95,20 @@ export const OVERLAY_DEFAULTS: SelectOverlayParams = {
   glowIntensity: 1.0,
 };
 
+export type AnimationStudioParams = {
+  speed: number;
+  loopLock: boolean;
+  scrubMode: boolean;
+  scrubProgress: number;
+};
+
+export const STUDIO_DEFAULTS: AnimationStudioParams = {
+  speed: 1.0,
+  loopLock: false,
+  scrubMode: false,
+  scrubProgress: 0,
+};
+
 export type PlayDebugState = {
   plane: { radius: number };
   brackets: {
@@ -113,6 +127,7 @@ export type PlayDebugState = {
   transition: TransitionConfig;
   fisheye: FisheyeParams;
   overlay: SelectOverlayParams;
+  studio: AnimationStudioParams;
 };
 
 export type PlayDebugRef = RefObject<PlayDebugState>;
@@ -340,7 +355,10 @@ function stepCamera(
   baseZoom: number,
   config: TransitionConfig,
   delta: number,
+  studio?: AnimationStudioParams,
 ) {
+  const speed = studio?.speed ?? 1.0;
+  const effDelta = delta * speed;
   const tr = rc.transition;
 
   // ── Temps 1 : Progression du select (Hold to Select) ───────────────────
@@ -348,7 +366,7 @@ function stepCamera(
     if (tr.holding) {
       tr.selectProgress = Math.min(
         1,
-        tr.selectProgress + delta / Math.max(0.1, config.selectDuration),
+        tr.selectProgress + effDelta / Math.max(0.1, config.selectDuration),
       );
       if (tr.selectProgress >= 1) {
         tr.selectProgress = 1;
@@ -365,7 +383,7 @@ function stepCamera(
     } else {
       tr.selectProgress = Math.max(
         0,
-        tr.selectProgress - delta / Math.max(0.05, config.selectDuration * 0.4),
+        tr.selectProgress - effDelta / Math.max(0.05, config.selectDuration * 0.4),
       );
       if (tr.selectProgress <= 0.02) {
         tr.selectProgress = 0;
@@ -377,37 +395,47 @@ function stepCamera(
     tr.easedSelectProgress = evaluateEasing(config.selectEasing, tr.selectProgress);
 
     const targetZoom = baseZoom * (1 + (config.selectZoom - 1) * tr.easedSelectProgress);
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
   // ── Temps 2 : Animation de select (Lock confirmation & délai pré-burst) ─
   if (tr.phase === "lock") {
-    tr.lockTimer += delta;
-    tr.lockProgress = Math.min(1, tr.lockTimer / Math.max(0.01, config.lockDuration));
-    const totalLockTime = Math.max(0.01, config.lockDuration) + Math.max(0, config.burstDelay);
-    if (tr.lockTimer >= totalLockTime) {
-      tr.phase = "burst";
-      tr.burstProgress = 0;
-      tr.easedBurstProgress = 0;
+    if (studio?.scrubMode) {
+      tr.lockProgress = Math.min(1, Math.max(0, studio.scrubProgress));
+      tr.lockTimer = tr.lockProgress * Math.max(0.01, config.lockDuration);
+    } else {
+      tr.lockTimer += effDelta;
+      tr.lockProgress = Math.min(1, tr.lockTimer / Math.max(0.01, config.lockDuration));
+      const totalLockTime = Math.max(0.01, config.lockDuration) + Math.max(0, config.burstDelay);
+      if (tr.lockTimer >= totalLockTime) {
+        if (studio?.loopLock) {
+          tr.lockTimer = 0;
+          tr.lockProgress = 0;
+        } else {
+          tr.phase = "burst";
+          tr.burstProgress = 0;
+          tr.easedBurstProgress = 0;
+        }
+      }
     }
 
     const targetZoom = baseZoom * config.selectZoom;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
@@ -415,7 +443,7 @@ function stepCamera(
   if (tr.phase === "burst") {
     tr.burstProgress = Math.min(
       1,
-      tr.burstProgress + delta / Math.max(0.1, config.burstDuration),
+      tr.burstProgress + effDelta / Math.max(0.1, config.burstDuration),
     );
     tr.easedBurstProgress = evaluateEasing(config.burstEasing, tr.burstProgress);
     if (tr.burstProgress >= 1) {
@@ -426,48 +454,48 @@ function stepCamera(
     const startZoom = baseZoom * config.selectZoom;
     const endZoom = baseZoom * config.burstZoom;
     const targetZoom = startZoom + (endZoom - startZoom) * tr.easedBurstProgress;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
   // ── Mode Isolé (Maintenu centré et zoomé jusqu'à Escape / Clic) ─────────
   if (tr.phase === "isolated") {
     const targetZoom = baseZoom * config.burstZoom;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, delta);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
   // ── Mode Retour vers la page de base ─────────────────────────────────
   if (tr.phase === "returning") {
     const targetZoom = baseZoom;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 8, delta);
+    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 8, effDelta);
     if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
       camera.zoom = smoothedZoom;
       camera.updateProjectionMatrix();
     }
 
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
     return;
   }
 
   // ── Phase Idle : Retour au zoom de base et pan inertiel ────────────────
   if (Math.abs(camera.zoom - baseZoom) > 0.0005) {
-    camera.zoom = dampTowards(camera.zoom, baseZoom, 8, delta);
+    camera.zoom = dampTowards(camera.zoom, baseZoom, 8, effDelta);
     camera.updateProjectionMatrix();
   }
 
@@ -486,8 +514,8 @@ function stepCamera(
     camera.position.x = rc.camera.targetX;
     camera.position.y = rc.camera.targetY;
   } else {
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, delta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, delta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
   }
 }
 
@@ -509,6 +537,7 @@ function CameraRig({
       debug.current.camera.zoom,
       debug.current.transition,
       delta,
+      debug.current.studio,
     );
   });
 
@@ -538,13 +567,81 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     transition: { ...DEFAULT_TRANSITION_CONFIG },
     fisheye: { ...FISHEYE_DEFAULTS },
     overlay: { ...OVERLAY_DEFAULTS },
+    studio: { ...STUDIO_DEFAULTS },
   });
+
+  const runtime = useRef<PlayRuntimeState>({
+    selected: 0,
+    selectedPos: { x: 0, y: 0 },
+    hovered: null,
+    camera: { targetX: 0, targetY: 0, mode: "follow" },
+    indicatorTarget: {
+      x: 0,
+      y: 0,
+      width: GRAVITY_DEFAULTS.maxWidth,
+      height: GRAVITY_DEFAULTS.maxHeight,
+    },
+    repulsor: {
+      active: false,
+      pointIndex: -1,
+      x: 0,
+      y: 0,
+    },
+    transition: {
+      phase: "idle",
+      selectProgress: 0,
+      easedSelectProgress: 0,
+      lockTimer: 0,
+      lockProgress: 0,
+      burstProgress: 0,
+      easedBurstProgress: 0,
+      returnTimer: 0,
+      targetIndex: -1,
+      holding: false,
+      trigger: null,
+    },
+  });
+  const velocity = useRef({ x: 0, y: 0 });
+  const dragMoved = useRef(false);
+  const initializedTileRef = useRef<boolean | null>(null);
 
   const [gravityParams, setGravityParams] = useState<GravityParams>(() => ({
     ...GRAVITY_DEFAULTS,
   }));
   const handleLayoutChange = useCallback(() => {
     setGravityParams({ ...debug.current.gravity });
+  }, []);
+
+  const handleReplayLock = useCallback(() => {
+    const rc = runtime.current;
+    const selIndex = rc.selected >= 0 ? rc.selected : 0;
+    rc.transition.targetIndex = selIndex;
+    rc.transition.phase = "lock";
+    rc.transition.lockTimer = 0;
+    rc.transition.lockProgress = 0;
+    rc.repulsor.active = true;
+    rc.repulsor.pointIndex = selIndex;
+    rc.repulsor.x = rc.selectedPos.x;
+    rc.repulsor.y = rc.selectedPos.y;
+  }, []);
+
+  const handleSimulateSelect = useCallback(() => {
+    const rc = runtime.current;
+    const selIndex = rc.selected >= 0 ? rc.selected : 0;
+    rc.transition.targetIndex = selIndex;
+    rc.transition.phase = "selecting";
+    rc.transition.holding = true;
+    rc.transition.selectProgress = 0;
+    rc.transition.lockTimer = 0;
+    rc.transition.lockProgress = 0;
+    rc.repulsor.active = true;
+    rc.repulsor.pointIndex = selIndex;
+    rc.repulsor.x = rc.selectedPos.x;
+    rc.repulsor.y = rc.selectedPos.y;
+  }, []);
+
+  const handleResetTransition = useCallback(() => {
+    applyResetTransition(runtime.current);
   }, []);
 
   const [viewport, setViewport] = useState(() => {
@@ -653,40 +750,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     [media, ratios, gravityParams],
   );
 
-  const runtime = useRef<PlayRuntimeState>({
-    selected: 0,
-    selectedPos: { x: 0, y: 0 },
-    hovered: null,
-    camera: { targetX: 0, targetY: 0, mode: "follow" },
-    indicatorTarget: {
-      x: 0,
-      y: 0,
-      width: gravityParams.maxWidth,
-      height: gravityParams.maxHeight,
-    },
-    repulsor: {
-      active: false,
-      pointIndex: -1,
-      x: 0,
-      y: 0,
-    },
-    transition: {
-      phase: "idle",
-      selectProgress: 0,
-      easedSelectProgress: 0,
-      lockTimer: 0,
-      lockProgress: 0,
-      burstProgress: 0,
-      easedBurstProgress: 0,
-      returnTimer: 0,
-      targetIndex: -1,
-      holding: false,
-      trigger: null,
-    },
-  });
-  const velocity = useRef({ x: 0, y: 0 });
-  const dragMoved = useRef(false);
-  const initializedTileRef = useRef(false);
 
   useEffect(() => {
     if (!tile || tile.points.length === 0) return;
@@ -876,8 +939,33 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     function onKeyDown(e: KeyboardEvent) {
       if (
         e.target instanceof HTMLElement &&
-        (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")
+        (e.target.tagName === "INPUT" ||
+          e.target.tagName === "TEXTAREA" ||
+          e.target.isContentEditable ||
+          Boolean(e.target.closest("#leva__root")))
       ) {
+        return;
+      }
+
+      // Raccourcis Studio Animation :
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        const rc = runtime.current;
+        const selIndex = rc.selected >= 0 ? rc.selected : 0;
+        rc.transition.targetIndex = selIndex;
+        rc.transition.phase = "lock";
+        rc.transition.lockTimer = 0;
+        rc.transition.lockProgress = 0;
+        rc.repulsor.active = true;
+        rc.repulsor.pointIndex = selIndex;
+        rc.repulsor.x = rc.selectedPos.x;
+        rc.repulsor.y = rc.selectedPos.y;
+        return;
+      }
+
+      if (e.key === "l" || e.key === "L") {
+        e.preventDefault();
+        debug.current.studio.loopLock = !debug.current.studio.loopLock;
         return;
       }
 
@@ -991,6 +1079,9 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           state={debug}
           stats={tile?.stats}
           onLayoutChange={handleLayoutChange}
+          onReplayLock={handleReplayLock}
+          onSimulateSelect={handleSimulateSelect}
+          onResetTransition={handleResetTransition}
         />
       )}
     </div>

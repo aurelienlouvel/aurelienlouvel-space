@@ -1,26 +1,24 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { Pane } from "tweakpane";
-import type { PlayDebugRef, PlayDebugState } from "./PlayCanvas";
+import { useRef, useEffect } from "react";
+import { useControls, folder, buttonGroup, Leva } from "leva";
+import { toast } from "sonner";
+import {
+  type PlayDebugRef,
+  type PlayDebugState,
+} from "./PlayCanvas";
 import type { LayoutStats } from "./layout-types";
 import {
   TRANSITION_PRESETS,
   type TransitionPresetName,
+  type EasingName,
 } from "./transition-presets";
 
 const STORAGE_KEY = "play-debug-v20";
-
-/** Durée de l'accusé de réception d'un bouton. */
-const FLASH_MS = 1200;
-
-/** Les groupes de l'état sont des sacs de réglages, le stockage aussi. */
-type SettingGroups = Record<string, Record<string, unknown>>;
-
-/** La seule chaîne de l'état est une couleur, et le pane la veut valide. */
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 function restore(state: PlayDebugState) {
+  if (typeof window === "undefined") return;
   const raw = window.localStorage.getItem(STORAGE_KEY);
   if (!raw) return;
 
@@ -33,455 +31,757 @@ function restore(state: PlayDebugState) {
   if (typeof stored !== "object" || stored === null) return;
 
   const saved = stored as Record<string, unknown>;
-  const groups = Object.entries(state as unknown as SettingGroups);
+  const groups = Object.entries(
+    state as unknown as Record<string, Record<string, unknown>>,
+  );
   for (const [name, group] of groups) {
+    if (name === "studio") continue; // Session uniquement
     const savedGroup = saved[name];
     if (typeof savedGroup !== "object" || savedGroup === null) continue;
     for (const [key, fallback] of Object.entries(group)) {
       const value = (savedGroup as Record<string, unknown>)[key];
       if (typeof value !== typeof fallback) continue;
       if (typeof value === "number" && !Number.isFinite(value)) continue;
-      if (typeof value === "string" && key === "color" && !HEX_COLOR.test(value)) continue;
+      if (typeof value === "string" && key === "color" && !HEX_COLOR.test(value))
+        continue;
       group[key] = value;
     }
   }
 }
 
-function addAction(
-  pane: Pane,
-  title: string,
-  action: () => string | Promise<string>,
-) {
-  const btn = pane.addButton({ title });
-  let resetTimer: ReturnType<typeof setTimeout> | undefined;
-
-  btn.on("click", async () => {
-    const message = await action();
-    btn.title = message;
-    clearTimeout(resetTimer);
-    resetTimer = setTimeout(() => {
-      btn.title = title;
-    }, FLASH_MS);
-  });
-
-  return () => clearTimeout(resetTimer);
-}
-
 /**
- * Debug pane Tweakpane, monté en dev uniquement (cf. `PlayCanvas`).
+ * Interface de contrôle et de débogage animée avec Leva.
  */
 export function PlayDebug({
   state,
   stats,
   onLayoutChange,
+  onReplayLock,
+  onSimulateSelect,
+  onResetTransition,
 }: {
   state: PlayDebugRef;
   stats?: LayoutStats;
   onLayoutChange: () => void;
+  onReplayLock: () => void;
+  onSimulateSelect: () => void;
+  onResetTransition: () => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const paneRef = useRef<Pane | null>(null);
-
-  const statsObj = useRef({
-    computeTime: "-",
-    density: "-",
-    occupiedArea: "-",
-    boundingBoxArea: "-",
-    perfectLayouts: "-",
-  });
-
-  // Synchronisation dynamique des statistiques calculées sans recréer le pane
-  useEffect(() => {
-    if (stats) {
-      statsObj.current.computeTime = stats.computeTimeFormatted;
-      statsObj.current.density = stats.densityPercent;
-      statsObj.current.occupiedArea = stats.occupiedAreaFormatted;
-      statsObj.current.boundingBoxArea = stats.boundingBoxAreaFormatted;
-      statsObj.current.perfectLayouts = `${stats.perfectCount} / ${stats.totalIterations}`;
-      paneRef.current?.refresh();
-    }
-  }, [stats]);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
+  const initializedRef = useRef<boolean | null>(null);
+  if (initializedRef.current == null) {
     restore(state.current);
-    const {
-      plane: planeState,
-      brackets: bracketsState,
-      indicator: indicatorState,
-      camera: cameraState,
-      gravity: gravityState,
-      pan: panState,
-      physics: physicsState,
-      transition: transitionState,
-    } = state.current;
+    initializedRef.current = true;
+  }
 
-    const pane = new Pane({ container, title: "play" });
-    paneRef.current = pane;
+  const setControlsRef = useRef<((values: Record<string, unknown>) => void) | null>(null);
 
-    // ── Image ─────────────────────────────────────────────────────────────
-    const image = pane.addFolder({ title: "image" });
-    image.addBinding(planeState, "radius", { min: 0, max: 200, step: 1 });
+  const saveToLocalStorage = () => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.current));
+      toast.success("Réglages sauvegardés dans localStorage");
+    } catch {
+      toast.error("Impossible de sauvegarder dans localStorage");
+    }
+  };
 
-    // ── Brackets ──────────────────────────────────────────────────────────
-    const brackets = pane.addFolder({ title: "brackets" });
-    brackets.addBinding(bracketsState, "padding", { min: 0, max: 200, step: 1 });
-    brackets.addBinding(bracketsState, "radius", { min: 0, max: 200, step: 1 });
-    brackets.addBinding(bracketsState, "angle", { min: 0, max: 90, step: 1 });
-    brackets.addBinding(bracketsState, "arm", { min: 0, max: 200, step: 1 });
-    brackets.addBinding(bracketsState, "thickness", {
+  const copyJson = () => {
+    navigator.clipboard
+      .writeText(JSON.stringify(state.current, null, 2))
+      .then(
+        () => toast.success("Configuration copiée dans le presse-papiers"),
+        () => toast.error("Échec de la copie dans le presse-papiers"),
+      );
+  };
+
+  // ── 1. Studio Animation ─────────────────────────────────────────
+  useControls("🎬 studio animation", () => ({
+    actions: buttonGroup({
+      "▶ Rejouer Lock": onReplayLock,
+      "▶ Simuler Select": onSimulateSelect,
+      "⏹ Reset": onResetTransition,
+    }),
+    "boucler le lock": {
+      value: state.current.studio.loopLock,
+      label: "boucler le lock",
+      onChange: (v: boolean) => {
+        state.current.studio.loopLock = v;
+      },
+    },
+    "vitesse (ralenti)": {
+      value: state.current.studio.speed,
+      label: "vitesse",
+      options: {
+        "0.1x (Ultra slow)": 0.1,
+        "0.25x (Ralenti)": 0.25,
+        "0.5x (Demi)": 0.5,
+        "1.0x (Normal)": 1.0,
+      },
+      onChange: (v: number) => {
+        state.current.studio.speed = v;
+      },
+    },
+    "arrêt sur image": {
+      value: state.current.studio.scrubMode,
+      label: "mode scrubber",
+      onChange: (v: boolean) => {
+        state.current.studio.scrubMode = v;
+        if (v) {
+          onReplayLock();
+        }
+      },
+    },
+    "curseur scrubber": {
+      value: state.current.studio.scrubProgress,
+      label: "curseur (0% - 100%)",
+      min: 0,
+      max: 1,
+      step: 0.005,
+      onChange: (v: number) => {
+        state.current.studio.scrubProgress = v;
+      },
+    },
+  }));
+
+  // ── 2. Image ────────────────────────────────────────────────────
+  useControls("image", () => ({
+    radius: {
+      value: state.current.plane.radius,
+      min: 0,
+      max: 200,
+      step: 1,
+      label: "arrondi (radius)",
+      onChange: (v: number) => {
+        state.current.plane.radius = v;
+      },
+    },
+  }));
+
+  // ── 3. Brackets ─────────────────────────────────────────────────
+  useControls("brackets", () => ({
+    padding: {
+      value: state.current.brackets.padding,
+      min: 0,
+      max: 200,
+      step: 1,
+      onChange: (v: number) => {
+        state.current.brackets.padding = v;
+      },
+    },
+    radius: {
+      value: state.current.brackets.radius,
+      min: 0,
+      max: 200,
+      step: 1,
+      onChange: (v: number) => {
+        state.current.brackets.radius = v;
+      },
+    },
+    angle: {
+      value: state.current.brackets.angle,
+      min: 0,
+      max: 90,
+      step: 1,
+      onChange: (v: number) => {
+        state.current.brackets.angle = v;
+      },
+    },
+    arm: {
+      value: state.current.brackets.arm,
+      min: 0,
+      max: 200,
+      step: 1,
+      onChange: (v: number) => {
+        state.current.brackets.arm = v;
+      },
+    },
+    thickness: {
+      value: state.current.brackets.thickness,
       min: 0,
       max: 24,
       step: 0.5,
-    });
-    brackets.addBinding(bracketsState, "color");
+      label: "épaisseur",
+      onChange: (v: number) => {
+        state.current.brackets.thickness = v;
+      },
+    },
+    color: {
+      value: state.current.brackets.color,
+      label: "couleur",
+      onChange: (v: string) => {
+        state.current.brackets.color = v;
+      },
+    },
+  }));
 
-    // ── Indicateur ────────────────────────────────────────────────────────
-    const indicator = pane.addFolder({ title: "indicator" });
-    indicator.addBinding(indicatorState, "fadeSpeed", { min: 1, max: 40, step: 1 });
-    indicator.addBinding(indicatorState, "moveSpeed", { min: 1, max: 40, step: 1 });
+  // ── 4. Indicateur ───────────────────────────────────────────────
+  useControls("indicator", () => ({
+    fadeSpeed: {
+      value: state.current.indicator.fadeSpeed,
+      min: 1,
+      max: 40,
+      step: 1,
+      label: "vitesse fade",
+      onChange: (v: number) => {
+        state.current.indicator.fadeSpeed = v;
+      },
+    },
+    moveSpeed: {
+      value: state.current.indicator.moveSpeed,
+      min: 1,
+      max: 40,
+      step: 1,
+      label: "vitesse suivi",
+      onChange: (v: number) => {
+        state.current.indicator.moveSpeed = v;
+      },
+    },
+  }));
 
-    // ── Caméra & Fisheye ──────────────────────────────────────────
-    const camera = pane.addFolder({ title: "camera" });
-    camera.addBinding(cameraState, "zoom", { min: 0.1, max: 5, step: 0.01 });
-    const fisheye = camera.addFolder({ title: "fisheye (optique)" });
-    fisheye.addBinding(state.current.fisheye, "enabled", { label: "activer" });
-    fisheye.addBinding(state.current.fisheye, "strength", {
+  // ── 5. Caméra & Fisheye ─────────────────────────────────────────
+  useControls("camera", () => ({
+    zoom: {
+      value: state.current.camera.zoom,
+      min: 0.1,
+      max: 5,
+      step: 0.01,
+      onChange: (v: number) => {
+        state.current.camera.zoom = v;
+      },
+    },
+    "fisheye (optique)": folder({
+      "activer fisheye": {
+        value: state.current.fisheye.enabled,
+        label: "activer",
+        onChange: (v: boolean) => {
+          state.current.fisheye.enabled = v;
+        },
+      },
+      "courbure globe": {
+        value: state.current.fisheye.strength,
+        min: 0,
+        max: 0.2,
+        step: 0.002,
+        label: "courbure globe",
+        onChange: (v: number) => {
+          state.current.fisheye.strength = v;
+        },
+      },
+    }),
+  }));
+
+  // ── 6. Layout (Gravité) ─────────────────────────────────────────
+  useControls("layout (gravité)", () => ({
+    maxWidth: {
+      value: state.current.gravity.maxWidth,
+      min: 100,
+      max: 1000,
+      step: 10,
+      onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.maxWidth = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    maxHeight: {
+      value: state.current.gravity.maxHeight,
+      min: 100,
+      max: 1000,
+      step: 10,
+      onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.maxHeight = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    gap: {
+      value: state.current.gravity.gap,
       min: 0,
-      max: 0.2,
-      step: 0.002,
-      label: "courbure globe",
-    });
+      max: 400,
+      step: 4,
+      onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.gap = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    "ratio rectangle": {
+      value: state.current.gravity.targetAspect,
+      min: 0.5,
+      max: 3.0,
+      step: 0.05,
+      onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.targetAspect = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    "variance scale": {
+      value: state.current.gravity.scaleVariance,
+      min: 0,
+      max: 0.8,
+      step: 0.05,
+      onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.scaleVariance = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    "anti-voisins": {
+      value: state.current.gravity.antiNeighbor,
+      onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.antiNeighbor = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    "écart anti-voisin": {
+      value: state.current.gravity.repeatGap,
+      min: 0,
+      max: 400,
+      step: 10,
+      onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.repeatGap = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    repeat: {
+      value: state.current.gravity.repeat,
+      min: 1,
+      max: 10,
+      step: 1,
+      onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.repeat = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    "itérations M-C": {
+      value: state.current.gravity.iterations,
+      min: 1,
+      max: 10000,
+      step: 10,
+      onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.iterations = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    seed: {
+      value: state.current.gravity.seed,
+      min: 0,
+      max: 9999,
+      step: 1,
+      onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+        state.current.gravity.seed = v;
+        if (!ctx.initial) onLayoutChange();
+      },
+    },
+    statistiques: folder(
+      {
+        "temps calcul": {
+          value: stats?.computeTimeFormatted ?? "-",
+          editable: false,
+        },
+        densité: {
+          value: stats?.densityPercent ?? "-",
+          editable: false,
+        },
+        "aire occupée": {
+          value: stats?.occupiedAreaFormatted ?? "-",
+          editable: false,
+        },
+        "aire totale (BB)": {
+          value: stats?.boundingBoxAreaFormatted ?? "-",
+          editable: false,
+        },
+        "layouts parfaits": {
+          value: stats
+            ? `${stats.perfectCount} / ${stats.totalIterations}`
+            : "-",
+          editable: false,
+        },
+      },
+      { collapsed: true },
+    ),
+  }));
 
-    // ── Layout : Gravité Centrale ─────────────────────────────────
-    const layout = pane.addFolder({ title: "layout (gravité)" });
-    layout
-      .addBinding(gravityState, "maxWidth", { min: 100, max: 1000, step: 10 })
-      .on("change", onLayoutChange);
-    layout
-      .addBinding(gravityState, "maxHeight", { min: 100, max: 1000, step: 10 })
-      .on("change", onLayoutChange);
-    layout
-      .addBinding(gravityState, "gap", { min: 0, max: 400, step: 4 })
-      .on("change", onLayoutChange);
-    layout
-      .addBinding(gravityState, "targetAspect", {
-        min: 0.5,
-        max: 3.0,
-        step: 0.05,
-        label: "ratio rectangle",
-      })
-      .on("change", onLayoutChange);
-    layout
-      .addBinding(gravityState, "scaleVariance", {
-        min: 0,
-        max: 0.8,
-        step: 0.05,
-        label: "variance scale",
-      })
-      .on("change", onLayoutChange);
-    layout
-      .addBinding(gravityState, "antiNeighbor", {
-        label: "anti-voisins",
-      })
-      .on("change", onLayoutChange);
-    layout
-      .addBinding(gravityState, "repeatGap", {
-        min: 0,
-        max: 400,
-        step: 10,
-        label: "écart anti-voisin",
-      })
-      .on("change", onLayoutChange);
-    layout
-      .addBinding(gravityState, "repeat", { min: 1, max: 10, step: 1 })
-      .on("change", onLayoutChange);
-    layout
-      .addBinding(gravityState, "iterations", {
-        min: 1,
-        max: 10000,
-        step: 10,
-        label: "itérations M-C",
-      })
-      .on("change", onLayoutChange);
-    layout
-      .addBinding(gravityState, "seed", { min: 0, max: 9999, step: 1 })
-      .on("change", onLayoutChange);
+  // ── 7. Pan ──────────────────────────────────────────────────────
+  useControls("pan", () => ({
+    dragThreshold: {
+      value: state.current.pan.dragThreshold,
+      min: 0,
+      max: 40,
+      step: 1,
+      onChange: (v: number) => {
+        state.current.pan.dragThreshold = v;
+      },
+    },
+    velocityWindowMs: {
+      value: state.current.pan.velocityWindowMs,
+      min: 10,
+      max: 300,
+      step: 5,
+      onChange: (v: number) => {
+        state.current.pan.velocityWindowMs = v;
+      },
+    },
+    friction: {
+      value: state.current.pan.friction,
+      min: -10,
+      max: -0.2,
+      step: 0.1,
+      onChange: (v: number) => {
+        state.current.pan.friction = v;
+      },
+    },
+  }));
 
-    // ── Statistiques du layout calculé ────────────────────────────
-    const statsFolder = layout.addFolder({ title: "statistiques" });
-    statsFolder.addBinding(statsObj.current, "computeTime", {
-      readonly: true,
-      label: "temps calcul",
-    });
-    statsFolder.addBinding(statsObj.current, "density", {
-      readonly: true,
-      label: "densité",
-    });
-    statsFolder.addBinding(statsObj.current, "occupiedArea", {
-      readonly: true,
-      label: "aire occupée",
-    });
-    statsFolder.addBinding(statsObj.current, "boundingBoxArea", {
-      readonly: true,
-      label: "aire totale (BB)",
-    });
-    statsFolder.addBinding(statsObj.current, "perfectLayouts", {
-      readonly: true,
-      label: "layouts parfaits",
-    });
-
-    // ── Pan ───────────────────────────────────────────────────────
-    const pan = pane.addFolder({ title: "pan" });
-    pan.addBinding(panState, "dragThreshold", { min: 0, max: 40, step: 1 });
-    pan.addBinding(panState, "velocityWindowMs", { min: 10, max: 300, step: 5 });
-    pan.addBinding(panState, "friction", { min: -10, max: -0.2, step: 0.1 });
-
-    // ── Déplacement cinématique : Répulsion uniforme ────────────
-    const physics = pane.addFolder({ title: "cinématique (répulsion)" });
-    physics.addBinding(physicsState, "enabled", { label: "activer" });
-    physics.addBinding(physicsState, "damping", {
+  // ── 8. Cinématique (Répulsion) ──────────────────────────────────
+  useControls("cinématique (répulsion)", () => ({
+    activer: {
+      value: state.current.physics.enabled,
+      onChange: (v: boolean) => {
+        state.current.physics.enabled = v;
+      },
+    },
+    "vitesse de retour": {
+      value: state.current.physics.damping,
       min: 2,
       max: 40,
       step: 0.5,
-      label: "vitesse de retour",
-    });
+      label: "amortissement",
+      onChange: (v: number) => {
+        state.current.physics.damping = v;
+      },
+    },
+  }));
 
-    // ── Transition 3 phases (Progression -> Animation Select -> Transition Artifact) ───
-    const transition = pane.addFolder({ title: "transition (3 parties)" });
-
-    const presetBinding = transition.addBinding(transitionState, "preset", {
+  // ── 9. Transition (3 parties) ───────────────────────────────────
+  const [, setTransitionControls] = useControls("transition (3 parties)", () => ({
+    preset: {
+      value: state.current.transition.preset,
       options: {
         Cinematic: "cinematic",
         Snappy: "snappy",
         Dramatic: "dramatic",
         Custom: "custom",
       },
-      label: "preset",
-    });
-
-    // 1. Progression du select (Hold)
-    const phase1 = transition.addFolder({ title: "1. progression du select" });
-    phase1.addBinding(transitionState, "selectDuration", {
-      min: 0.2,
-      max: 2.0,
-      step: 0.05,
-      label: "durée hold (s)",
-    });
-    phase1.addBinding(transitionState, "selectZoom", {
-      min: 1.0,
-      max: 1.5,
-      step: 0.01,
-      label: "zoom caméra",
-    });
-    phase1.addBinding(transitionState, "selectScale", {
-      min: 1.0,
-      max: 1.25,
-      step: 0.01,
-      label: "scale média",
-    });
-    phase1.addBinding(transitionState, "selectRepulse", {
-      min: 0,
-      max: 3000,
-      step: 50,
-      label: "tension répulsion",
-    });
-    phase1.addBinding(transitionState, "selectEasing", {
-      options: {
-        linear: "linear",
-        easeInQuad: "easeInQuad",
-        easeOutQuad: "easeOutQuad",
-        easeInCubic: "easeInCubic",
-        easeInOutCubic: "easeInOutCubic",
-        easeOutExpo: "easeOutExpo",
-        easeOutQuint: "easeOutQuint",
+      onChange: (
+        presetKey: TransitionPresetName,
+        _p: string,
+        ctx: { initial: boolean },
+      ) => {
+        if (
+          !ctx.initial &&
+          presetKey !== "custom" &&
+          TRANSITION_PRESETS[presetKey]
+        ) {
+          const p = TRANSITION_PRESETS[presetKey];
+          Object.assign(state.current.transition, p);
+          setControlsRef.current?.({
+            "durée hold (s)": p.selectDuration,
+            "zoom caméra": p.selectZoom,
+            "scale média": p.selectScale,
+            "tension répulsion": p.selectRepulse,
+            "courbe easing hold": p.selectEasing,
+            "durée lock (s)": p.lockDuration,
+            "pincement brackets (px)": p.lockBracketTighten,
+            "expansion fade extérieur (px)": p.lockBracketExpand,
+            "scale punch pop": p.lockScalePunch,
+            "durée fin vague (s)": p.overlayExitDuration,
+            "délai avant transition (s)": p.burstDelay,
+            "durée burst (s)": p.burstDuration,
+            "maxi zoom": p.burstZoom,
+            "maxi répulsion": p.burstRepulse,
+            "courbe easing burst": p.burstEasing,
+            "délai retour répulsion (s)": p.repulseReturnDelay,
+          });
+        }
       },
-      label: "courbe easing",
-    });
-
-    // 2. Animation de select (Lock)
-    const phase2 = transition.addFolder({ title: "2. animation de select (lock)" });
-    phase2.addBinding(transitionState, "lockDuration", {
-      min: 0.1,
-      max: 2.0,
-      step: 0.05,
-      label: "durée lock (s)",
-    });
-    phase2.addBinding(transitionState, "lockBracketTighten", {
-      min: 0,
-      max: 30,
-      step: 0.5,
-      label: "pincement brackets (px)",
-    });
-    phase2.addBinding(transitionState, "lockBracketExpand", {
-      min: 0,
-      max: 40,
-      step: 0.5,
-      label: "expansion fade extérieur (px)",
-    });
-    phase2.addBinding(transitionState, "lockScalePunch", {
-      min: 0.0,
-      max: 0.15,
-      step: 0.005,
-      label: "scale punch pop",
-    });
-    phase2.addBinding(transitionState, "overlayExitDuration", {
-      min: 0.1,
-      max: 1.5,
-      step: 0.05,
-      label: "durée fin vague (s)",
-    });
-    phase2.addBinding(transitionState, "burstDelay", {
-      min: 0.0,
-      max: 1.5,
-      step: 0.05,
-      label: "délai avant transition (s)",
-    });
-
-    // 3. Transition vers la page artifact (Burst)
-    const phase3 = transition.addFolder({ title: "3. transition artifact (burst)" });
-    phase3.addBinding(transitionState, "burstDuration", {
-      min: 0.2,
-      max: 3.0,
-      step: 0.05,
-      label: "durée burst (s)",
-    });
-    phase3.addBinding(transitionState, "burstZoom", {
-      min: 1.2,
-      max: 5.0,
-      step: 0.1,
-      label: "maxi zoom",
-    });
-    phase3.addBinding(transitionState, "burstRepulse", {
-      min: 10000,
-      max: 300000,
-      step: 5000,
-      label: "maxi répulsion",
-    });
-    phase3.addBinding(transitionState, "burstEasing", {
-      options: {
-        linear: "linear",
-        easeInQuad: "easeInQuad",
-        easeOutQuad: "easeOutQuad",
-        easeInCubic: "easeInCubic",
-        easeInOutCubic: "easeInOutCubic",
-        easeOutExpo: "easeOutExpo",
-        easeOutQuint: "easeOutQuint",
+    },
+    "1. progression": folder({
+      "durée hold (s)": {
+        value: state.current.transition.selectDuration,
+        min: 0.2,
+        max: 2.0,
+        step: 0.05,
+        onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+          state.current.transition.selectDuration = v;
+          if (!ctx.initial && state.current.transition.preset !== "custom") {
+            state.current.transition.preset = "custom";
+          }
+        },
       },
-      label: "courbe easing",
-    });
+      "zoom caméra": {
+        value: state.current.transition.selectZoom,
+        min: 1.0,
+        max: 1.5,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.transition.selectZoom = v;
+        },
+      },
+      "scale média": {
+        value: state.current.transition.selectScale,
+        min: 1.0,
+        max: 1.25,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.transition.selectScale = v;
+        },
+      },
+      "tension répulsion": {
+        value: state.current.transition.selectRepulse,
+        min: 0,
+        max: 3000,
+        step: 50,
+        onChange: (v: number) => {
+          state.current.transition.selectRepulse = v;
+        },
+      },
+      "courbe easing hold": {
+        value: state.current.transition.selectEasing,
+        options: [
+          "linear",
+          "easeInQuad",
+          "easeOutQuad",
+          "easeInCubic",
+          "easeInOutCubic",
+          "easeOutExpo",
+          "easeOutQuint",
+        ],
+        onChange: (v: string) => {
+          state.current.transition.selectEasing = v as EasingName;
+        },
+      },
+    }),
+    "2. animation lock": folder({
+      "durée lock (s)": {
+        value: state.current.transition.lockDuration,
+        min: 0.1,
+        max: 2.0,
+        step: 0.05,
+        onChange: (v: number) => {
+          state.current.transition.lockDuration = v;
+        },
+      },
+      "pincement brackets (px)": {
+        value: state.current.transition.lockBracketTighten,
+        min: 0,
+        max: 30,
+        step: 0.5,
+        onChange: (v: number) => {
+          state.current.transition.lockBracketTighten = v;
+        },
+      },
+      "expansion fade extérieur (px)": {
+        value: state.current.transition.lockBracketExpand,
+        min: 0,
+        max: 40,
+        step: 0.5,
+        onChange: (v: number) => {
+          state.current.transition.lockBracketExpand = v;
+        },
+      },
+      "scale punch pop": {
+        value: state.current.transition.lockScalePunch,
+        min: 0.0,
+        max: 0.15,
+        step: 0.005,
+        onChange: (v: number) => {
+          state.current.transition.lockScalePunch = v;
+        },
+      },
+      "durée fin vague (s)": {
+        value: state.current.transition.overlayExitDuration,
+        min: 0.1,
+        max: 1.5,
+        step: 0.05,
+        onChange: (v: number) => {
+          state.current.transition.overlayExitDuration = v;
+        },
+      },
+      "délai avant transition (s)": {
+        value: state.current.transition.burstDelay,
+        min: 0.0,
+        max: 1.5,
+        step: 0.05,
+        onChange: (v: number) => {
+          state.current.transition.burstDelay = v;
+        },
+      },
+    }),
+    "3. transition burst": folder({
+      "durée burst (s)": {
+        value: state.current.transition.burstDuration,
+        min: 0.2,
+        max: 3.0,
+        step: 0.05,
+        onChange: (v: number) => {
+          state.current.transition.burstDuration = v;
+        },
+      },
+      "maxi zoom": {
+        value: state.current.transition.burstZoom,
+        min: 1.2,
+        max: 5.0,
+        step: 0.1,
+        onChange: (v: number) => {
+          state.current.transition.burstZoom = v;
+        },
+      },
+      "maxi répulsion": {
+        value: state.current.transition.burstRepulse,
+        min: 10000,
+        max: 300000,
+        step: 5000,
+        onChange: (v: number) => {
+          state.current.transition.burstRepulse = v;
+        },
+      },
+      "courbe easing burst": {
+        value: state.current.transition.burstEasing,
+        options: [
+          "linear",
+          "easeInQuad",
+          "easeOutQuad",
+          "easeInCubic",
+          "easeInOutCubic",
+          "easeOutExpo",
+          "easeOutQuint",
+        ],
+        onChange: (v: string) => {
+          state.current.transition.burstEasing = v as EasingName;
+        },
+      },
+    }),
+    "4. retour page": folder({
+      "délai retour répulsion (s)": {
+        value: state.current.transition.repulseReturnDelay,
+        min: 0.0,
+        max: 1.5,
+        step: 0.05,
+        onChange: (v: number) => {
+          state.current.transition.repulseReturnDelay = v;
+        },
+      },
+    }),
+  }));
 
-    // 4. Retour vers la page de base
-    const phase4 = transition.addFolder({ title: "4. retour page de base" });
-    phase4.addBinding(transitionState, "repulseReturnDelay", {
-      min: 0.0,
-      max: 1.5,
-      step: 0.05,
-      label: "délai retour répulsion (s)",
-    });
+  useEffect(() => {
+    setControlsRef.current = setTransitionControls as unknown as (
+      values: Record<string, unknown>,
+    ) => void;
+  }, [setTransitionControls]);
 
-    presetBinding.on("change", (ev) => {
-      const presetKey = ev.value as TransitionPresetName;
-      if (presetKey !== "custom" && TRANSITION_PRESETS[presetKey]) {
-        Object.assign(transitionState, TRANSITION_PRESETS[presetKey]);
-        transitionState.preset = presetKey;
-        pane.refresh();
-      }
-    });
-
-    phase1.on("change", () => {
-      if (transitionState.preset !== "custom") {
-        transitionState.preset = "custom";
-        pane.refresh();
-      }
-    });
-    phase2.on("change", () => {
-      if (transitionState.preset !== "custom") {
-        transitionState.preset = "custom";
-        pane.refresh();
-      }
-    });
-    phase3.on("change", () => {
-      if (transitionState.preset !== "custom") {
-        transitionState.preset = "custom";
-        pane.refresh();
-      }
-    });
-    phase4.on("change", () => {
-      if (transitionState.preset !== "custom") {
-        transitionState.preset = "custom";
-        pane.refresh();
-      }
-    });
-
-    // ── Overlay Sélection (Sticker iOS & Vague) ───────────────────
-    const overlayFolder = pane.addFolder({ title: "overlay sélection (sticker)" });
-    overlayFolder.addBinding(state.current.overlay, "crestSoftness", {
+  // ── 10. Overlay Sélection ───────────────────────────────────────
+  useControls("overlay sélection", () => ({
+    "douceur fondu": {
+      value: state.current.overlay.crestSoftness,
       min: 0.02,
       max: 0.35,
       step: 0.005,
-      label: "douceur fondu",
-    });
-    overlayFolder.addBinding(state.current.overlay, "waveAmplitude", {
+      onChange: (v: number) => {
+        state.current.overlay.crestSoftness = v;
+      },
+    },
+    "amplitude vague": {
+      value: state.current.overlay.waveAmplitude,
       min: 0.0,
       max: 0.06,
       step: 0.001,
-      label: "amplitude vague",
-    });
-    overlayFolder.addBinding(state.current.overlay, "waveFrequency", {
+      onChange: (v: number) => {
+        state.current.overlay.waveAmplitude = v;
+      },
+    },
+    "fréquence vague": {
+      value: state.current.overlay.waveFrequency,
       min: 1.0,
       max: 10.0,
       step: 0.2,
-      label: "fréquence vague",
-    });
-    overlayFolder.addBinding(state.current.overlay, "waveSpeed", {
+      onChange: (v: number) => {
+        state.current.overlay.waveFrequency = v;
+      },
+    },
+    "vitesse clapotis": {
+      value: state.current.overlay.waveSpeed,
       min: 0.0,
       max: 8.0,
       step: 0.2,
-      label: "vitesse clapotis",
-    });
-    overlayFolder.addBinding(state.current.overlay, "iridescence", {
+      onChange: (v: number) => {
+        state.current.overlay.waveSpeed = v;
+      },
+    },
+    iridescence: {
+      value: state.current.overlay.iridescence,
       min: 0.0,
       max: 1.0,
       step: 0.02,
-      label: "iridescence",
-    });
-    overlayFolder.addBinding(state.current.overlay, "baseOpacity", {
+      onChange: (v: number) => {
+        state.current.overlay.iridescence = v;
+      },
+    },
+    "opacité voile": {
+      value: state.current.overlay.baseOpacity,
       min: 0.05,
       max: 0.8,
       step: 0.01,
-      label: "opacité voile",
-    });
-    overlayFolder.addBinding(state.current.overlay, "glowIntensity", {
+      onChange: (v: number) => {
+        state.current.overlay.baseOpacity = v;
+      },
+    },
+    "lueur diffuse": {
+      value: state.current.overlay.glowIntensity,
       min: 0.0,
       max: 1.0,
       step: 0.02,
-      label: "lueur diffuse",
-    });
+      onChange: (v: number) => {
+        state.current.overlay.glowIntensity = v;
+      },
+    },
+  }));
 
-    const stopSave = addAction(pane, "save", () => {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.current));
-      return "saved";
-    });
+  // ── 11. Actions Sauvegarde & Export ─────────────────────────────
+  useControls("sauvegarde & export", () => ({
+    actions: buttonGroup({
+      "💾 Sauvegarder": saveToLocalStorage,
+      "📋 Copier JSON": copyJson,
+    }),
+  }));
 
-    const stopCopy = addAction(pane, "copy", () =>
-      navigator.clipboard
-        .writeText(JSON.stringify(state.current, null, 2))
-        .then(
-          () => "copied",
-          () => "clipboard refused",
-        ),
-    );
-
-    return () => {
-      stopSave();
-      stopCopy();
-      pane.dispose();
-      paneRef.current = null;
-    };
-  }, [state, onLayoutChange]);
-
-  return <div ref={containerRef} className="fixed top-4 right-4 z-50 w-64" />;
+  return (
+    <Leva
+      theme={{
+        colors: {
+          elevation1: "#121214",
+          elevation2: "#18181b",
+          elevation3: "#27272a",
+          accent1: "#38bdf8",
+          accent2: "#0284c7",
+          accent3: "#0369a1",
+          highlight1: "#f8fafc",
+          highlight2: "#e2e8f0",
+          highlight3: "#94a3b8",
+        },
+        radii: {
+          xs: "3px",
+          sm: "5px",
+          lg: "8px",
+        },
+        space: {
+          sm: "6px",
+          md: "10px",
+          rowGap: "7px",
+          colGap: "7px",
+        },
+        fonts: {
+          mono: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+          sans: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        },
+        fontSizes: {
+          root: "11px",
+        },
+        sizes: {
+          rootWidth: "320px",
+          controlWidth: "150px",
+          numberInputMinWidth: "46px",
+        },
+      }}
+      collapsed={false}
+      oneLineLabels={false}
+      titleBar={{ title: "play · studio & debug", drag: true, filter: true }}
+    />
+  );
 }
