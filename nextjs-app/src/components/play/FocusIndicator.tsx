@@ -223,24 +223,27 @@ export function FocusIndicator({
       material.color.set(brackets.color);
     }
 
-    // Gestion du resserrement et de la disparition pendant l'animation de select (lock)
+    // Gestion du pincement, retour à la position initiale, et fade vers l'extérieur
     let currentPadding = brackets.padding;
     let lockAlpha = 1;
 
     if (tr.phase === "lock") {
       const t = tr.lockProgress;
 
-      // 1. Resserrement : les brackets se resserrent vivement vers le média
-      const tightenT = Math.min(1, t / 0.45);
-      const easedTighten = tightenT * (2 - tightenT);
-      const tightenPx = easedTighten * transition.lockBracketTighten;
-      currentPadding = Math.max(0, brackets.padding - tightenPx);
-
-      // 2. Disparition : s'estompent de 1 à 0 dès qu'ils se sont resserrés
-      const fadeStart = 0.25;
-      if (t > fadeStart) {
-        const fadeT = (t - fadeStart) / (1 - fadeStart);
-        lockAlpha = Math.max(0, 1 - fadeT * fadeT);
+      // 1ère phase (0.0 -> 0.48) : Pincement élastique puis retour exact à la position initiale
+      const pinchWindow = 0.48;
+      if (t <= pinchWindow) {
+        const u = t / pinchWindow;
+        const pinchPx = Math.sin(u * Math.PI) * transition.lockBracketTighten;
+        currentPadding = Math.max(0, brackets.padding - pinchPx);
+        lockAlpha = 1;
+      } else {
+        // 2ème phase (0.48 -> 1.0) : Expansion vers l'extérieur tout en s'estompant (fade out)
+        const v = (t - pinchWindow) / (1 - pinchWindow);
+        const vEased = v * (2 - v); // easeOut
+        const expandPx = vEased * transition.lockBracketExpand;
+        currentPadding = brackets.padding + expandPx;
+        lockAlpha = Math.max(0, 1 - v * v);
       }
     }
 

@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v17";
+const STORAGE_KEY = "play-debug-v18";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -313,7 +313,13 @@ export function PlayDebug({
       min: 0,
       max: 40,
       step: 1,
-      label: "resserrement brackets (px)",
+      label: "pincement brackets (px)",
+    });
+    phase2.addBinding(transitionState, "lockBracketExpand", {
+      min: 0,
+      max: 60,
+      step: 1,
+      label: "expansion fade extérieur (px)",
     });
     phase2.addBinding(transitionState, "lockScalePunch", {
       min: 0.0,

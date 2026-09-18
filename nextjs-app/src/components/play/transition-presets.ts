@@ -43,7 +43,8 @@ export type TransitionConfig = {
 
   // ── 2. Animation de select (Lock) ────────────────────────────────
   lockDuration: number; // Durée totale de l'animation de lock (ex: 0.4s)
-  lockBracketTighten: number; // Resserrement des brackets vers le média en px (ex: 18px)
+  lockBracketTighten: number; // Pincement des brackets vers l'intérieur en px (ex: 16px)
+  lockBracketExpand: number; // Expansion vers l'extérieur lors du fade out en px (ex: 24px)
   lockScalePunch: number; // Intensité du rebond / scale punch de confirmation (ex: 0.05)
   overlayExitDuration: number; // Durée d'évacuation de l'overlay vague (ex: 0.35s)
 
@@ -65,7 +66,8 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     selectRepulse: 600,
     selectEasing: "easeInQuad",
     lockDuration: 0.5,
-    lockBracketTighten: 18,
+    lockBracketTighten: 16,
+    lockBracketExpand: 28,
     lockScalePunch: 0.06,
     overlayExitDuration: 0.4,
     burstDuration: 1.2,
@@ -81,7 +83,8 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     selectRepulse: 800,
     selectEasing: "easeOutQuad",
     lockDuration: 0.3,
-    lockBracketTighten: 20,
+    lockBracketTighten: 18,
+    lockBracketExpand: 20,
     lockScalePunch: 0.08,
     overlayExitDuration: 0.25,
     burstDuration: 0.7,
@@ -97,7 +100,8 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     selectRepulse: 350,
     selectEasing: "easeInCubic",
     lockDuration: 0.6,
-    lockBracketTighten: 16,
+    lockBracketTighten: 14,
+    lockBracketExpand: 32,
     lockScalePunch: 0.05,
     overlayExitDuration: 0.5,
     burstDuration: 1.4,
@@ -118,7 +122,8 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   selectEasing: "easeOutQuint",
   // 2. Animation de select (Lock : 0.4s)
   lockDuration: 0.4,
-  lockBracketTighten: 18,
+  lockBracketTighten: 16,
+  lockBracketExpand: 24,
   lockScalePunch: 0.05,
   overlayExitDuration: 0.35,
   // 3. Transition vers artifact (Burst : 0.6s) — Total = 1.6s
