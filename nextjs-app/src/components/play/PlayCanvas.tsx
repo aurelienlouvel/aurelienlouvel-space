@@ -503,7 +503,8 @@ function stepCamera(
 
   // ── Mode Isolé (Maintenu centré à gauche avec dézoom et défilement colonne) ─
   if (tr.phase === "isolated") {
-    tr.columnScrollY = dampTowards(tr.columnScrollY, tr.targetColumnScrollY, 12, effDelta);
+    const scrollDamping = config.detailScrollDamping ?? 12;
+    tr.columnScrollY = dampTowards(tr.columnScrollY, tr.targetColumnScrollY, scrollDamping, effDelta);
 
     const targetZoom = baseZoom * config.burstZoom;
     const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
@@ -822,7 +823,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     rc.repulsor.x = rc.selectedPos.x;
     rc.repulsor.y = rc.selectedPos.y;
     if (tile?.points[selIndex]) {
-      handleStartSelect(tile.points[selIndex].artifactIndex, tile.points[selIndex]);
+      handleStartSelect(tile.points[selIndex].artifactIndex, {
+        ...tile.points[selIndex],
+        x: rc.selectedPos.x,
+        y: rc.selectedPos.y,
+      });
     }
   }, [handleStartSelect, tile]);
 
@@ -955,7 +960,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
       if (runtime.current.transition.phase === "isolated") {
         const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 0.85);
-        runtime.current.transition.targetColumnScrollY -= (e.deltaY / (zoom || 1)) * 0.9;
+        const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
+        runtime.current.transition.targetColumnScrollY += (e.deltaY / (zoom || 1)) * 0.9 * speed;
         return;
       }
 
@@ -993,7 +999,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         const dy = e.clientY - lastY;
         lastY = e.clientY;
         const zoom = debug.current.camera.zoom * (debug.current.transition.burstZoom || 0.85);
-        runtime.current.transition.targetColumnScrollY += (dy / (zoom || 1)) * 1.1;
+        const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
+        runtime.current.transition.targetColumnScrollY -= (dy / (zoom || 1)) * 1.1 * speed;
         return;
       }
 

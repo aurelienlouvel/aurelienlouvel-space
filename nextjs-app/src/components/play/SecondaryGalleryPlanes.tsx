@@ -40,24 +40,22 @@ export function SecondaryGalleryPlanes({
   // Détection responsive : desktop (>= 1024px et paysage) vs mobile
   const isDesktop = size.width >= 1024 && size.width >= size.height;
 
-  // Préparation du pool d'items infinis
-  const { pool, centerIndex, cycleCount } = useMemo(() => {
+  // Préparation du pool d'items : M0 au sommet (slot 0), puis M1, M2... strictement en-dessous
+  const { pool, cycleCount } = useMemo(() => {
     if (!gallery || gallery.length === 0 || !principalPoint) {
-      return { pool: [], centerIndex: -1, cycleCount: 0 };
+      return { pool: [], cycleCount: 0 };
     }
 
     const n = gallery.length;
-    // On répète pour avoir au moins 14-16 items dans le pool afin de couvrir largement la hauteur d'écran
-    const repeats = Math.max(3, Math.ceil(15 / n));
+    // Si 1 seul média, 1 seul slot
+    const repeats = n === 1 ? 1 : Math.max(3, Math.ceil(15 / n));
     const totalSlots = n * repeats;
-    const center = Math.floor(totalSlots / 2);
 
     const slots: PoolSlot[] = [];
 
     for (let j = 0; j < totalSlots; j++) {
-      const rel = j - center;
-      // Index dans la galerie en boucle continue
-      const gIdx = ((rel % n) + n) % n;
+      // Ordre strict de la galerie : 0, 1, 2, ..., n-1, 0, 1, 2...
+      const gIdx = j % n;
       const item = gallery[gIdx];
 
       const isVideo = item._type === "galleryVideo";
@@ -80,11 +78,11 @@ export function SecondaryGalleryPlanes({
         kind: isVideo ? "video" : "image",
         ratio: Math.max(0.2, ratio),
         galleryIdx: gIdx,
-        relativeIdx: rel,
+        relativeIdx: j, // 0 = média principal M0, > 0 = sous M0
       });
     }
 
-    return { pool: slots, centerIndex: center, cycleCount: repeats };
+    return { pool: slots, cycleCount: repeats };
   }, [gallery, principalPoint]);
 
   useFrame(() => {
@@ -119,23 +117,27 @@ export function SecondaryGalleryPlanes({
     }
 
     const currentZoom = Math.max(0.01, camera.zoom);
+    const effectiveGap = debug.current.transition.mediaGap ?? gap;
+    const burstSlideOffset = debug.current.transition.burstSlideOffset ?? 400;
 
     // ── Dimensions responsive ───────────────────────────────────────────────
-    // Desktop : largeur = 24% de la largeur d'écran (tous les médias ont la même width)
-    // Mobile  : hauteur = 48% de la hauteur d'écran (tous les médias ont la même height)
-    const desktopWidthRatio = debug.current.transition.desktopMediaWidthRatio ?? 0.24;
+    // Desktop : largeur = ~34% de la largeur d'écran (avec un minimum de 380px)
+    // Mobile  : hauteur = ~48% de la hauteur d'écran (avec un minimum de 260px)
+    const desktopWidthRatio = debug.current.transition.desktopMediaWidthRatio ?? 0.34;
     const mobileHeightRatio = debug.current.transition.mobileMediaHeightRatio ?? 0.48;
 
     let baseColWidth = 0;
     let baseColHeight = 0;
 
     if (isDesktop) {
-      baseColWidth = (size.width * desktopWidthRatio) / currentZoom;
+      const targetWidthPx = Math.max(380, size.width * desktopWidthRatio);
+      baseColWidth = targetWidthPx / currentZoom;
     } else {
-      baseColHeight = (size.height * mobileHeightRatio) / currentZoom;
+      const targetHeightPx = Math.max(260, size.height * mobileHeightRatio);
+      baseColHeight = targetHeightPx / currentZoom;
     }
 
-    // Calcul des hauteurs de chaque slot et de la hauteur d'un cycle complet
+    // Calcul des hauteurs/largeurs de chaque slot et d'un cycle complet
     const slotHeights: number[] = new Array(pool.length);
     const slotWidths: number[] = new Array(pool.length);
 
@@ -152,30 +154,23 @@ export function SecondaryGalleryPlanes({
         slotWidths[j] = baseColHeight * r;
       }
       if (j < n) {
-        oneCycleHeight += slotHeights[j] + gap;
+        oneCycleHeight += slotHeights[j] + effectiveGap;
       }
     }
 
     const totalPoolSpan = oneCycleHeight * cycleCount;
 
-    // Calcul des positions de repos (restingY) relatives à principalPoint.y (slot centerIndex)
+    // Calcul des positions de repos (restingY) :
+    // Slot 0 (M0) est ancré au centre (principalPoint.y).
+    // Tous les slots suivants (j >= 1) s'empilent STRICTEMENT EN-DESSOUS de M0 dans l'ordre !
     const restingY: number[] = new Array(pool.length);
-    restingY[centerIndex] = principalPoint.y;
+    restingY[0] = principalPoint.y;
 
-    // Items en-dessous du centre (rel > 0) : s'empilent vers le bas
-    for (let j = centerIndex + 1; j < pool.length; j++) {
+    for (let j = 1; j < pool.length; j++) {
       const prevY = restingY[j - 1];
       const prevH = slotHeights[j - 1];
       const curH = slotHeights[j];
-      restingY[j] = prevY - prevH * 0.5 - gap - curH * 0.5;
-    }
-
-    // Items au-dessus du centre (rel < 0) : s'empilent vers le haut
-    for (let j = centerIndex - 1; j >= 0; j--) {
-      const nextY = restingY[j + 1];
-      const nextH = slotHeights[j + 1];
-      const curH = slotHeights[j];
-      restingY[j] = nextY + nextH * 0.5 + gap + curH * 0.5;
+      restingY[j] = prevY - prevH * 0.5 - effectiveGap - curH * 0.5;
     }
 
     // ── Animation et défilement infini ──────────────────────────────────────
@@ -183,28 +178,29 @@ export function SecondaryGalleryPlanes({
     const halfH = (size.height / currentZoom) * 0.5;
     const anchorY = principalPoint.y;
 
-    // Décalage d'apparition lors du burst
-    const slideOffsetDistance = (1 - progress) * 320;
+    // Décalage d'apparition lors du burst : les items secondaires glissent vers le haut depuis le bas
+    const slideOffsetDistance = (1 - progress) * burstSlideOffset;
 
-    pool.forEach((item, j) => {
+    pool.forEach((_item, j) => {
       const mesh = meshRefs.current[j];
       if (!mesh) return;
 
-      const isCenter = j === centerIndex;
+      const isMain = j === 0;
 
-      // Position Y de départ + glissement + scroll
-      let slideDir = 0;
-      if (!isCenter) {
-        slideDir = item.relativeIdx < 0 ? 1 : -1; // au-dessus glisse depuis le haut, en-dessous depuis le bas
+      let y = restingY[j] + scrollY;
+      if (!isMain && isBursting) {
+        // Glissement vers le haut depuis le bas
+        y -= slideOffsetDistance;
       }
-      let y = restingY[j] + slideDir * slideOffsetDistance + scrollY;
 
-      // Bouclage infini régulier sans rupture
-      if (totalPoolSpan > 100) {
-        while (y - anchorY > halfH + 300) {
+      // Bouclage infini en mode isolé
+      if (n > 1 && totalPoolSpan > 100 && isIsolated) {
+        // Si l'item a défilé trop haut au-dessus de l'écran, il repasse en bas
+        while (y - anchorY > halfH + 400) {
           y -= totalPoolSpan;
         }
-        while (y - anchorY < -halfH - 300 - totalPoolSpan * 0.5) {
+        // Si l'utilisateur a défilé vers le bas (scrollY positif) et qu'un item est trop bas, il repasse en haut
+        while (y - anchorY < -halfH - 400 - totalPoolSpan * 0.5 && scrollY > oneCycleHeight * 0.5) {
           y += totalPoolSpan;
         }
       }
@@ -212,8 +208,8 @@ export function SecondaryGalleryPlanes({
       mesh.position.set(principalPoint.x, y, 0);
 
       // Échelle du mesh
-      if (isCenter && isBursting) {
-        // Au centre (M0), transition fluide depuis la taille dans la grille vers la taille finale
+      if (isMain && isBursting) {
+        // M0 : transition fluide depuis sa taille dans la grille vers la taille finale en colonne
         const startW = principalPoint.width * debug.current.transition.selectScale;
         const startH = principalPoint.height * debug.current.transition.selectScale;
         const curW = startW + (slotWidths[j] - startW) * progress;
@@ -225,7 +221,7 @@ export function SecondaryGalleryPlanes({
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
-        if (isCenter) {
+        if (isMain) {
           mat.opacity = isReturning ? progress : 1;
         } else {
           mat.opacity = progress;

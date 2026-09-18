@@ -344,11 +344,15 @@ export function ArtifactGrid({
     if (runtime.current.transition.phase !== "idle") return;
     applySelect(runtime.current, pointIndex, world, width, height);
     applyPointerDown(runtime.current, pointIndex, {
-      x: points[pointIndex].x,
-      y: points[pointIndex].y,
+      x: world.x,
+      y: world.y,
     });
     if (points[pointIndex]) {
-      onStartSelect?.(points[pointIndex].artifactIndex, points[pointIndex]);
+      onStartSelect?.(points[pointIndex].artifactIndex, {
+        ...points[pointIndex],
+        x: world.x,
+        y: world.y,
+      });
     }
   }
 

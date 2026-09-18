@@ -31,6 +31,7 @@ const EASING_OPTIONS: EasingName[] = [
 
 export interface SectionVisibility {
   studio: boolean;
+  artifactDetails: boolean;
   transition: boolean;
   brackets: boolean;
   indicator: boolean;
@@ -54,6 +55,7 @@ export type ViewPreset =
 
 const DEFAULT_VISIBILITY: SectionVisibility = {
   studio: true,
+  artifactDetails: true,
   transition: true,
   brackets: false,
   indicator: false,
@@ -69,6 +71,7 @@ const DEFAULT_VISIBILITY: SectionVisibility = {
 const PRESET_MAP: Record<Exclude<ViewPreset, "custom">, SectionVisibility> = {
   studio: {
     studio: true,
+    artifactDetails: true,
     transition: true,
     brackets: false,
     indicator: false,
@@ -82,6 +85,7 @@ const PRESET_MAP: Record<Exclude<ViewPreset, "custom">, SectionVisibility> = {
   },
   visuals: {
     studio: false,
+    artifactDetails: false,
     transition: false,
     brackets: true,
     indicator: true,
@@ -95,6 +99,7 @@ const PRESET_MAP: Record<Exclude<ViewPreset, "custom">, SectionVisibility> = {
   },
   layout: {
     studio: false,
+    artifactDetails: false,
     transition: false,
     brackets: false,
     indicator: false,
@@ -108,6 +113,7 @@ const PRESET_MAP: Record<Exclude<ViewPreset, "custom">, SectionVisibility> = {
   },
   physics: {
     studio: false,
+    artifactDetails: false,
     transition: false,
     brackets: false,
     indicator: false,
@@ -121,6 +127,7 @@ const PRESET_MAP: Record<Exclude<ViewPreset, "custom">, SectionVisibility> = {
   },
   overlay: {
     studio: false,
+    artifactDetails: false,
     transition: false,
     brackets: false,
     indicator: false,
@@ -134,6 +141,7 @@ const PRESET_MAP: Record<Exclude<ViewPreset, "custom">, SectionVisibility> = {
   },
   all: {
     studio: true,
+    artifactDetails: true,
     transition: true,
     brackets: true,
     indicator: true,
@@ -285,6 +293,12 @@ function SettingsSection({
             if (!ctx.initial) onToggle("studio", v);
           },
         },
+        "Artifact Details": {
+          value: visibility.artifactDetails,
+          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
+            if (!ctx.initial) onToggle("artifactDetails", v);
+          },
+        },
         "Transition (3 Phases)": {
           value: visibility.transition,
           onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
@@ -365,6 +379,7 @@ function SettingsSection({
     setControlsRef.current?.({
       "Filter Preset": preset,
       "Studio Animation": visibility.studio,
+      "Artifact Details": visibility.artifactDetails,
       "Transition (3 Phases)": visibility.transition,
       "Corner Brackets": visibility.brackets,
       "Focus Indicator": visibility.indicator,
@@ -687,6 +702,107 @@ function TransitionSection({ state }: { state: PlayDebugRef }) {
       values: Record<string, unknown>,
     ) => void;
   }, [setTransitionControls]);
+
+  return null;
+}
+
+// ── 2b. Artifact Details (artifact-details) ─────────────────────
+function ArtifactDetailsSection({
+  state,
+  onSimulateSelect,
+  onResetTransition,
+}: {
+  state: PlayDebugRef;
+  onSimulateSelect: () => void;
+  onResetTransition: () => void;
+}) {
+  useControls("artifact-details", () => ({
+    actions: buttonGroup({
+      "▶ Open Detail": onSimulateSelect,
+      "⏹ Return to Canvas": onResetTransition,
+    }),
+    "Width % (desktop)": {
+      value: state.current.transition.desktopMediaWidthRatio ?? 0.34,
+      min: 0.15,
+      max: 0.65,
+      step: 0.01,
+      onChange: (v: number) => {
+        state.current.transition.desktopMediaWidthRatio = v;
+      },
+    },
+    "Height % (mobile)": {
+      value: state.current.transition.mobileMediaHeightRatio ?? 0.48,
+      min: 0.20,
+      max: 0.80,
+      step: 0.01,
+      onChange: (v: number) => {
+        state.current.transition.mobileMediaHeightRatio = v;
+      },
+    },
+    "Column center X ratio": {
+      value: state.current.transition.detailColumnRatio ?? 0.50,
+      min: 0.20,
+      max: 0.80,
+      step: 0.01,
+      onChange: (v: number) => {
+        state.current.transition.detailColumnRatio = v;
+      },
+    },
+    "Media gap (px)": {
+      value: state.current.transition.mediaGap ?? 32,
+      min: 0,
+      max: 120,
+      step: 2,
+      onChange: (v: number) => {
+        state.current.transition.mediaGap = v;
+      },
+    },
+    "Slide-in offset (px)": {
+      value: state.current.transition.burstSlideOffset ?? 400,
+      min: 0,
+      max: 1200,
+      step: 20,
+      onChange: (v: number) => {
+        state.current.transition.burstSlideOffset = v;
+      },
+    },
+    "Camera zoom in detail": {
+      value: state.current.transition.burstZoom ?? 0.85,
+      min: 0.40,
+      max: 1.80,
+      step: 0.02,
+      onChange: (v: number) => {
+        state.current.transition.burstZoom = v;
+      },
+    },
+    "Entrance duration (s)": {
+      value: state.current.transition.burstDuration ?? 0.8,
+      min: 0.2,
+      max: 3.0,
+      step: 0.05,
+      onChange: (v: number) => {
+        state.current.transition.burstDuration = v;
+      },
+    },
+    "Scroll damping (lerp)": {
+      value: state.current.transition.detailScrollDamping ?? 12,
+      min: 2,
+      max: 30,
+      step: 1,
+      onChange: (v: number) => {
+        state.current.transition.detailScrollDamping = v;
+      },
+    },
+    "Scroll speed multiplier": {
+      value: state.current.transition.detailScrollSpeed ?? 1.0,
+      min: 0.2,
+      max: 3.0,
+      step: 0.1,
+      onChange: (v: number) => {
+        state.current.transition.detailScrollSpeed = v;
+      },
+    },
+  }));
 
   return null;
 }
@@ -1240,6 +1356,13 @@ export function PlayDebug({
         <StudioSection
           state={state}
           onReplayLock={onReplayLock}
+          onSimulateSelect={onSimulateSelect}
+          onResetTransition={onResetTransition}
+        />
+      )}
+      {visibility.artifactDetails && (
+        <ArtifactDetailsSection
+          state={state}
           onSimulateSelect={onSimulateSelect}
           onResetTransition={onResetTransition}
         />

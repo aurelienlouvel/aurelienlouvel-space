@@ -171,8 +171,10 @@ function ArtifactPlaneMesh({
   useFrame(() => {
     const uniforms = uniformsOf<PlaneUniforms>(materialRef.current);
     if (uniforms) {
-      uniforms.uSize.value.set(width, height);
-      uniforms.uRadius.value = clampRadius(debug.current.plane.radius, width, height);
+      const sx = localMeshRef.current ? localMeshRef.current.scale.x : width;
+      const sy = localMeshRef.current ? localMeshRef.current.scale.y : height;
+      uniforms.uSize.value.set(sx, sy);
+      uniforms.uRadius.value = clampRadius(debug.current.plane.radius, sx, sy);
     }
   });
 
