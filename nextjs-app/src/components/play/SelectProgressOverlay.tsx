@@ -8,7 +8,7 @@ import {
   Vector2,
   type Mesh,
 } from "three";
-import { clampRadius, GLSL_PIXEL_WIDTH } from "./rounded-frame";
+import { clampRadius } from "./rounded-frame";
 import type {
   PlayDebugRef,
   PlayRuntimeRef,
@@ -31,6 +31,7 @@ const PROGRESS_FRAGMENT_SHADER = /* glsl */ `
 uniform vec2 uSize;
 uniform float uRadius;
 uniform float uProgress;
+uniform float uExitProgress;
 uniform float uTime;
 uniform float uCrestSoftness;
 uniform float uWaveAmplitude;
@@ -42,11 +43,15 @@ uniform float uGlowIntensity;
 
 varying vec2 vUv;
 
-${GLSL_PIXEL_WIDTH}
+// Distance signée à un rectangle aux coins arrondis
+float sdRoundedRect(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - b + vec2(r);
+  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+}
 
-float sdRoundedRect(vec2 p, vec2 halfSize, float radius) {
-  vec2 q = abs(p) - halfSize + radius;
-  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
+// Largeur d'un pixel en espace repère pour un antialiasing net
+float pixelWidth(vec2 p) {
+  return length(vec2(dFdx(p.x), dFdy(p.y)));
 }
 
 // Palette irisée nacrée style sticker iOS (Lift subject / Foil Sheen)
@@ -59,7 +64,7 @@ vec3 holographicColor(float t, float irid) {
 }
 
 void main() {
-  if (uProgress <= 0.001) {
+  if (uProgress <= 0.001 || uExitProgress >= 1.0) {
     discard;
   }
 
@@ -79,17 +84,35 @@ void main() {
 
   // L'élévation de la crête progresse doucement du bas vers le haut
   float margin = max(0.06, uCrestSoftness * 1.5 + uWaveAmplitude * 1.5);
-  float crestY = mix(-margin, 1.0 + margin, uProgress) + wave;
+  float crestY = mix(-margin, 1.0 + margin + uCrestSoftness * 2.0, uProgress + uExitProgress * 0.4) + wave;
   float deltaY = crestY - vUv.y;
 
-  // Au-dessus de la zone de transition : non dessiné
+  // Au-dessus de la crête : non dessiné
   if (deltaY < -uCrestSoftness * 2.0) {
     discard;
   }
 
-  // 2. Fondu ultra-doux (ZÉRO ligne définie)
-  // Transition sigmoïde continue sans coupure abrupte
+  // 2. Queue de la vague (évacuation / terminaison pendant le délai)
+  // Lorsque uExitProgress > 0, le bas de la vague s'élève pour libérer progressivement la carte
+  float tailY = mix(-margin - uCrestSoftness * 2.0, 1.0 + margin + uCrestSoftness * 2.0, uExitProgress) + wave;
+  float deltaTail = vUv.y - tailY;
+
+  // En-dessous de la queue : la vague a fini de passer
+  if (deltaTail < -uCrestSoftness * 2.0) {
+    discard;
+  }
+
+  // Facteur de crête (haut de la vague)
   float crestFactor = smoothstep(-uCrestSoftness, uCrestSoftness, deltaY);
+
+  // Facteur de queue (bas de la vague)
+  float tailFactor = smoothstep(-uCrestSoftness, uCrestSoftness, deltaTail);
+
+  // Masque actif de la vague entre la queue et la crête
+  float waveMask = crestFactor * tailFactor;
+  if (waveMask <= 0.001) {
+    discard;
+  }
 
   // Lueur optique diffuse en cloche gaussienne autour de la crête
   float glowWidth = max(uCrestSoftness * 1.4, 0.01);
@@ -100,13 +123,17 @@ void main() {
   vec3 holo = holographicColor(holoPhase, uIridescence);
 
   // Voile translucide s'atténuant délicatement vers le bas
-  float fillAlpha = crestFactor * uBaseOpacity * mix(1.15, 0.75, clamp(deltaY * 1.2, 0.0, 1.0));
+  float fillAlpha = waveMask * uBaseOpacity * mix(1.15, 0.75, clamp(deltaY * 1.2, 0.0, 1.0));
 
   // Éclat nacré doux qui se fond avec la crête
   float sheen = exp(-max(0.0, deltaY) / max(uCrestSoftness * 0.9, 0.01)) * 0.35;
 
   vec3 color = mix(holo, vec3(1.0), sheen);
-  float totalAlpha = (fillAlpha + crestGlow * 0.4) * alphaCorner;
+
+  // Fondu de sortie délicat à la fin du délai (dissipation progressive sans à-coup)
+  float exitFade = 1.0 - smoothstep(0.6, 1.0, uExitProgress);
+
+  float totalAlpha = (fillAlpha + crestGlow * 0.4 * tailFactor) * alphaCorner * exitFade;
 
   if (totalAlpha <= 0.001) {
     discard;
@@ -124,6 +151,7 @@ function applyOverlayFrame(
   h: number,
   radius: number,
   progress: number,
+  exitProgress: number,
   time: number,
   overlay: SelectOverlayParams,
 ) {
@@ -135,6 +163,7 @@ function applyOverlayFrame(
   u.uSize.value.set(w, h);
   u.uRadius.value = radius;
   u.uProgress.value = progress;
+  u.uExitProgress.value = exitProgress;
   u.uTime.value = time;
   u.uCrestSoftness.value = overlay.crestSoftness;
   u.uWaveAmplitude.value = overlay.waveAmplitude;
@@ -150,6 +179,7 @@ function applyOverlayFrame(
  * - Positionné à Z = 0.5 sur l'artifact en cours de sélection.
  * - Forme d'onde liquide douce (fondu organique sans ligne définie).
  * - Dégradé holographique nacré/irisé inspiré de la création de stickers sur iOS.
+ * - S'élève pendant le hold de sélection, puis s'évacue vers le haut et se termine pendant la pause du délai.
  * - Paramétrable en temps réel via Tweakpane.
  */
 export function SelectProgressOverlay({
@@ -173,6 +203,7 @@ export function SelectProgressOverlay({
           uSize: { value: new Vector2(1, 1) },
           uRadius: { value: 0 },
           uProgress: { value: 0 },
+          uExitProgress: { value: 0 },
           uTime: { value: 0 },
           uCrestSoftness: { value: 0.12 },
           uWaveAmplitude: { value: 0.012 },
@@ -202,6 +233,19 @@ export function SelectProgressOverlay({
       return;
     }
 
+    // Calcul de la progression de sortie de la vague pendant la phase de délai
+    let exitProgress = 0;
+    if (rc.transition.phase === "delay") {
+      const holdDelay = Math.max(0.01, debug.current.transition.holdDelay);
+      const t = Math.min(1, Math.max(0, rc.transition.delayTimer / holdDelay));
+      // Évacuation douce (smoothstep) : monte et s'évacue délicatement
+      exitProgress = t * t * (3 - 2 * t);
+      if (exitProgress >= 0.999) {
+        mesh.visible = false;
+        return;
+      }
+    }
+
     const selIndex = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
     const point = tile.points[selIndex];
     if (!point) {
@@ -223,6 +267,7 @@ export function SelectProgressOverlay({
       h,
       radius,
       progress,
+      exitProgress,
       state.clock.getElapsedTime(),
       debug.current.overlay,
     );
