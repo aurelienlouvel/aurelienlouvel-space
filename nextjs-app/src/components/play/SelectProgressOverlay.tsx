@@ -13,10 +13,29 @@ import type {
   PlayDebugRef,
   PlayRuntimeRef,
   SelectOverlayParams,
+  WaveDirection,
 } from "./PlayCanvas";
 import type { LayoutTile } from "./layout-types";
 
 const OVERLAY_Z = 0.5;
+
+function getDirectionCode(dir: WaveDirection): number {
+  switch (dir) {
+    case "top-to-bottom":
+      return 1;
+    case "left-to-right":
+      return 2;
+    case "right-to-left":
+      return 3;
+    case "bl-to-tr":
+      return 4;
+    case "tl-to-br":
+      return 5;
+    case "bottom-to-top":
+    default:
+      return 0;
+  }
+}
 
 const PROGRESS_VERTEX_SHADER = /* glsl */ `
 varying vec2 vUv;
@@ -40,6 +59,7 @@ uniform float uWaveSpeed;
 uniform float uIridescence;
 uniform float uBaseOpacity;
 uniform float uGlowIntensity;
+uniform int uDirection;
 
 varying vec2 vUv;
 
@@ -55,7 +75,6 @@ float pixelWidth(vec2 p) {
 }
 
 // Palette irisée nacrée style sticker iOS (Lift subject / Foil Sheen)
-// uIridescence dose la présence de teintes spectrales pastel sur la base argent/blanche
 vec3 holographicColor(float t, float irid) {
   vec3 silveryBase = vec3(0.94, 0.95, 0.97);
   vec3 spectrum = 0.5 + 0.5 * cos(6.28318 * (vec3(1.0) * t + vec3(0.00, 0.33, 0.67)));
@@ -78,35 +97,59 @@ void main() {
     discard;
   }
 
-  // 1. Onde de progression fluide (ondulation organique purement verticale)
-  // Zéro dérive vers la gauche : la vague monte strictement selon l'axe Y et s'arrête
-  float wave = sin(vUv.x * uWaveFrequency * 1.5) * uWaveAmplitude
-             + cos(vUv.x * (uWaveFrequency * 2.7)) * (uWaveAmplitude * 0.35);
+  // 1. Orientation selon la direction choisie
+  float coordAlong = vUv.y;
+  float coordAcross = vUv.x;
 
-  // L'élévation de la crête progresse doucement du bas vers le haut
+  if (uDirection == 1) {
+    // Top to bottom
+    coordAlong = 1.0 - vUv.y;
+    coordAcross = vUv.x;
+  } else if (uDirection == 2) {
+    // Left to right
+    coordAlong = vUv.x;
+    coordAcross = vUv.y;
+  } else if (uDirection == 3) {
+    // Right to left
+    coordAlong = 1.0 - vUv.x;
+    coordAcross = vUv.y;
+  } else if (uDirection == 4) {
+    // Bottom-Left to Top-Right
+    coordAlong = (vUv.x + vUv.y) * 0.5;
+    coordAcross = (vUv.x - vUv.y + 1.0) * 0.5;
+  } else if (uDirection == 5) {
+    // Top-Left to Bottom-Right
+    coordAlong = (vUv.x + (1.0 - vUv.y)) * 0.5;
+    coordAcross = (vUv.x - (1.0 - vUv.y) + 1.0) * 0.5;
+  }
+
+  // Onde de progression fluide (ondulation transversale organique)
+  float wave = sin(coordAcross * uWaveFrequency * 1.5) * uWaveAmplitude
+             + cos(coordAcross * (uWaveFrequency * 2.7)) * (uWaveAmplitude * 0.35);
+
+  // L'élévation de la crête progresse doucement le long de l'axe choisi
   float margin = max(0.06, uCrestSoftness * 1.5 + uWaveAmplitude * 1.5);
-  float crestY = mix(-margin, 1.0 + margin + uCrestSoftness * 2.0, uProgress + uExitProgress * 0.4) + wave;
-  float deltaY = crestY - vUv.y;
+  float crestPos = mix(-margin, 1.0 + margin + uCrestSoftness * 2.0, uProgress + uExitProgress * 0.4) + wave;
+  float deltaCrest = crestPos - coordAlong;
 
-  // Au-dessus de la crête : non dessiné
-  if (deltaY < -uCrestSoftness * 2.0) {
+  // En avant de la crête : non dessiné
+  if (deltaCrest < -uCrestSoftness * 2.0) {
     discard;
   }
 
   // 2. Queue de la vague (évacuation / terminaison pendant le lock)
-  // Lorsque uExitProgress > 0, le bas de la vague s'élève pour libérer progressivement la carte
-  float tailY = mix(-margin - uCrestSoftness * 2.0, 1.0 + margin + uCrestSoftness * 2.0, uExitProgress) + wave;
-  float deltaTail = vUv.y - tailY;
+  float tailPos = mix(-margin - uCrestSoftness * 2.0, 1.0 + margin + uCrestSoftness * 2.0, uExitProgress) + wave;
+  float deltaTail = coordAlong - tailPos;
 
-  // En-dessous de la queue : la vague a fini de passer
+  // En arrière de la queue : la vague a fini de passer
   if (deltaTail < -uCrestSoftness * 2.0) {
     discard;
   }
 
-  // Facteur de crête (haut de la vague)
-  float crestFactor = smoothstep(-uCrestSoftness, uCrestSoftness, deltaY);
+  // Facteur de crête
+  float crestFactor = smoothstep(-uCrestSoftness, uCrestSoftness, deltaCrest);
 
-  // Facteur de queue (bas de la vague)
+  // Facteur de queue
   float tailFactor = smoothstep(-uCrestSoftness, uCrestSoftness, deltaTail);
 
   // Masque actif de la vague entre la queue et la crête
@@ -117,22 +160,21 @@ void main() {
 
   // Lueur optique diffuse en cloche gaussienne autour de la crête
   float glowWidth = max(uCrestSoftness * 1.4, 0.01);
-  float crestGlow = exp(-pow(deltaY / glowWidth, 2.0)) * uGlowIntensity;
+  float crestGlow = exp(-pow(deltaCrest / glowWidth, 2.0)) * uGlowIntensity;
 
   // 3. Corps du dégradé holographique nacré (iOS Sticker Sheen)
-  // Dégradé orienté verticalement suivant la vague vers le haut, sans glissement latéral
-  float holoPhase = vUv.y * 2.0 + deltaY * 1.4 + (vUv.x - 0.5) * 0.25;
+  float holoPhase = coordAlong * 2.0 + deltaCrest * 1.4 + (coordAcross - 0.5) * 0.25;
   vec3 holo = holographicColor(holoPhase, uIridescence);
 
-  // Voile translucide s'atténuant délicatement vers le bas
-  float fillAlpha = waveMask * uBaseOpacity * mix(1.15, 0.75, clamp(deltaY * 1.2, 0.0, 1.0));
+  // Voile translucide s'atténuant délicatement vers la queue
+  float fillAlpha = waveMask * uBaseOpacity * mix(1.15, 0.75, clamp(deltaCrest * 1.2, 0.0, 1.0));
 
   // Éclat nacré doux qui se fond avec la crête
-  float sheen = exp(-max(0.0, deltaY) / max(uCrestSoftness * 0.9, 0.01)) * 0.35;
+  float sheen = exp(-max(0.0, deltaCrest) / max(uCrestSoftness * 0.9, 0.01)) * 0.35;
 
   vec3 color = mix(holo, vec3(1.0), sheen);
 
-  // Fondu de sortie délicat à la fin du délai (dissipation progressive sans à-coup)
+  // Fondu de sortie délicat à la fin du délai
   float exitFade = 1.0 - smoothstep(0.6, 1.0, uExitProgress);
 
   float totalAlpha = (fillAlpha + crestGlow * 0.4 * tailFactor) * alphaCorner * exitFade;
@@ -174,6 +216,7 @@ function applyOverlayFrame(
   u.uIridescence.value = overlay.iridescence;
   u.uBaseOpacity.value = overlay.baseOpacity;
   u.uGlowIntensity.value = overlay.glowIntensity;
+  u.uDirection.value = getDirectionCode(overlay.direction);
 }
 
 /**
@@ -214,6 +257,7 @@ export function SelectProgressOverlay({
           uIridescence: { value: 0.45 },
           uBaseOpacity: { value: 0.28 },
           uGlowIntensity: { value: 0.45 },
+          uDirection: { value: 0 },
         },
         transparent: true,
         depthWrite: false,

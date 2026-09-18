@@ -75,7 +75,16 @@ export const FISHEYE_DEFAULTS: FisheyeParams = {
   strength: 0.032,
 };
 
+export type WaveDirection =
+  | "bottom-to-top"
+  | "top-to-bottom"
+  | "left-to-right"
+  | "right-to-left"
+  | "bl-to-tr"
+  | "tl-to-br";
+
 export type SelectOverlayParams = {
+  direction: WaveDirection;
   crestSoftness: number;
   waveAmplitude: number;
   waveFrequency: number;
@@ -86,6 +95,7 @@ export type SelectOverlayParams = {
 };
 
 export const OVERLAY_DEFAULTS: SelectOverlayParams = {
+  direction: "bottom-to-top",
   crestSoftness: 0.26,
   waveAmplitude: 0.06,
   waveFrequency: 3.3,

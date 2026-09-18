@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   type PlayDebugRef,
   type PlayDebugState,
+  type WaveDirection,
 } from "./PlayCanvas";
 import type { LayoutStats } from "./layout-types";
 import {
@@ -1026,6 +1027,20 @@ function PhysicsSection({ state }: { state: PlayDebugRef }) {
 // ── 10. Selection Overlay ───────────────────────────────────────
 function OverlaySection({ state }: { state: PlayDebugRef }) {
   useControls("🌊 Selection Overlay", () => ({
+    "Wave direction": {
+      value: state.current.overlay.direction,
+      options: {
+        "Bottom → Top": "bottom-to-top",
+        "Top → Bottom": "top-to-bottom",
+        "Left → Right": "left-to-right",
+        "Right → Left": "right-to-left",
+        "Bottom-Left → Top-Right": "bl-to-tr",
+        "Top-Left → Bottom-Right": "tl-to-br",
+      },
+      onChange: (v: WaveDirection) => {
+        state.current.overlay.direction = v;
+      },
+    },
     "Crest softness": {
       value: state.current.overlay.crestSoftness,
       min: 0.02,
