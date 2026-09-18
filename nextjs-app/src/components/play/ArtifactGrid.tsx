@@ -236,6 +236,7 @@ export function ArtifactGrid({
   debug,
   runtime,
   dragMoved,
+  onStartSelect,
 }: {
   textureUrls: string[];
   mediaKinds: MediaKind[];
@@ -243,6 +244,7 @@ export function ArtifactGrid({
   debug: PlayDebugRef;
   runtime: PlayRuntimeRef;
   dragMoved: RefObject<boolean>;
+  onStartSelect?: (artifactIndex: number) => void;
 }) {
   const { camera } = useThree();
   const { TILE_W, TILE_H, points } = tile;
@@ -333,6 +335,9 @@ export function ArtifactGrid({
       x: points[pointIndex].x,
       y: points[pointIndex].y,
     });
+    if (points[pointIndex]) {
+      onStartSelect?.(points[pointIndex].artifactIndex);
+    }
   }
 
   function handleSelect(

@@ -9,12 +9,15 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
+import { AnimatePresence } from "motion/react";
 import { Canvas, events, useFrame } from "@react-three/fiber";
 import { Stats } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
+import { preloadArtifact, getCachedArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
-import type { PlayArtifact } from "@/sanity/queries";
+import type { PlayArtifact, ArtifactDetail } from "@/sanity/queries";
 import { ArtifactGrid } from "./ArtifactGrid";
+import { ArtifactDetailOverlay } from "./ArtifactDetailOverlay";
 import { resolveArtifactMedia } from "./artifact-media";
 import { dampTowards } from "./damp";
 import { FisheyeEffect } from "./FisheyeEffect";
@@ -366,6 +369,7 @@ function stepCamera(
   config: TransitionConfig,
   delta: number,
   studio?: AnimationStudioParams,
+  onOpenDetail?: (targetIndex: number) => void,
 ) {
   const speed = studio?.speed ?? 1.0;
   const effDelta = delta * speed;
@@ -459,6 +463,7 @@ function stepCamera(
     if (tr.burstProgress >= 1) {
       tr.burstProgress = 1;
       tr.phase = "isolated";
+      onOpenDetail?.(tr.targetIndex);
     }
 
     const startZoom = baseZoom * config.selectZoom;
@@ -533,10 +538,12 @@ function CameraRig({
   debug,
   runtime,
   velocity,
+  onOpenDetail,
 }: {
   debug: PlayDebugRef;
   runtime: PlayRuntimeRef;
   velocity: RefObject<{ x: number; y: number }>;
+  onOpenDetail?: (targetIndex: number) => void;
 }) {
   useFrame((state, delta) => {
     stepCamera(
@@ -548,13 +555,20 @@ function CameraRig({
       debug.current.transition,
       delta,
       debug.current.studio,
+      onOpenDetail,
     );
   });
 
   return null;
 }
 
-export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
+export function PlayCanvas({
+  artifacts,
+  initialSlug,
+}: {
+  artifacts: PlayArtifact[];
+  initialSlug?: string;
+}) {
   const debug = useRef<PlayDebugState>({
     plane: { radius: PLANE_RADIUS },
     brackets: {
@@ -627,21 +641,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     const selIndex = rc.selected >= 0 ? rc.selected : 0;
     rc.transition.targetIndex = selIndex;
     rc.transition.phase = "lock";
-    rc.transition.lockTimer = 0;
-    rc.transition.lockProgress = 0;
-    rc.repulsor.active = true;
-    rc.repulsor.pointIndex = selIndex;
-    rc.repulsor.x = rc.selectedPos.x;
-    rc.repulsor.y = rc.selectedPos.y;
-  }, []);
-
-  const handleSimulateSelect = useCallback(() => {
-    const rc = runtime.current;
-    const selIndex = rc.selected >= 0 ? rc.selected : 0;
-    rc.transition.targetIndex = selIndex;
-    rc.transition.phase = "selecting";
-    rc.transition.holding = true;
-    rc.transition.selectProgress = 0;
     rc.transition.lockTimer = 0;
     rc.transition.lockProgress = 0;
     rc.repulsor.active = true;
@@ -728,6 +727,99 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
   const [tile, setTile] = useState<LayoutTile | null>(null);
   const [isCalculated, setIsCalculated] = useState(false);
+  const [activeArtifact, setActiveArtifact] = useState<ArtifactDetail | null>(null);
+
+  const handleStartSelect = useCallback(
+    (artifactIndex: number) => {
+      const artifact = artifacts[artifactIndex];
+      if (artifact?.slug) {
+        preloadArtifact(artifact.slug);
+      }
+    },
+    [artifacts],
+  );
+
+  const handleOpenDetail = useCallback(
+    async (pointIndex: number) => {
+      if (!tile || pointIndex < 0 || pointIndex >= tile.points.length) return;
+      const point = tile.points[pointIndex];
+      const artifact = artifacts[point.artifactIndex];
+      if (!artifact?.slug) return;
+
+      if (typeof window !== "undefined") {
+        window.history.pushState({ slug: artifact.slug }, "", `/play/${artifact.slug}`);
+      }
+
+      const cached = getCachedArtifact(artifact.slug);
+      if (cached) {
+        setActiveArtifact(cached);
+      } else {
+        const data = await preloadArtifact(artifact.slug);
+        if (data) setActiveArtifact(data);
+      }
+    },
+    [tile, artifacts],
+  );
+
+  const handleCloseDetail = useCallback(() => {
+    setActiveArtifact(null);
+    applyResetTransition(runtime.current);
+    if (typeof window !== "undefined") {
+      window.history.pushState(null, "", "/play");
+    }
+  }, []);
+
+  const handleSimulateSelect = useCallback(() => {
+    const rc = runtime.current;
+    const selIndex = rc.selected >= 0 ? rc.selected : 0;
+    rc.transition.targetIndex = selIndex;
+    rc.transition.phase = "selecting";
+    rc.transition.holding = true;
+    rc.transition.selectProgress = 0;
+    rc.transition.lockTimer = 0;
+    rc.transition.lockProgress = 0;
+    rc.repulsor.active = true;
+    rc.repulsor.pointIndex = selIndex;
+    rc.repulsor.x = rc.selectedPos.x;
+    rc.repulsor.y = rc.selectedPos.y;
+    if (tile?.points[selIndex]) {
+      handleStartSelect(tile.points[selIndex].artifactIndex);
+    }
+  }, [handleStartSelect, tile]);
+
+  // Handle browser back/forward buttons seamlessly
+  useEffect(() => {
+    function handlePopState() {
+      const path = window.location.pathname;
+      const match = path.match(/^\/play\/([^/]+)$/);
+      if (match) {
+        const slug = match[1];
+        const cached = getCachedArtifact(slug);
+        if (cached) {
+          setActiveArtifact(cached);
+        } else {
+          preloadArtifact(slug).then((data) => {
+            if (data) setActiveArtifact(data);
+          });
+        }
+      } else {
+        setActiveArtifact(null);
+        applyResetTransition(runtime.current);
+      }
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  // Initial slug support for direct deep links
+  useEffect(() => {
+    if (initialSlug) {
+      preloadArtifact(initialSlug).then((data) => {
+        if (data) setActiveArtifact(data);
+      });
+    }
+  }, [initialSlug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -979,8 +1071,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         return;
       }
 
-      // Touche Escape : annule immédiatement la transition ou quitte l'isolation
+      // Touche Escape : ferme la vue détail ou annule la transition
       if (e.key === "Escape") {
+        if (activeArtifact) {
+          e.preventDefault();
+          handleCloseDetail();
+          return;
+        }
         if (runtime.current.transition.phase !== "idle") {
           e.preventDefault();
           applyResetTransition(runtime.current);
@@ -993,6 +1090,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         if (e.repeat) return;
         e.preventDefault();
         applyKeyDownEnter(runtime.current, points);
+        const pt = points[runtime.current.selected];
+        if (pt) handleStartSelect(pt.artifactIndex);
         return;
       }
 
@@ -1025,7 +1124,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [tile]);
+  }, [tile, activeArtifact, handleCloseDetail, handleStartSelect]);
 
   return (
     <div data-lenis-prevent className="fixed inset-0 bg-white">
@@ -1068,7 +1167,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
             }}
           >
             <Stats className="!top-4 !left-4" />
-            <CameraRig debug={debug} runtime={runtime} velocity={velocity} />
+            <CameraRig
+              debug={debug}
+              runtime={runtime}
+              velocity={velocity}
+              onOpenDetail={handleOpenDetail}
+            />
             <ArtifactGrid
               textureUrls={textureUrls}
               mediaKinds={mediaKinds}
@@ -1076,6 +1180,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               debug={debug}
               runtime={runtime}
               dragMoved={dragMoved}
+              onStartSelect={handleStartSelect}
             />
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
             <FocusIndicator debug={debug} runtime={runtime} />
@@ -1083,6 +1188,16 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           </Canvas>
         )}
       </div>
+
+      {/* In-Canvas Artifact Detail View */}
+      <AnimatePresence>
+        {activeArtifact && (
+          <ArtifactDetailOverlay
+            artifact={activeArtifact}
+            onClose={handleCloseDetail}
+          />
+        )}
+      </AnimatePresence>
 
       {showDebug && (
         <PlayDebug

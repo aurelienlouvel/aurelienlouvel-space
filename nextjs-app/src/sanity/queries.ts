@@ -234,6 +234,7 @@ export const playArtifactsQuery = defineQuery(`
   ]) > 0] | order(orderRank) {
     _id,
     title,
+    "slug": slug.current,
     "media": gallery[
       (_type == "galleryImage" && defined(image.asset)) ||
       (_type == "galleryVideo" && (defined(file.asset) || defined(url)))
@@ -251,6 +252,7 @@ export const playArtifactsQuery = defineQuery(`
 export type PlayArtifact = {
   _id: string;
   title: string;
+  slug: string;
   media: {
     _type: "galleryImage" | "galleryVideo";
     imageRef: string | null;
@@ -259,6 +261,96 @@ export type PlayArtifact = {
     videoRef: string | null;
     videoUrl: string | null;
   };
+};
+
+export const artifactDetailQuery = defineQuery(`
+  *[_type == "artifact" && slug.current == $slug][0] {
+    _id,
+    title,
+    "slug": slug.current,
+    description,
+    startDate,
+    endDate,
+    "tags": tags[]-> {
+      _id,
+      name,
+      color,
+      icon
+    },
+    "contributors": contributors[] {
+      _key,
+      "roles": roles[]-> { _id, name },
+      "person": person-> {
+        _id,
+        firstName,
+        lastName,
+        pseudo,
+        "avatarUrl": avatar.asset->url,
+        linkedinUrl
+      }
+    },
+    "roles": roles[]-> { _id, name },
+    "gallery": gallery[] {
+      _key,
+      _type,
+      caption,
+      alt,
+      "imageRef": image.asset._ref,
+      "imageUrl": image.asset->url,
+      "imageWidth": image.asset->metadata.dimensions.width,
+      "imageHeight": image.asset->metadata.dimensions.height,
+      "videoRef": file.asset._ref,
+      "videoUrl": coalesce(file.asset->url, url)
+    }
+  }
+`);
+
+export const allArtifactSlugsQuery = defineQuery(`
+  *[_type == "artifact" && defined(slug.current)] {
+    "slug": slug.current
+  }
+`);
+
+export type ArtifactGalleryItem = {
+  _key: string;
+  _type: "galleryImage" | "galleryVideo";
+  caption?: string | null;
+  alt?: string | null;
+  imageRef?: string | null;
+  imageUrl?: string | null;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
+  videoRef?: string | null;
+  videoUrl?: string | null;
+};
+
+export type ArtifactDetail = {
+  _id: string;
+  title: string;
+  slug: string;
+  description?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  tags?: Array<{
+    _id: string;
+    name: string;
+    color: string | null;
+    icon: string | null;
+  }> | null;
+  contributors?: Array<{
+    _key: string;
+    roles?: Array<{ _id: string; name: string }> | null;
+    person: {
+      _id: string;
+      firstName: string;
+      lastName: string;
+      pseudo?: string | null;
+      avatarUrl?: string | null;
+      linkedinUrl?: string | null;
+    };
+  }> | null;
+  roles?: Array<{ _id: string; name: string }> | null;
+  gallery: ArtifactGalleryItem[];
 };
 
 // ─── Profile (Info page) ──────────────────────────────────────────────────────
