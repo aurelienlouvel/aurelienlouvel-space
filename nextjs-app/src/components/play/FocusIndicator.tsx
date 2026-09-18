@@ -223,27 +223,32 @@ export function FocusIndicator({
       material.color.set(brackets.color);
     }
 
-    // Gestion du pincement, retour à la position initiale, et fade vers l'extérieur
+    // Gestion du pincement doux, retour à la position initiale, et fade vers l'extérieur
     let currentPadding = brackets.padding;
     let lockAlpha = 1;
 
     if (tr.phase === "lock") {
       const t = tr.lockProgress;
 
-      // 1ère phase (0.0 -> 0.48) : Pincement élastique puis retour exact à la position initiale
-      const pinchWindow = 0.48;
+      // 1ère phase (0.0 -> 0.55) : Pincement très doux et soyeux puis retour exact à la position initiale
+      const pinchWindow = 0.55;
       if (t <= pinchWindow) {
         const u = t / pinchWindow;
-        const pinchPx = Math.sin(u * Math.PI) * transition.lockBracketTighten;
+        // sin²(u * π) : vitesse nulle au début, sommet doux à u=0.5, arrivée à vitesse nulle à u=1.0
+        const s = Math.sin(u * Math.PI);
+        const pinchPx = s * s * transition.lockBracketTighten;
         currentPadding = Math.max(0, brackets.padding - pinchPx);
         lockAlpha = 1;
       } else {
-        // 2ème phase (0.48 -> 1.0) : Expansion vers l'extérieur tout en s'estompant (fade out)
+        // 2ème phase (0.55 -> 1.0) : Expansion légère vers l'extérieur tout en s'estompant (fade out)
         const v = (t - pinchWindow) / (1 - pinchWindow);
-        const vEased = v * (2 - v); // easeOut
+        // Smoothstep (départ à vitesse nulle continue avec le retour du pincement)
+        const vEased = v * v * (3 - 2 * v);
         const expandPx = vEased * transition.lockBracketExpand;
         currentPadding = brackets.padding + expandPx;
-        lockAlpha = Math.max(0, 1 - v * v);
+        // Fondu progressif et doux
+        const fadeProgress = Math.cos(v * Math.PI * 0.5);
+        lockAlpha = Math.max(0, fadeProgress);
       }
     }
 

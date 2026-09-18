@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v18";
+const STORAGE_KEY = "play-debug-v19";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -305,31 +305,31 @@ export function PlayDebug({
     const phase2 = transition.addFolder({ title: "2. animation de select (lock)" });
     phase2.addBinding(transitionState, "lockDuration", {
       min: 0.1,
-      max: 1.5,
+      max: 2.0,
       step: 0.05,
       label: "durée lock (s)",
     });
     phase2.addBinding(transitionState, "lockBracketTighten", {
       min: 0,
-      max: 40,
-      step: 1,
+      max: 30,
+      step: 0.5,
       label: "pincement brackets (px)",
     });
     phase2.addBinding(transitionState, "lockBracketExpand", {
       min: 0,
-      max: 60,
-      step: 1,
+      max: 40,
+      step: 0.5,
       label: "expansion fade extérieur (px)",
     });
     phase2.addBinding(transitionState, "lockScalePunch", {
       min: 0.0,
-      max: 0.2,
-      step: 0.01,
+      max: 0.15,
+      step: 0.005,
       label: "scale punch pop",
     });
     phase2.addBinding(transitionState, "overlayExitDuration", {
       min: 0.1,
-      max: 1.2,
+      max: 1.5,
       step: 0.05,
       label: "durée fin vague (s)",
     });
