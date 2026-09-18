@@ -75,6 +75,26 @@ export const FISHEYE_DEFAULTS: FisheyeParams = {
   strength: 0.032,
 };
 
+export type SelectOverlayParams = {
+  crestSoftness: number;
+  waveAmplitude: number;
+  waveFrequency: number;
+  waveSpeed: number;
+  iridescence: number;
+  baseOpacity: number;
+  glowIntensity: number;
+};
+
+export const OVERLAY_DEFAULTS: SelectOverlayParams = {
+  crestSoftness: 0.12,
+  waveAmplitude: 0.012,
+  waveFrequency: 3.5,
+  waveSpeed: 2.0,
+  iridescence: 0.45,
+  baseOpacity: 0.28,
+  glowIntensity: 0.45,
+};
+
 export type PlayDebugState = {
   plane: { radius: number };
   brackets: {
@@ -92,6 +112,7 @@ export type PlayDebugState = {
   physics: PhysicsParams;
   transition: TransitionConfig;
   fisheye: FisheyeParams;
+  overlay: SelectOverlayParams;
 };
 
 export type PlayDebugRef = RefObject<PlayDebugState>;
@@ -454,6 +475,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     physics: { ...PHYSICS_DEFAULTS },
     transition: { ...DEFAULT_TRANSITION_CONFIG },
     fisheye: { ...FISHEYE_DEFAULTS },
+    overlay: { ...OVERLAY_DEFAULTS },
   });
 
   const [gravityParams, setGravityParams] = useState<GravityParams>(() => ({

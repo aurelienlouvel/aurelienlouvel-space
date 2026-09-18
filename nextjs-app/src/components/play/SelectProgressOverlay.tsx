@@ -9,7 +9,11 @@ import {
   type Mesh,
 } from "three";
 import { clampRadius, GLSL_PIXEL_WIDTH } from "./rounded-frame";
-import type { PlayDebugRef, PlayRuntimeRef } from "./PlayCanvas";
+import type {
+  PlayDebugRef,
+  PlayRuntimeRef,
+  SelectOverlayParams,
+} from "./PlayCanvas";
 import type { LayoutTile } from "./layout-types";
 
 const OVERLAY_Z = 0.5;
@@ -28,8 +32,13 @@ uniform vec2 uSize;
 uniform float uRadius;
 uniform float uProgress;
 uniform float uTime;
+uniform float uCrestSoftness;
+uniform float uWaveAmplitude;
+uniform float uWaveFrequency;
+uniform float uWaveSpeed;
+uniform float uIridescence;
 uniform float uBaseOpacity;
-uniform float uLineOpacity;
+uniform float uGlowIntensity;
 
 varying vec2 vUv;
 
@@ -40,14 +49,13 @@ float sdRoundedRect(vec2 p, vec2 halfSize, float radius) {
   return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
 }
 
-// Palette irisée nacrée inspirée de la découpe sticker iOS (Photos / Messages)
-// Gradient spectral subtil : argent nacré, turquoise électrique, lavande et or champagne
-vec3 holographicColor(float t) {
-  vec3 a = vec3(0.86, 0.89, 0.94); // Base lumineuse claire
-  vec3 b = vec3(0.20, 0.18, 0.26); // Saturation pastel douce
-  vec3 c = vec3(1.0, 1.0, 1.0);
-  vec3 d = vec3(0.00, 0.33, 0.67);
-  return a + b * cos(6.28318 * (c * t + d));
+// Palette irisée nacrée style sticker iOS (Lift subject / Foil Sheen)
+// uIridescence dose la présence de teintes spectrales pastel sur la base argent/blanche
+vec3 holographicColor(float t, float irid) {
+  vec3 silveryBase = vec3(0.94, 0.95, 0.97);
+  vec3 spectrum = 0.5 + 0.5 * cos(6.28318 * (vec3(1.0) * t + vec3(0.00, 0.33, 0.67)));
+  vec3 pastelHolo = mix(silveryBase, spectrum, 0.45);
+  return mix(silveryBase, pastelHolo, clamp(irid, 0.0, 1.0));
 }
 
 void main() {
@@ -65,44 +73,40 @@ void main() {
     discard;
   }
 
-  // 1. Onde de progression fluide (vague liquide organique)
-  // Double harmonique pour un contour de vague vivant
-  float wave = sin(vUv.x * 7.0 + uTime * 4.0) * 0.026
-             + cos(vUv.x * 12.5 - uTime * 2.5) * 0.012;
+  // 1. Onde de progression fluide (ondulation organique subtile)
+  float wave = sin(vUv.x * uWaveFrequency + uTime * uWaveSpeed) * uWaveAmplitude
+             + cos(vUv.x * (uWaveFrequency * 1.6) - uTime * (uWaveSpeed * 0.7)) * (uWaveAmplitude * 0.4);
 
-  // L'élévation de la crête progresse de -0.05 à 1.05 pour que la vague
-  // démarre complètement sous le cadre et termine au-dessus
-  float crestY = mix(-0.05, 1.05, uProgress) + wave;
+  // L'élévation de la crête progresse doucement du bas vers le haut
+  float margin = max(0.06, uCrestSoftness * 1.5 + uWaveAmplitude * 1.5);
+  float crestY = mix(-margin, 1.0 + margin, uProgress) + wave;
   float deltaY = crestY - vUv.y;
 
-  // Au-dessus de la crête de la vague : non dessiné
-  if (deltaY < -0.03) {
+  // Au-dessus de la zone de transition : non dessiné
+  if (deltaY < -uCrestSoftness * 2.0) {
     discard;
   }
 
-  float pixelY = pixelWidth(vec2(0.0, framePoint.y)) / max(uSize.y, 1.0);
+  // 2. Fondu ultra-doux (ZÉRO ligne définie)
+  // Transition sigmoïde continue sans coupure abrupte
+  float crestFactor = smoothstep(-uCrestSoftness, uCrestSoftness, deltaY);
 
-  // 2. Ligne de crête lumineuse (bordure brillante découpée style sticker)
-  float rimWidth = pixelY * 2.8;
-  float rimAlpha = (1.0 - smoothstep(0.0, rimWidth, abs(deltaY))) * uLineOpacity;
-
-  // Lueur douce le long de la crête
-  float crestGlow = smoothstep(0.06, 0.0, abs(deltaY)) * (uLineOpacity * 0.45);
+  // Lueur optique diffuse en cloche gaussienne autour de la crête
+  float glowWidth = max(uCrestSoftness * 1.4, 0.01);
+  float crestGlow = exp(-pow(deltaY / glowWidth, 2.0)) * uGlowIntensity;
 
   // 3. Corps du dégradé holographique nacré (iOS Sticker Sheen)
-  // Dégradé diagonal animé qui ondule en suivant la vague
-  float holoPhase = vUv.y * 2.0 + vUv.x * 1.2 + uTime * 0.5 + deltaY * 1.5;
-  vec3 holo = holographicColor(holoPhase);
+  float holoPhase = vUv.y * 1.6 + vUv.x * 1.0 + uTime * 0.35 + deltaY * 1.2;
+  vec3 holo = holographicColor(holoPhase, uIridescence);
 
-  // Dégradé de voile translucide : plus prononcé sous la crête, s'estompant délicatement vers le bas
-  float fillAlpha = smoothstep(-pixelY, pixelY, deltaY) * mix(uBaseOpacity * 1.2, uBaseOpacity * 0.7, clamp(deltaY * 1.5, 0.0, 1.0));
+  // Voile translucide s'atténuant délicatement vers le bas
+  float fillAlpha = crestFactor * uBaseOpacity * mix(1.15, 0.75, clamp(deltaY * 1.2, 0.0, 1.0));
 
-  // Éclat spéculaire blanc argenté juste sous la crête
-  float sheen = pow(clamp(1.0 - deltaY * 3.5, 0.0, 1.0), 3.0) * 0.5;
+  // Éclat nacré doux qui se fond avec la crête
+  float sheen = exp(-max(0.0, deltaY) / max(uCrestSoftness * 0.9, 0.01)) * 0.35;
 
-  // Fusion de la couleur : le corps irisé s'illumine en blanc argenté sur la crête
-  vec3 color = mix(holo, vec3(1.0), clamp(rimAlpha + sheen, 0.0, 1.0));
-  float totalAlpha = (fillAlpha + rimAlpha + crestGlow) * alphaCorner;
+  vec3 color = mix(holo, vec3(1.0), sheen);
+  float totalAlpha = (fillAlpha + crestGlow * 0.4) * alphaCorner;
 
   if (totalAlpha <= 0.001) {
     discard;
@@ -121,6 +125,7 @@ function applyOverlayFrame(
   radius: number,
   progress: number,
   time: number,
+  overlay: SelectOverlayParams,
 ) {
   mesh.visible = true;
   mesh.position.set(pos.x, pos.y, OVERLAY_Z);
@@ -131,14 +136,21 @@ function applyOverlayFrame(
   u.uRadius.value = radius;
   u.uProgress.value = progress;
   u.uTime.value = time;
+  u.uCrestSoftness.value = overlay.crestSoftness;
+  u.uWaveAmplitude.value = overlay.waveAmplitude;
+  u.uWaveFrequency.value = overlay.waveFrequency;
+  u.uWaveSpeed.value = overlay.waveSpeed;
+  u.uIridescence.value = overlay.iridescence;
+  u.uBaseOpacity.value = overlay.baseOpacity;
+  u.uGlowIntensity.value = overlay.glowIntensity;
 }
 
 /**
  * Overlay shader de progression de sélection :
  * - Positionné à Z = 0.5 sur l'artifact en cours de sélection.
- * - Forme d'onde liquide ondulante (vague organique au lieu d'une ligne droite).
+ * - Forme d'onde liquide douce (fondu organique sans ligne définie).
  * - Dégradé holographique nacré/irisé inspiré de la création de stickers sur iOS.
- * - Épouse fidèlement la géométrie et le rayon de coin de l'artifact.
+ * - Paramétrable en temps réel via Tweakpane.
  */
 export function SelectProgressOverlay({
   debug,
@@ -162,8 +174,13 @@ export function SelectProgressOverlay({
           uRadius: { value: 0 },
           uProgress: { value: 0 },
           uTime: { value: 0 },
-          uBaseOpacity: { value: 0.32 },
-          uLineOpacity: { value: 0.95 },
+          uCrestSoftness: { value: 0.12 },
+          uWaveAmplitude: { value: 0.012 },
+          uWaveFrequency: { value: 3.5 },
+          uWaveSpeed: { value: 2.0 },
+          uIridescence: { value: 0.45 },
+          uBaseOpacity: { value: 0.28 },
+          uGlowIntensity: { value: 0.45 },
         },
         transparent: true,
         depthWrite: false,
@@ -207,6 +224,7 @@ export function SelectProgressOverlay({
       radius,
       progress,
       state.clock.getElapsedTime(),
+      debug.current.overlay,
     );
   });
 

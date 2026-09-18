@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v13";
+const STORAGE_KEY = "play-debug-v14";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -354,6 +354,51 @@ export function PlayDebug({
         transitionState.preset = "custom";
         pane.refresh();
       }
+    });
+
+    // ── Overlay Sélection (Sticker iOS & Vague) ───────────────────
+    const overlayFolder = pane.addFolder({ title: "overlay sélection (sticker)" });
+    overlayFolder.addBinding(state.current.overlay, "crestSoftness", {
+      min: 0.02,
+      max: 0.35,
+      step: 0.005,
+      label: "douceur fondu",
+    });
+    overlayFolder.addBinding(state.current.overlay, "waveAmplitude", {
+      min: 0.0,
+      max: 0.06,
+      step: 0.001,
+      label: "amplitude vague",
+    });
+    overlayFolder.addBinding(state.current.overlay, "waveFrequency", {
+      min: 1.0,
+      max: 10.0,
+      step: 0.2,
+      label: "fréquence vague",
+    });
+    overlayFolder.addBinding(state.current.overlay, "waveSpeed", {
+      min: 0.0,
+      max: 8.0,
+      step: 0.2,
+      label: "vitesse clapotis",
+    });
+    overlayFolder.addBinding(state.current.overlay, "iridescence", {
+      min: 0.0,
+      max: 1.0,
+      step: 0.02,
+      label: "iridescence",
+    });
+    overlayFolder.addBinding(state.current.overlay, "baseOpacity", {
+      min: 0.05,
+      max: 0.8,
+      step: 0.01,
+      label: "opacité voile",
+    });
+    overlayFolder.addBinding(state.current.overlay, "glowIntensity", {
+      min: 0.0,
+      max: 1.0,
+      step: 0.02,
+      label: "lueur diffuse",
     });
 
     const stopSave = addAction(pane, "save", () => {
