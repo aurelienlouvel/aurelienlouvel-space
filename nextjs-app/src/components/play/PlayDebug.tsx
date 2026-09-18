@@ -9,7 +9,7 @@ import {
   type TransitionPresetName,
 } from "./transition-presets";
 
-const STORAGE_KEY = "play-debug-v19";
+const STORAGE_KEY = "play-debug-v20";
 
 /** Durée de l'accusé de réception d'un bouton. */
 const FLASH_MS = 1200;
@@ -332,6 +332,12 @@ export function PlayDebug({
       max: 1.5,
       step: 0.05,
       label: "durée fin vague (s)",
+    });
+    phase2.addBinding(transitionState, "burstDelay", {
+      min: 0.0,
+      max: 1.5,
+      step: 0.05,
+      label: "délai avant transition (s)",
     });
 
     // 3. Transition vers la page artifact (Burst)

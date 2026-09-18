@@ -352,7 +352,7 @@ function stepCamera(
       );
       if (tr.selectProgress >= 1) {
         tr.selectProgress = 1;
-        if (config.lockDuration > 0.01) {
+        if (config.lockDuration > 0.01 || config.burstDelay > 0.01) {
           tr.phase = "lock";
           tr.lockTimer = 0;
           tr.lockProgress = 0;
@@ -388,11 +388,12 @@ function stepCamera(
     return;
   }
 
-  // ── Temps 2 : Animation de select (Lock confirmation) ──────────────────
+  // ── Temps 2 : Animation de select (Lock confirmation & délai pré-burst) ─
   if (tr.phase === "lock") {
     tr.lockTimer += delta;
     tr.lockProgress = Math.min(1, tr.lockTimer / Math.max(0.01, config.lockDuration));
-    if (tr.lockTimer >= Math.max(0.01, config.lockDuration)) {
+    const totalLockTime = Math.max(0.01, config.lockDuration) + Math.max(0, config.burstDelay);
+    if (tr.lockTimer >= totalLockTime) {
       tr.phase = "burst";
       tr.burstProgress = 0;
       tr.easedBurstProgress = 0;

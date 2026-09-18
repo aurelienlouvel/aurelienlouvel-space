@@ -42,11 +42,12 @@ export type TransitionConfig = {
   selectEasing: EasingName;
 
   // ── 2. Animation de select (Lock) ────────────────────────────────
-  lockDuration: number; // Durée totale de l'animation de lock (ex: 0.4s)
-  lockBracketTighten: number; // Pincement des brackets vers l'intérieur en px (ex: 16px)
-  lockBracketExpand: number; // Expansion vers l'extérieur lors du fade out en px (ex: 24px)
-  lockScalePunch: number; // Intensité du rebond / scale punch de confirmation (ex: 0.05)
-  overlayExitDuration: number; // Durée d'évacuation de l'overlay vague (ex: 0.35s)
+  lockDuration: number; // Durée totale de l'animation de lock (ex: 0.6s)
+  lockBracketTighten: number; // Pincement des brackets vers l'intérieur en px (ex: 6px)
+  lockBracketExpand: number; // Expansion vers l'extérieur lors du fade out en px (ex: 10px)
+  lockScalePunch: number; // Intensité du rebond / scale punch de confirmation (ex: 0.02)
+  overlayExitDuration: number; // Durée d'évacuation de l'overlay vague (ex: 0.5s)
+  burstDelay: number; // Délai d'attente après l'animation avant de lancer la transition (ex: 0.25s)
 
   // ── 3. Transition vers la page artifact (Burst) ──────────────────
   burstDuration: number; // Durée de l'explosion / zoom final (ex: 0.6s)
@@ -70,6 +71,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockBracketExpand: 10,
     lockScalePunch: 0.02,
     overlayExitDuration: 0.6,
+    burstDelay: 0.35,
     burstDuration: 1.2,
     burstZoom: 3.2,
     burstRepulse: 120000,
@@ -87,6 +89,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockBracketExpand: 12,
     lockScalePunch: 0.03,
     overlayExitDuration: 0.38,
+    burstDelay: 0.12,
     burstDuration: 0.7,
     burstZoom: 3.0,
     burstRepulse: 140000,
@@ -104,6 +107,7 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockBracketExpand: 12,
     lockScalePunch: 0.025,
     overlayExitDuration: 0.7,
+    burstDelay: 0.4,
     burstDuration: 1.4,
     burstZoom: 3.6,
     burstRepulse: 180000,
@@ -126,6 +130,7 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   lockBracketExpand: 10,
   lockScalePunch: 0.02,
   overlayExitDuration: 0.5,
+  burstDelay: 0.25,
   // 3. Transition vers artifact (Burst : 0.6s)
   burstDuration: 0.6,
   burstZoom: 1.8,
