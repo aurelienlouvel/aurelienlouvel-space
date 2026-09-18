@@ -24,7 +24,11 @@ import { Tag } from "@/components/primitives/Tag";
 import { MatesBlock } from "@/components/blocks/MatesBlock";
 import { formatDateRange } from "@/lib/date-utils";
 import { ArtifactGrid, setAppCursor } from "./ArtifactGrid";
-import { SecondaryGalleryPlanes } from "./SecondaryGalleryPlanes";
+import {
+  SecondaryGalleryPlanes,
+  getOrCreateImageTexture,
+  getOrCreateVideoTexture,
+} from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
 import { dampTowards } from "./damp";
 import { FisheyeEffect } from "./FisheyeEffect";
@@ -1082,6 +1086,9 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     allMediaToPreload.forEach((m) => {
       if (m.kind === "video") {
+        try {
+          getOrCreateVideoTexture(m.url);
+        } catch {}
         const video = document.createElement("video");
         video.crossOrigin = "anonymous";
         video.preload = "auto";
@@ -1100,6 +1107,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       }
       try {
         useTexture.preload(m.url);
+        getOrCreateImageTexture(m.url);
       } catch {}
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -1339,8 +1347,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         if (e.repeat) return;
         e.preventDefault();
         applyKeyDownEnter(runtime.current, points);
-        const pt = points[runtime.current.selected];
-        if (pt) handleStartSelect(pt.artifactIndex, pt);
+        const selIndex = runtime.current.selected;
+        const pt = points[selIndex];
+        if (pt) {
+          handleStartSelect(pt.artifactIndex, {
+            ...pt,
+            x: runtime.current.selectedPos.x,
+            y: runtime.current.selectedPos.y,
+          });
+        }
         return;
       }
 
