@@ -496,13 +496,12 @@ export function SecondaryGalleryPlanes({
     // ── Animation et défilement ─────────────────────────────────────────────
     let scrollY = 0;
     if (isSpinDezoom) {
-      const reelLoops = debug.current.transition.reelLoops ?? 3;
+      const reelLoops = Math.max(1, debug.current.transition.reelLoops ?? 2);
       const spinProgress = tr.easedSpinDezoomProgress ?? 0;
-      const spinDist = reelLoops * oneCycleHeight * spinProgress;
-      // Continuité totale : l'ascension m0Rise acquise lors de stackEntrance
-      // s'enchaîne directement dans la course du rouleau 777
-      const residualRise = stackM0Rise * (1 - spinProgress);
-      scrollY = spinDist + residualRise;
+      // Course continue strictement vers le haut : démarre exactement à stackM0Rise et termine
+      // à reelLoops * oneCycleHeight (modulo cycle = 0, atterrissage parfait sur M0 au centre)
+      const totalSpinDist = reelLoops * oneCycleHeight - stackM0Rise;
+      scrollY = stackM0Rise + totalSpinDist * spinProgress;
     } else if (isIsolated || isReturning) {
       scrollY = tr.columnScrollY;
     }
@@ -511,6 +510,8 @@ export function SecondaryGalleryPlanes({
     // Seuil de sortie haute du champ visible : au-delà, le slot boucle sous l'écran
     const visibleHalfH = (size.height / Math.max(0.1, camera.zoom)) * 0.5;
     const topLimit = anchorY + Math.max(visibleHalfH + 300, oneCycleHeight * 0.75);
+    const screenTop = camera.position.y + visibleHalfH;
+    const screenBottom = camera.position.y - visibleHalfH;
 
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
@@ -571,6 +572,18 @@ export function SecondaryGalleryPlanes({
       const curItemIdx = slot.galleryIdx % K;
       const targetW = uniqueWidths[curItemIdx];
       const targetH = uniqueHeights[curItemIdx];
+      const fadeZone = Math.max(100, targetH * 0.35);
+
+      // Calcul du fondu d'entrée/sortie ultra-doux aux extrémités de l'écran
+      const cardTop = y + targetH * 0.5;
+      const cardBottom = y - targetH * 0.5;
+
+      let edgeFade = 1;
+      if (cardBottom < screenBottom + fadeZone) {
+        edgeFade = Math.max(0, Math.min(1, (cardTop - screenBottom) / fadeZone));
+      } else if (cardTop > screenTop - fadeZone) {
+        edgeFade = Math.max(0, Math.min(1, (screenTop - cardBottom) / fadeZone));
+      }
 
       if (isMain) {
         if (isBursting || isReturning) {
@@ -588,35 +601,30 @@ export function SecondaryGalleryPlanes({
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
-        if (isMain) {
+        if (isMain && (isBursting || isMainZoom || isMainHold || isStackEntrance)) {
           mat.opacity = 1;
         } else if (isBursting || isMainZoom || isMainHold) {
-          // Pendant burst, zoom avant et pause, seule l'image principale M0 est visible
           mat.opacity = 0;
         } else if (isStackEntrance) {
-          // Règle stricte anti-pop du haut : aucune carte au-dessus de M0 n'est visible !
-          // Seules les cartes en-dessous de M0 (offset >= 1) émergent depuis le bas
           if (offset === 1) {
-            mat.opacity = Math.min(1, (tr.easedStackEntranceProgress ?? 0) * 1.5);
+            mat.opacity = Math.min(1, (tr.easedStackEntranceProgress ?? 0) * 1.5) * edgeFade;
           } else if (offset > 1) {
-            mat.opacity = Math.max(0, Math.min(1, ((tr.easedStackEntranceProgress ?? 0) - 0.25) * 1.5));
+            mat.opacity = Math.max(0, Math.min(1, ((tr.easedStackEntranceProgress ?? 0) - 0.2) * 1.5)) * edgeFade;
           } else {
             mat.opacity = 0;
           }
         } else if (isSpinDezoom) {
-          // Règle stricte anti-pop :
-          // - Les cartes sous M0 (offset >= 0) montent et tournent
-          // - Les cartes au-dessus de M0 (offset < 0) sont STRICTEMENT invisibles
-          //   tant qu'elles n'ont pas bouclé par le bas de l'écran (wrappedSlotsRef)
-          if (offset >= 0) {
-            mat.opacity = 1;
+          if (isMain) {
+            mat.opacity = edgeFade;
+          } else if (offset > 0) {
+            mat.opacity = edgeFade;
           } else {
-            mat.opacity = wrappedSlotsRef.current[s] ? 1 : 0;
+            mat.opacity = wrappedSlotsRef.current[s] ? edgeFade : 0;
           }
         } else if (isIsolated) {
-          mat.opacity = 1;
+          mat.opacity = edgeFade;
         } else if (isReturning) {
-          mat.opacity = Math.max(0, 1 - (tr.easedReturnProgress ?? 0));
+          mat.opacity = Math.max(0, 1 - (tr.easedReturnProgress ?? 0)) * edgeFade;
         }
       }
     });

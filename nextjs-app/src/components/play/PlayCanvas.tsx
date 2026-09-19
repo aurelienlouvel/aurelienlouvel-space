@@ -556,22 +556,19 @@ function stepCamera(
     }
 
     const startZoom = baseZoom * config.selectZoom;
-    const endZoom = baseZoom * (config.mainZoomFactor ?? 1.28);
+    const endZoom = baseZoom * (config.mainZoomFactor ?? 1.25);
     const curZoom = startZoom + (endZoom - startZoom) * tr.easedMainZoomProgress;
-    const smoothedZoom = dampTowards(camera.zoom, curZoom, 16, effDelta);
-    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
-      camera.zoom = smoothedZoom;
-      camera.updateProjectionMatrix();
-    }
+    camera.zoom = curZoom;
+    camera.updateProjectionMatrix();
 
-    camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.x = rc.selectedPos.x;
+    camera.position.y = rc.selectedPos.y;
     return;
   }
 
   // ── Temps 5 : Pause contemplative sur M0 agrandie ──────────────────────
   if (tr.phase === "mainHold") {
-    const holdDur = Math.max(0.01, config.mainHoldDuration ?? 0.25);
+    const holdDur = Math.max(0.01, config.mainHoldDuration ?? 0.08);
     tr.mainHoldTimer += effDelta;
 
     if (tr.mainHoldTimer >= holdDur) {
@@ -581,24 +578,21 @@ function stepCamera(
       tr.easedStackEntranceProgress = 0;
     }
 
-    const targetZoom = baseZoom * (config.mainZoomFactor ?? 1.28);
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 16, effDelta);
-    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
-      camera.zoom = smoothedZoom;
-      camera.updateProjectionMatrix();
-    }
+    const targetZoom = baseZoom * (config.mainZoomFactor ?? 1.25);
+    camera.zoom = targetZoom;
+    camera.updateProjectionMatrix();
 
-    camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.x = rc.selectedPos.x;
+    camera.position.y = rc.selectedPos.y;
     return;
   }
 
   // ── Temps 6 : Émergence de la 1ère carte sous M0 (amorce déroulante) ─────
   if (tr.phase === "stackEntrance") {
-    const entranceDur = Math.max(0.1, config.stackEntranceDuration ?? 0.35);
+    const entranceDur = Math.max(0.1, config.stackEntranceDuration ?? 0.34);
     tr.stackEntranceTimer += effDelta;
     tr.stackEntranceProgress = Math.min(1, tr.stackEntranceTimer / entranceDur);
-    tr.easedStackEntranceProgress = evaluateEasing(config.stackEntranceEasing ?? "easeOutQuad", tr.stackEntranceProgress);
+    tr.easedStackEntranceProgress = evaluateEasing(config.stackEntranceEasing ?? "easeInQuad", tr.stackEntranceProgress);
 
     if (tr.stackEntranceTimer >= entranceDur) {
       tr.stackEntranceProgress = 1;
@@ -611,35 +605,32 @@ function stepCamera(
       tr.textRevealed = false;
     }
 
-    const targetZoom = baseZoom * (config.mainZoomFactor ?? 1.28);
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 16, effDelta);
-    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
-      camera.zoom = smoothedZoom;
-      camera.updateProjectionMatrix();
-    }
+    const targetZoom = baseZoom * (config.mainZoomFactor ?? 1.25);
+    camera.zoom = targetZoom;
+    camera.updateProjectionMatrix();
 
-    camera.position.x = dampTowards(camera.position.x, rc.selectedPos.x, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.selectedPos.y, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.x = rc.selectedPos.x;
+    camera.position.y = rc.selectedPos.y;
     return;
   }
 
   // ── Temps 7 : 🎰 Rouleau 777 & Dézoom Simultanés (Climax) ───────────────
   if (tr.phase === "spinDezoom") {
-    const spinDur = Math.max(0.3, config.spinDezoomDuration ?? config.reelDuration ?? 1.5);
+    const spinDur = Math.max(0.3, config.spinDezoomDuration ?? config.reelDuration ?? 1.45);
     tr.spinDezoomTimer += effDelta;
     tr.spinDezoomProgress = Math.min(1, tr.spinDezoomTimer / spinDur);
-    tr.easedSpinDezoomProgress = evaluateEasing(config.spinEasing ?? config.reelEasing ?? "easeInOutCubic", tr.spinDezoomProgress);
+    tr.easedSpinDezoomProgress = evaluateEasing(config.spinEasing ?? config.reelEasing ?? "easeOutQuint", tr.spinDezoomProgress);
 
     const dezoomT = evaluateEasing(config.dezoomEasing ?? "easeInOutCubic", tr.spinDezoomProgress);
 
     // Révélation du panneau texte pendant le mouvement
-    const textDelay = Math.max(0, config.textRevealDelay ?? 0.25);
+    const textDelay = Math.max(0, config.textRevealDelay ?? 0.30);
     if (!tr.textRevealed && tr.spinDezoomTimer >= textDelay) {
       tr.textRevealed = true;
       onBurstComplete?.();
     }
 
-    const endDelay = Math.max(0, config.reelEndDelay ?? 0.15);
+    const endDelay = Math.max(0, config.reelEndDelay ?? 0.08);
     if (tr.spinDezoomTimer >= spinDur + endDelay) {
       tr.spinDezoomProgress = 1;
       if (!tr.textRevealed) {
@@ -650,29 +641,23 @@ function stepCamera(
     }
 
     // Dézoom caméra : du zoom agrandi M0 vers le zoom détail burstZoom (ex: 1.8x)
-    const startZoom = baseZoom * (config.mainZoomFactor ?? 1.28);
+    const startZoom = baseZoom * (config.mainZoomFactor ?? 1.25);
     const endZoom = baseZoom * (config.burstZoom ?? 1.8);
     const curZoom = startZoom + (endZoom - startZoom) * dezoomT;
-    const smoothedZoom = dampTowards(camera.zoom, curZoom, 14, effDelta);
-    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
-      camera.zoom = smoothedZoom;
-      camera.updateProjectionMatrix();
-    }
+    camera.zoom = curZoom;
+    camera.updateProjectionMatrix();
 
-    // Décalage horizontal : du centre écran vers la gauche (colonne à 50%)
+    // Décalage horizontal : du centre écran vers la gauche (colonne à colRatio)
     const screenW = screenSize?.width ?? 1920;
     const screenH = screenSize?.height ?? 1080;
     const isDesktop = screenW >= 1024 && screenW >= screenH;
-    const visibleW = screenW / Math.max(0.1, camera.zoom);
+    const visibleW = screenW / Math.max(0.1, curZoom);
     const colRatio = config.detailColumnRatio ?? 0.50;
     const offsetRatio = 0.5 - colRatio * 0.5;
 
     const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
-    const curTargetX = rc.selectedPos.x + (targetPosX - rc.selectedPos.x) * dezoomT;
-    const targetPosY = rc.selectedPos.y;
-
-    camera.position.x = dampTowards(camera.position.x, curTargetX, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, targetPosY, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.x = rc.selectedPos.x + (targetPosX - rc.selectedPos.x) * dezoomT;
+    camera.position.y = rc.selectedPos.y;
     return;
   }
 
@@ -682,11 +667,8 @@ function stepCamera(
     tr.columnScrollY = dampTowards(tr.columnScrollY, tr.targetColumnScrollY, scrollDamping, effDelta);
 
     const targetZoom = baseZoom * config.burstZoom;
-    const smoothedZoom = dampTowards(camera.zoom, targetZoom, 14, effDelta);
-    if (Math.abs(camera.zoom - smoothedZoom) > 0.0001) {
-      camera.zoom = smoothedZoom;
-      camera.updateProjectionMatrix();
-    }
+    camera.zoom = targetZoom;
+    camera.updateProjectionMatrix();
 
     const screenW = screenSize?.width ?? 1920;
     const screenH = screenSize?.height ?? 1080;
@@ -696,10 +678,8 @@ function stepCamera(
     const offsetRatio = 0.5 - colRatio * 0.5;
 
     const targetPosX = isDesktop ? rc.selectedPos.x + offsetRatio * visibleW : rc.selectedPos.x;
-    const targetPosY = rc.selectedPos.y;
-
-    camera.position.x = dampTowards(camera.position.x, targetPosX, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, targetPosY, CAMERA_SETTLE_SPEED, effDelta);
+    camera.position.x = targetPosX;
+    camera.position.y = rc.selectedPos.y;
     return;
   }
 

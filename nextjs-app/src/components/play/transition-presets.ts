@@ -7,6 +7,7 @@ export type EasingName =
   | "easeInQuad"
   | "easeOutQuad"
   | "easeInCubic"
+  | "easeOutCubic"
   | "easeInOutCubic"
   | "easeOutExpo"
   | "easeOutQuint";
@@ -16,6 +17,7 @@ export const EASINGS: Record<EasingName, (t: number) => number> = {
   easeInQuad: (t) => t * t,
   easeOutQuad: (t) => t * (2 - t),
   easeInCubic: (t) => t * t * t,
+  easeOutCubic: (t) => 1 - Math.pow(1 - t, 3),
   easeInOutCubic: (t) =>
     t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1,
   easeOutExpo: (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t)),
@@ -112,26 +114,26 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     lockBracketExpand: 10,
     lockScalePunch: 0.02,
     overlayExitDuration: 0.6,
-    burstDuration: 0.4,
+    burstDuration: 0.35,
     burstRepulse: 40000,
-    burstEasing: "easeInOutCubic",
-    mainZoomFactor: 1.28,
-    mainZoomDuration: 0.45,
+    burstEasing: "easeOutCubic",
+    mainZoomFactor: 1.25,
+    mainZoomDuration: 0.38,
     mainZoomEasing: "easeOutQuint",
-    mainHoldDuration: 0.25,
-    stackEntranceDuration: 0.38,
-    stackSlideOffset: 350,
-    stackM0Rise: 90,
-    stackEntranceEasing: "easeOutQuad",
-    spinDezoomDuration: 1.6,
-    reelDuration: 1.6,
-    reelLoops: 3,
-    spinEasing: "easeInOutCubic",
-    reelEasing: "easeInOutCubic",
-    dezoomDuration: 1.6,
+    mainHoldDuration: 0.08,
+    stackEntranceDuration: 0.34,
+    stackSlideOffset: 260,
+    stackM0Rise: 80,
+    stackEntranceEasing: "easeInQuad",
+    spinDezoomDuration: 1.45,
+    reelDuration: 1.45,
+    reelLoops: 2,
+    spinEasing: "easeOutQuint",
+    reelEasing: "easeOutQuint",
+    dezoomDuration: 1.45,
     dezoomEasing: "easeInOutCubic",
-    textRevealDelay: 0.3,
-    reelEndDelay: 0.2,
+    textRevealDelay: 0.30,
+    reelEndDelay: 0.08,
     burstZoom: 1.8,
     detailColumnRatio: 0.50,
     desktopMediaWidthRatio: 0.34,
@@ -266,32 +268,32 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   // 3. Burst (Isolement M0 & Répulsion Voisins Mosaïque : 0.35s)
   burstDuration: 0.35,
   burstRepulse: 40000,
-  burstEasing: "easeInQuad",
+  burstEasing: "easeOutCubic",
 
-  // 4. Zoom Avant Focalisé sur M0 (0.40s)
-  mainZoomFactor: 1.28,
-  mainZoomDuration: 0.40,
+  // 4. Zoom Avant Focalisé sur M0 (0.38s)
+  mainZoomFactor: 1.25,
+  mainZoomDuration: 0.38,
   mainZoomEasing: "easeOutQuint",
 
-  // 5. Pause Contemplative sur M0 (0.25s)
-  mainHoldDuration: 0.25,
+  // 5. Pause Contemplative sur M0 (0.08s micro-breath)
+  mainHoldDuration: 0.08,
 
-  // 6. Émergence de la Première Carte Inférieure (0.35s)
-  stackEntranceDuration: 0.35,
-  stackSlideOffset: 350,
-  stackM0Rise: 90,
-  stackEntranceEasing: "easeOutQuad",
+  // 6. Émergence de la Première Carte Inférieure (0.34s)
+  stackEntranceDuration: 0.34,
+  stackSlideOffset: 260,
+  stackM0Rise: 80,
+  stackEntranceEasing: "easeInQuad",
 
-  // 7. Rouleau 777 & Dézoom Simultanés (1.5s)
-  spinDezoomDuration: 1.5,
-  reelDuration: 1.5,
-  reelLoops: 3,
-  spinEasing: "easeInOutCubic",
-  reelEasing: "easeInOutCubic",
-  dezoomDuration: 1.5,
+  // 7. Rouleau 777 & Dézoom Simultanés (1.45s)
+  spinDezoomDuration: 1.45,
+  reelDuration: 1.45,
+  reelLoops: 2,
+  spinEasing: "easeOutQuint",
+  reelEasing: "easeOutQuint",
+  dezoomDuration: 1.45,
   dezoomEasing: "easeInOutCubic",
-  textRevealDelay: 0.25,
-  reelEndDelay: 0.15,
+  textRevealDelay: 0.30,
+  reelEndDelay: 0.08,
 
   // 8. Vue Détail & Courbure en Arc 3D
   burstZoom: 1.8,
