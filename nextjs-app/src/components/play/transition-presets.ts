@@ -1,5 +1,13 @@
 /**
- * Fonctions d'easing mathématiques et profils de transition (Presets).
+ * Fonctions d'easing et description de la timeline de transition.
+ *
+ * La transition n'est plus une chaîne de phases qui se passent le relais mais
+ * une **timeline unique** : une seule horloge `t` (secondes depuis la fin du
+ * hold) et des *pistes* qui se chevauchent. Chaque grandeur animée est une
+ * fonction continue de `t`, donc il n'existe plus de frontière où la vitesse
+ * retombe à zéro — c'était la cause des à-coups de l'ancienne machine à états.
+ *
+ * Cf. `transition-timeline.ts` pour l'échantillonnage.
  */
 
 export type EasingName =
@@ -8,7 +16,9 @@ export type EasingName =
   | "easeOutQuad"
   | "easeInCubic"
   | "easeOutCubic"
+  | "easeInOutQuad"
   | "easeInOutCubic"
+  | "easeInOutQuint"
   | "easeOutExpo"
   | "easeOutQuint";
 
@@ -18,8 +28,15 @@ export const EASINGS: Record<EasingName, (t: number) => number> = {
   easeOutQuad: (t) => t * (2 - t),
   easeInCubic: (t) => t * t * t,
   easeOutCubic: (t) => 1 - Math.pow(1 - t, 3),
+  easeInOutQuad: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
   easeInOutCubic: (t) =>
     t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1,
+  /**
+   * Départ et arrivée à vitesse nulle avec un ventre plus marqué qu'en cubique :
+   * c'est la courbe du rouleau, qui doit naître du calme, filer, puis se poser.
+   */
+  easeInOutQuint: (t) =>
+    t < 0.5 ? 16 * t * t * t * t * t : 1 - Math.pow(-2 * t + 2, 5) / 2,
   easeOutExpo: (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t)),
   easeOutQuint: (t) => {
     const p = t - 1;
@@ -32,123 +49,180 @@ export function evaluateEasing(name: EasingName, t: number): number {
   return fn(Math.max(0, Math.min(1, t)));
 }
 
+/** Une piste de la timeline : quand elle démarre, combien de temps elle dure. */
+export type TrackSpec = {
+  start: number;
+  duration: number;
+  easing: EasingName;
+};
+
+/** Avancement brut 0..1 d'une piste à l'instant `t`, sans easing. */
+export function trackRaw(track: TrackSpec, t: number): number {
+  const u = (t - track.start) / Math.max(0.0001, track.duration);
+  return u <= 0 ? 0 : u >= 1 ? 1 : u;
+}
+
+/** Avancement 0..1 d'une piste à l'instant `t`, easing appliqué. */
+export function trackAt(track: TrackSpec, t: number): number {
+  return evaluateEasing(track.easing, trackRaw(track, t));
+}
+
 export type TransitionPresetName = "cinematic" | "snappy" | "dramatic" | "custom";
 
 export type TransitionConfig = {
   preset: TransitionPresetName;
-  // ── 1. Progression du select (Hold) ──────────────────────────────
-  selectDuration: number; // Durée pour charger la sélection (ex: 0.6s)
-  selectZoom: number; // Facteur multiplicatif du zoom caméra (ex: 1.06)
-  selectScale: number; // Grossissement subtil du média sélectionné (ex: 1.0)
-  selectRepulse: number; // Force de répulsion progressive douce (ex: 200)
+
+  // ── 0. Hold — hors timeline, sa durée appartient à l'utilisateur ─────────
+  selectDuration: number; // Durée du maintien avant déclenchement (ex: 0.6s)
+  selectZoom: number; // Zoom caméra atteint en fin de hold (× zoom de base)
+  selectScale: number; // Grossissement de la tuile visée (ex: 1.0)
+  selectRepulse: number; // Écartement doux des voisins pendant le hold (ex: 200)
   selectEasing: EasingName;
 
-  // ── 2. Animation de select (Lock) ────────────────────────────────
-  lockDuration: number; // Durée totale de l'animation de lock (ex: 0.6s)
-  burstDelay: number; // Délai d'attente après le lock avant de lancer le burst (ex: 0.25s)
-  lockBracketTighten: number; // Pincement des brackets vers l'intérieur en px (ex: 6px)
-  lockBracketExpand: number; // Expansion vers l'extérieur lors du fade out en px (ex: 10px)
-  lockScalePunch: number; // Intensité du rebond / scale punch de confirmation (ex: 0.02)
-  overlayExitDuration: number; // Durée d'évacuation de l'overlay vague (ex: 0.5s)
+  // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
+  lock: TrackSpec; // Brackets : pincement, expansion, fondu
+  scatter: TrackSpec; // Dispersion et fondu de la mosaïque
+  reveal: TrackSpec; // M0 : taille de tuile → taille de colonne
+  hero: TrackSpec; // Caméra : zoom de hold → sommet de l'arc (M0 plein cadre)
+  scroll: TrackSpec; // Rouleau unifié : émergence, 777, atterrissage
+  slide: TrackSpec; // Offset d'entrée des cartes secondaires
+  columnFade: TrackSpec; // Opacité des cartes secondaires
+  dezoom: TrackSpec; // Caméra : sommet de l'arc → vue détail + cadrage colonne
+  exit: TrackSpec; // Retour vers la mosaïque
 
-  // ── 3. Burst (Isolement M0 & Répulsion Voisins Mosaïque) ─────────
-  burstDuration: number; // Durée d'évacuation des voisins de la mosaïque (ex: 0.35s)
-  burstRepulse: number; // Répulsion radiale des autres médias (ex: 40000)
-  burstEasing: EasingName;
+  // ── 2. Amplitudes ────────────────────────────────────────────────────────
+  lockBracketTighten: number; // Pincement des brackets vers l'intérieur (px)
+  lockBracketExpand: number; // Expansion vers l'extérieur pendant le fondu (px)
+  lockScalePunch: number; // Micro-rebond de confirmation sur la tuile
+  overlayExitDuration: number; // Durée d'évacuation de la vague de sélection (s)
+  scatterDistance: number; // Écartement radial final de la mosaïque (unités monde)
+  heroZoom: number; // Sommet de l'arc, en multiple du zoom de détail (ex: 1.45×)
+  detailZoom: number; // Zoom de la vue détail stabilisée (× zoom de base)
+  reelLoops: number; // Nombre de cycles parcourus par le rouleau
+  slideOffset: number; // Amplitude d'entrée des cartes secondaires (unités monde)
+  textRevealAt: number; // Instant d'apparition du panneau de texte (s)
 
-  // ── 4. Zoom Avant Focalisé sur M0 ──────────────────────────────
-  mainZoomFactor: number; // Facteur multiplicateur de zoom avant sur M0 (ex: 1.28x)
-  mainZoomDuration: number; // Durée du zoom avant sur M0 seule au centre (ex: 0.40s)
-  mainZoomEasing: EasingName; // Easing du zoom avant (ex: "easeOutQuint")
+  // ── 3. Vue détail ────────────────────────────────────────────────────────
+  detailColumnRatio: number; // Position horizontale du centre de la colonne
+  desktopMediaWidthRatio: number; // Largeur des médias sur desktop (% écran)
+  mobileMediaHeightRatio: number; // Hauteur des médias sur mobile (% écran)
+  mediaGap: number; // Espace entre médias consécutifs (px écran)
+  detailScrollDamping: number; // Amortissement du défilement infini
+  detailScrollSpeed: number; // Multiplicateur de vitesse de défilement
 
-  // ── 5. Pause Contemplative sur M0 ──────────────────────────────
-  mainHoldDuration: number; // Pause contemplative sur M0 agrandie avant l'émergence (ex: 0.25s)
-
-  // ── 6. Émergence de la Première Carte Inférieure ────────────────
-  stackEntranceDuration: number; // Durée d'émergence de M1 en glissant sous M0 (ex: 0.35s)
-  stackSlideOffset: number; // Amplitude de glissement vertical depuis le bas (ex: 350px)
-  stackM0Rise: number; // Montée vers le haut de M0 lors de l'arrivée de M1 (ex: 90px)
-  stackEntranceEasing: EasingName;
-
-  // ── 7. Rouleau 777 & Dézoom Simultanés (Climax) ────────────────
-  spinDezoomDuration: number; // Durée conjointe du rouleau 777 et du dézoom (ex: 1.5s)
-  reelDuration: number; // Alias durée défilement (ex: 1.5s)
-  reelLoops: number; // Nombre de tours de rouleau (ex: 3)
-  spinEasing: EasingName; // Easing du défilement des cartes (ex: "easeInOutCubic")
-  reelEasing: EasingName; // Alias easing défilement
-  dezoomDuration: number; // Alias durée dézoom (ex: 1.5s)
-  dezoomEasing: EasingName; // Easing du recul caméra (ex: "easeInOutCubic")
-  textRevealDelay: number; // Délai avant apparition du texte pendant le spin (ex: 0.25s)
-  reelEndDelay: number; // Pause de confirmation sur le média gagnant stabilisé (ex: 0.15s)
-
-  // ── 8. Vue Détail & Courbure en Arc de Cercle 3D ───────────────
-  burstZoom: number; // Facteur de cadrage caméra en vue détail (ex: 1.8x)
-  detailColumnRatio: number; // Position horizontale du centre de la colonne (ex: 0.50 = 50%)
-  desktopMediaWidthRatio: number; // Largeur des médias sur desktop (ex: 0.34 = 34% de l'écran)
-  mobileMediaHeightRatio: number; // Hauteur des médias sur mobile (ex: 0.48 = 48% de l'écran)
-  mediaGap: number; // Espace entre médias consécutifs en px (ex: 32)
-  detailScrollDamping: number; // Amortissement fluide du défilement infini (ex: 12)
-  detailScrollSpeed: number; // Multiplicateur de vitesse de défilement (ex: 1.0)
-  arcRadius: number; // Rayon de l'arc cylindrique 3D (ex: 1800px)
-  arcMaxAngleDeg: number; // Angle maximal d'inclinaison tangentielle en degrés (ex: 22°)
-  arcCenterConvergence: number; // Intensité d'orientation vers le centre horizontal (ex: 0.12)
-
-  // ── 9. Retour vers la page de base (Exit / Return) ─────────────
-  exitDuration: number; // Durée de retour au canvas (ex: 0.6s)
-  exitSlideOffset: number; // Glissement des secondaires vers le bas lors de la sortie (ex: 350)
-  exitEasing: EasingName; // Easing du retour
-  repulseReturnDelay: number; // Délai avant que la répulsion des voisins ne revienne à zéro (ex: 0.25s)
-  cameraReturnDelay: number; // Délai avant le recentrage caméra au retour (ex: 0.0s)
+  // ── 4. Retour ────────────────────────────────────────────────────────────
+  exitSlideOffset: number; // Glissement des secondaires à la sortie (unités monde)
+  repulseReturnDelay: number; // Délai avant le retour de la mosaïque (s)
+  cameraReturnDelay: number; // Délai avant le recentrage caméra (s)
 };
 
-export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">, Omit<TransitionConfig, "preset">> = {
+/**
+ * La chorégraphie de référence. Les pistes se recouvrent volontairement :
+ * `scatter` démarre avant la fin de `lock`, `dezoom` pendant que `scroll`
+ * tourne encore. C'est ce recouvrement qui fait tenir la séquence en ~2,1s
+ * là où l'enchaînement séquentiel en demandait 3,5 — sans rien accélérer.
+ */
+const BASE_TRACKS = {
+  lock: { start: 0.0, duration: 0.34, easing: "linear" },
+  scatter: { start: 0.16, duration: 0.52, easing: "easeOutCubic" },
+  reveal: { start: 0.2, duration: 0.46, easing: "easeOutCubic" },
+  hero: { start: 0.14, duration: 0.62, easing: "easeOutCubic" },
+  scroll: { start: 0.58, duration: 1.5, easing: "easeInOutQuint" },
+  slide: { start: 0.58, duration: 0.52, easing: "easeOutCubic" },
+  columnFade: { start: 0.56, duration: 0.4, easing: "easeOutQuad" },
+  dezoom: { start: 0.72, duration: 1.36, easing: "easeInOutCubic" },
+  exit: { start: 0.0, duration: 0.6, easing: "easeInOutCubic" },
+} as const satisfies Record<string, TrackSpec>;
+
+export type TrackName = keyof typeof BASE_TRACKS;
+
+export const TRACK_NAMES = Object.keys(BASE_TRACKS) as TrackName[];
+
+/** Copie des pistes avec toutes les durées et tous les départs mis à l'échelle. */
+function scaleTracks(
+  speed: number,
+  overrides: Partial<Record<TrackName, Partial<TrackSpec>>> = {},
+): Record<TrackName, TrackSpec> {
+  const out = {} as Record<TrackName, TrackSpec>;
+  for (const name of TRACK_NAMES) {
+    const base = BASE_TRACKS[name];
+    out[name] = {
+      start: Number((base.start * speed).toFixed(3)),
+      duration: Number((base.duration * speed).toFixed(3)),
+      easing: base.easing,
+      ...overrides[name],
+    };
+  }
+  return out;
+}
+
+/** Duplique une config sans partager les objets `TrackSpec` avec la source. */
+export function cloneTransitionConfig(config: TransitionConfig): TransitionConfig {
+  const clone = { ...config };
+  for (const name of TRACK_NAMES) {
+    clone[name] = { ...config[name] };
+  }
+  return clone;
+}
+
+/** Instant auquel la dernière piste de la séquence d'entrée se termine. */
+export function timelineEnd(config: TransitionConfig): number {
+  let end = 0;
+  for (const name of TRACK_NAMES) {
+    if (name === "exit") continue;
+    const track = config[name];
+    end = Math.max(end, track.start + track.duration);
+  }
+  return Math.max(0.05, end);
+}
+
+const BASE_AMPLITUDES = {
+  lockBracketTighten: 6,
+  lockBracketExpand: 10,
+  lockScalePunch: 0.02,
+  overlayExitDuration: 0.3,
+  scatterDistance: 2800,
+  heroZoom: 1.45,
+  detailZoom: 1.8,
+  reelLoops: 2,
+  slideOffset: 260,
+  textRevealAt: 1.25,
+  detailColumnRatio: 0.5,
+  desktopMediaWidthRatio: 0.34,
+  mobileMediaHeightRatio: 0.48,
+  mediaGap: 32,
+  detailScrollDamping: 12,
+  detailScrollSpeed: 1,
+  exitSlideOffset: 350,
+  repulseReturnDelay: 0.25,
+  cameraReturnDelay: 0.0,
+};
+
+export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
+  preset: "custom",
+  selectDuration: 0.6,
+  selectZoom: 1.06,
+  selectScale: 1,
+  selectRepulse: 200,
+  selectEasing: "easeOutQuint",
+  ...BASE_AMPLITUDES,
+  ...scaleTracks(1),
+};
+
+export const TRANSITION_PRESETS: Record<
+  Exclude<TransitionPresetName, "custom">,
+  Omit<TransitionConfig, "preset">
+> = {
   cinematic: {
     selectDuration: 0.8,
     selectZoom: 1.15,
     selectScale: 1.06,
     selectRepulse: 600,
     selectEasing: "easeInQuad",
-    lockDuration: 0.7,
-    burstDelay: 0.35,
-    lockBracketTighten: 5,
-    lockBracketExpand: 10,
-    lockScalePunch: 0.02,
-    overlayExitDuration: 0.6,
-    burstDuration: 0.35,
-    burstRepulse: 40000,
-    burstEasing: "easeOutCubic",
-    mainZoomFactor: 1.25,
-    mainZoomDuration: 0.38,
-    mainZoomEasing: "easeOutQuint",
-    mainHoldDuration: 0.08,
-    stackEntranceDuration: 0.34,
-    stackSlideOffset: 260,
-    stackM0Rise: 80,
-    stackEntranceEasing: "easeInQuad",
-    spinDezoomDuration: 1.45,
-    reelDuration: 1.45,
-    reelLoops: 2,
-    spinEasing: "easeOutQuint",
-    reelEasing: "easeOutQuint",
-    dezoomDuration: 1.45,
-    dezoomEasing: "easeInOutCubic",
-    textRevealDelay: 0.30,
-    reelEndDelay: 0.08,
-    burstZoom: 1.8,
-    detailColumnRatio: 0.50,
-    desktopMediaWidthRatio: 0.34,
-    mobileMediaHeightRatio: 0.48,
-    mediaGap: 32,
-    detailScrollDamping: 12,
-    detailScrollSpeed: 1.0,
-    arcRadius: 1800,
-    arcMaxAngleDeg: 22,
-    arcCenterConvergence: 0.12,
-    exitDuration: 0.7,
-    exitSlideOffset: 350,
-    exitEasing: "easeInOutCubic",
-    repulseReturnDelay: 0.2,
-    cameraReturnDelay: 0.05,
+    ...BASE_AMPLITUDES,
+    heroZoom: 1.5,
+    textRevealAt: 1.35,
+    ...scaleTracks(1.1),
   },
   snappy: {
     selectDuration: 0.5,
@@ -156,47 +230,21 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     selectScale: 1.08,
     selectRepulse: 800,
     selectEasing: "easeOutQuad",
-    lockDuration: 0.45,
-    burstDelay: 0.12,
+    ...BASE_AMPLITUDES,
     lockBracketTighten: 8,
     lockBracketExpand: 12,
     lockScalePunch: 0.03,
-    overlayExitDuration: 0.38,
-    burstDuration: 0.3,
-    burstRepulse: 40000,
-    burstEasing: "easeOutExpo",
-    mainZoomFactor: 1.30,
-    mainZoomDuration: 0.30,
-    mainZoomEasing: "easeOutExpo",
-    mainHoldDuration: 0.15,
-    stackEntranceDuration: 0.25,
-    stackSlideOffset: 320,
-    stackM0Rise: 70,
-    stackEntranceEasing: "easeOutExpo",
-    spinDezoomDuration: 1.2,
-    reelDuration: 1.2,
+    overlayExitDuration: 0.22,
+    heroZoom: 1.35,
     reelLoops: 3,
-    spinEasing: "easeOutExpo",
-    reelEasing: "easeOutExpo",
-    dezoomDuration: 1.2,
-    dezoomEasing: "easeOutExpo",
-    textRevealDelay: 0.15,
-    reelEndDelay: 0.1,
-    burstZoom: 1.8,
-    detailColumnRatio: 0.50,
-    desktopMediaWidthRatio: 0.34,
-    mobileMediaHeightRatio: 0.48,
-    mediaGap: 32,
+    textRevealAt: 0.85,
     detailScrollDamping: 14,
     detailScrollSpeed: 1.2,
-    arcRadius: 1600,
-    arcMaxAngleDeg: 24,
-    arcCenterConvergence: 0.14,
-    exitDuration: 0.45,
-    exitSlideOffset: 300,
-    exitEasing: "easeOutExpo",
     repulseReturnDelay: 0.1,
-    cameraReturnDelay: 0.0,
+    ...scaleTracks(0.72, {
+      scroll: { start: 0.42, duration: 1.0, easing: "easeInOutQuint" },
+      dezoom: { start: 0.52, duration: 0.9, easing: "easeInOutCubic" },
+    }),
   },
   dramatic: {
     selectDuration: 0.9,
@@ -204,113 +252,21 @@ export const TRANSITION_PRESETS: Record<Exclude<TransitionPresetName, "custom">,
     selectScale: 1.04,
     selectRepulse: 350,
     selectEasing: "easeInCubic",
-    lockDuration: 0.8,
-    burstDelay: 0.4,
-    lockBracketTighten: 6,
+    ...BASE_AMPLITUDES,
     lockBracketExpand: 12,
     lockScalePunch: 0.025,
-    overlayExitDuration: 0.7,
-    burstDuration: 0.5,
-    burstRepulse: 50000,
-    burstEasing: "easeOutQuint",
-    mainZoomFactor: 1.35,
-    mainZoomDuration: 0.55,
-    mainZoomEasing: "easeOutQuint",
-    mainHoldDuration: 0.35,
-    stackEntranceDuration: 0.45,
-    stackSlideOffset: 400,
-    stackM0Rise: 110,
-    stackEntranceEasing: "easeOutQuint",
-    spinDezoomDuration: 1.8,
-    reelDuration: 1.8,
+    overlayExitDuration: 0.4,
+    scatterDistance: 3400,
+    heroZoom: 1.65,
     reelLoops: 3,
-    spinEasing: "easeOutQuint",
-    reelEasing: "easeOutQuint",
-    dezoomDuration: 1.8,
-    dezoomEasing: "easeOutQuint",
-    textRevealDelay: 0.4,
-    reelEndDelay: 0.25,
-    burstZoom: 1.8,
-    detailColumnRatio: 0.50,
+    slideOffset: 400,
+    textRevealAt: 1.8,
     desktopMediaWidthRatio: 0.36,
-    mobileMediaHeightRatio: 0.50,
+    mobileMediaHeightRatio: 0.5,
     mediaGap: 36,
     detailScrollDamping: 10,
     detailScrollSpeed: 0.9,
-    arcRadius: 2000,
-    arcMaxAngleDeg: 20,
-    arcCenterConvergence: 0.10,
-    exitDuration: 0.85,
     exitSlideOffset: 400,
-    exitEasing: "easeOutQuint",
-    repulseReturnDelay: 0.25,
-    cameraReturnDelay: 0.1,
+    ...scaleTracks(1.45),
   },
-};
-
-export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
-  preset: "custom",
-  // 1. Progression du select (Hold : 0.6s)
-  selectDuration: 0.6,
-  selectZoom: 1.06,
-  selectScale: 1,
-  selectRepulse: 200,
-  selectEasing: "easeOutQuint",
-
-  // 2. Animation de select (Lock : 0.6s)
-  lockDuration: 0.6,
-  burstDelay: 0.25,
-  lockBracketTighten: 6,
-  lockBracketExpand: 10,
-  lockScalePunch: 0.02,
-  overlayExitDuration: 0.5,
-
-  // 3. Burst (Isolement M0 & Répulsion Voisins Mosaïque : 0.35s)
-  burstDuration: 0.35,
-  burstRepulse: 40000,
-  burstEasing: "easeOutCubic",
-
-  // 4. Zoom Avant Focalisé sur M0 (0.38s)
-  mainZoomFactor: 1.25,
-  mainZoomDuration: 0.38,
-  mainZoomEasing: "easeOutQuint",
-
-  // 5. Pause Contemplative sur M0 (0.08s micro-breath)
-  mainHoldDuration: 0.08,
-
-  // 6. Émergence de la Première Carte Inférieure (0.34s)
-  stackEntranceDuration: 0.34,
-  stackSlideOffset: 260,
-  stackM0Rise: 80,
-  stackEntranceEasing: "easeInQuad",
-
-  // 7. Rouleau 777 & Dézoom Simultanés (1.45s)
-  spinDezoomDuration: 1.45,
-  reelDuration: 1.45,
-  reelLoops: 2,
-  spinEasing: "easeOutQuint",
-  reelEasing: "easeOutQuint",
-  dezoomDuration: 1.45,
-  dezoomEasing: "easeInOutCubic",
-  textRevealDelay: 0.30,
-  reelEndDelay: 0.08,
-
-  // 8. Vue Détail & Courbure en Arc 3D
-  burstZoom: 1.8,
-  detailColumnRatio: 0.5,
-  desktopMediaWidthRatio: 0.34,
-  mobileMediaHeightRatio: 0.48,
-  mediaGap: 32,
-  detailScrollDamping: 12,
-  detailScrollSpeed: 1,
-  arcRadius: 1800,
-  arcMaxAngleDeg: 22,
-  arcCenterConvergence: 0.12,
-
-  // 9. Retour vers la page de base (Exit / Return : 0.6s)
-  exitDuration: 0.6,
-  exitSlideOffset: 350,
-  exitEasing: "easeInOutCubic",
-  repulseReturnDelay: 0.25,
-  cameraReturnDelay: 0.0,
 };

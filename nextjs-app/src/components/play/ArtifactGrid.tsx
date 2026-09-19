@@ -13,7 +13,6 @@ import {
   type PlayRuntimeRef,
   type PlayRuntimeState,
 } from "./PlayCanvas";
-import type { TransitionConfig } from "./transition-presets";
 import type { LayoutPoint, LayoutTile } from "./layout-types";
 import { ArtifactPlane } from "./ArtifactPlane";
 
@@ -48,21 +47,34 @@ function applyHover(
   width: number,
   height: number,
   hovering: boolean,
+  isDragging?: boolean,
 ) {
   if (rc.transition.phase !== "idle") {
     setAppCursor("auto");
     return;
   }
   if (hovering) {
+    if (isDragging) return;
     rc.hovered = pointIndex;
-    rc.selected = pointIndex;
-    rc.selectedPos = world;
+    rc.hoveredPos = { x: world.x, y: world.y, width, height };
     rc.indicatorTarget = { x: world.x, y: world.y, width, height };
     setAppCursor("pointer");
   } else {
     if (rc.hovered === pointIndex) {
       rc.hovered = null;
-      setAppCursor("auto");
+      rc.hoveredPos = null;
+      if (!isDragging) {
+        setAppCursor("auto");
+      }
+      const origPt = points[rc.selected];
+      if (origPt) {
+        rc.indicatorTarget = {
+          x: rc.selectedPos.x,
+          y: rc.selectedPos.y,
+          width: origPt.width,
+          height: origPt.height,
+        };
+      }
     }
   }
 }
@@ -78,6 +90,8 @@ function applySelect(
   if (rc.transition.phase !== "idle" && rc.transition.phase !== "selecting") return;
   rc.selected = pointIndex;
   rc.selectedPos = world;
+  rc.hovered = null;
+  rc.hoveredPos = null;
   rc.camera.targetX = world.x;
   rc.camera.targetY = world.y;
   rc.camera.mode = "settle";
@@ -100,7 +114,6 @@ function applySelect(
  */
 function stepKinematicMeshes(
   phys: PhysicsParams,
-  transition: TransitionConfig,
   rc: PlayRuntimeState,
   points: LayoutPoint[],
   groupRefs: (Group | null)[],
@@ -124,64 +137,50 @@ function stepKinematicMeshes(
     return;
   }
 
-  const isSelecting = rc.transition.phase === "selecting" || rc.transition.phase === "lock";
-  const isBursting = rc.transition.phase === "burst";
-  const isDetailActive =
-    rc.transition.phase === "mainZoom" ||
-    rc.transition.phase === "mainHold" ||
-    rc.transition.phase === "stackEntrance" ||
-    rc.transition.phase === "spinDezoom" ||
-    rc.transition.phase === "isolated";
-  const isReturning = rc.transition.phase === "returning";
+  // Tout vient de la timeline : la mosaïque ne recalcule aucune progression et
+  // ne connaît plus les phases. `displacementRef` ne sert qu'au repos, où le
+  // retour à zéro reste amorti (il n'y a alors pas de courbe pour le décrire).
+  const frame = rc.transition.frame;
   const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
   const targetPt = targetIdx >= 0 ? points[targetIdx] : null;
 
-  // Calcul du scalaire de déplacement cible
-  let targetD = 0;
-  const maxD = Math.max(0, transition.burstRepulse);
-
-  if (isSelecting) {
-    const repulseProgress = rc.transition.phase === "lock" ? 1 : rc.transition.easedSelectProgress;
-    targetD = transition.selectRepulse * repulseProgress;
-  } else if (isBursting) {
-    targetD = transition.selectRepulse + (maxD - transition.selectRepulse) * rc.transition.easedBurstProgress;
-  } else if (isDetailActive) {
-    targetD = maxD;
-  } else if (isReturning) {
-    const returnDelay = Math.max(0, transition.repulseReturnDelay);
-    if (rc.transition.returnTimer < returnDelay) {
-      targetD = maxD;
-    } else {
-      targetD = 0;
-    }
+  if (rc.transition.phase === "idle") {
+    displacementRef.current = dampTowards(
+      displacementRef.current,
+      frame.scatter,
+      Math.max(8, phys.damping),
+      delta,
+    );
+    if (Math.abs(displacementRef.current) < 0.05) displacementRef.current = 0;
   } else {
-    targetD = 0;
-  }
-
-  // Amortissement propre vers targetD (rapide et direct en transition, fluide au retour)
-  const dampSpeed = (rc.transition.phase === "idle" || isReturning) ? Math.max(8, phys.damping) : 24;
-  displacementRef.current = dampTowards(displacementRef.current, targetD, dampSpeed, delta);
-  if (rc.transition.phase === "idle" && Math.abs(displacementRef.current) < 0.05) {
-    displacementRef.current = 0;
+    displacementRef.current = frame.scatter;
   }
   const currentD = displacementRef.current;
-
-  // Facteur d'échelle du média ciblé avec micro-punch tactile au lock
-  let selectScaleFactor = 1;
-  if (rc.transition.phase === "selecting") {
-    selectScaleFactor = 1 + (transition.selectScale - 1) * rc.transition.easedSelectProgress;
-  } else if (rc.transition.phase === "lock") {
-    const lockT = rc.transition.lockProgress;
-    const punch = Math.sin(lockT * Math.PI) * transition.lockScalePunch;
-    selectScaleFactor = transition.selectScale + punch;
-  }
+  const selectScaleFactor = frame.tileScale;
 
   // Mise à jour de la cible de l'indicateur
-  if (targetPt && targetIdx === rc.selected) {
-    rc.indicatorTarget.x = rc.selectedPos.x;
-    rc.indicatorTarget.y = rc.selectedPos.y;
-    rc.indicatorTarget.width = targetPt.width * selectScaleFactor;
-    rc.indicatorTarget.height = targetPt.height * selectScaleFactor;
+  if (rc.transition.phase !== "idle") {
+    if (targetPt && targetIdx === rc.selected) {
+      rc.indicatorTarget.x = rc.selectedPos.x;
+      rc.indicatorTarget.y = rc.selectedPos.y;
+      rc.indicatorTarget.width = targetPt.width * selectScaleFactor;
+      rc.indicatorTarget.height = targetPt.height * selectScaleFactor;
+    }
+  } else {
+    if (rc.hovered !== null && rc.hoveredPos) {
+      rc.indicatorTarget.x = rc.hoveredPos.x;
+      rc.indicatorTarget.y = rc.hoveredPos.y;
+      rc.indicatorTarget.width = rc.hoveredPos.width;
+      rc.indicatorTarget.height = rc.hoveredPos.height;
+    } else {
+      const origPt = points[rc.selected];
+      if (origPt) {
+        rc.indicatorTarget.x = rc.selectedPos.x;
+        rc.indicatorTarget.y = rc.selectedPos.y;
+        rc.indicatorTarget.width = origPt.width;
+        rc.indicatorTarget.height = origPt.height;
+      }
+    }
   }
 
   const selX = rc.selectedPos.x;
@@ -224,23 +223,8 @@ function stepKinematicMeshes(
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
-      if (mat) {
-        let targetOpacity = 1;
-        if (isBursting) {
-          targetOpacity = Math.max(0, 1 - rc.transition.easedBurstProgress);
-        } else if (isDetailActive) {
-          targetOpacity = 0;
-        } else if (isReturning) {
-          const returnDelay = Math.max(0, transition.repulseReturnDelay);
-          const exitDur = Math.max(0.2, transition.exitDuration ?? 0.6);
-          if (rc.transition.returnTimer < returnDelay) {
-            targetOpacity = 0;
-          } else {
-            const fadeDur = Math.max(0.1, exitDur - returnDelay);
-            targetOpacity = Math.min(1, (rc.transition.returnTimer - returnDelay) / fadeDur);
-          }
-        }
-        mat.opacity = dampTowards(mat.opacity, targetOpacity, dampSpeed, delta);
+      if (mat && mat.opacity !== frame.mosaicOpacity) {
+        mat.opacity = frame.mosaicOpacity;
       }
     }
   }
@@ -327,7 +311,6 @@ export function ArtifactGrid({
 
     stepKinematicMeshes(
       debug.current.physics,
-      debug.current.transition,
       runtime.current,
       points,
       groupRefs.current,
@@ -348,7 +331,16 @@ export function ArtifactGrid({
       setAppCursor("grabbing");
       return;
     }
-    applyHover(runtime.current, points, pointIndex, world, width, height, hovering);
+    applyHover(
+      runtime.current,
+      points,
+      pointIndex,
+      world,
+      width,
+      height,
+      hovering,
+      dragMoved.current,
+    );
   }
 
   function handlePointerDown(

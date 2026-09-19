@@ -276,23 +276,18 @@ export function SelectProgressOverlay({
 
     if (
       progress <= 0.001 ||
-      (rc.transition.phase !== "selecting" && rc.transition.phase !== "lock")
+      (rc.transition.phase !== "selecting" && rc.transition.phase !== "playing")
     ) {
       mesh.visible = false;
       return;
     }
 
-    // Calcul de la progression de sortie de la vague pendant la phase d'animation de select (lock)
-    let exitProgress = 0;
-    if (rc.transition.phase === "lock") {
-      const exitDuration = Math.max(0.01, debug.current.transition.overlayExitDuration);
-      const t = Math.min(1, Math.max(0, rc.transition.lockTimer / exitDuration));
-      // Évacuation douce (smoothstep) : monte et s'évacue délicatement
-      exitProgress = t * t * (3 - 2 * t);
-      if (exitProgress >= 0.999) {
-        mesh.visible = false;
-        return;
-      }
+    // L'évacuation de la vague est une piste de la timeline : la vague se vide
+    // pendant que le reste démarre, au lieu d'attendre son tour.
+    const exitProgress = rc.transition.frame.overlayExit;
+    if (exitProgress >= 0.999) {
+      mesh.visible = false;
+      return;
     }
 
     const selIndex = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
@@ -304,14 +299,7 @@ export function SelectProgressOverlay({
 
     // Synchronisation position et dimensions avec l'artifact sélectionné
     // (tient compte du déplacement physique et du scale d'expansion + punch)
-    let scaleFactor = 1;
-    if (rc.transition.phase === "selecting") {
-      scaleFactor = 1 + (debug.current.transition.selectScale - 1) * rc.transition.easedSelectProgress;
-    } else if (rc.transition.phase === "lock") {
-      const lockT = rc.transition.lockProgress;
-      const punch = Math.sin(lockT * Math.PI) * debug.current.transition.lockScalePunch;
-      scaleFactor = debug.current.transition.selectScale + punch;
-    }
+    const scaleFactor = rc.transition.frame.tileScale;
 
     const w = point.width * scaleFactor;
     const h = point.height * scaleFactor;

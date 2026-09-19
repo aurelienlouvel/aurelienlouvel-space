@@ -202,16 +202,14 @@ export function FocusIndicator({
     const material = materialRef.current;
     if (!mesh || !material) return;
 
-    const { brackets, indicator, transition } = debug.current;
+    const { brackets, indicator } = debug.current;
     const target = runtime.current.indicatorTarget;
     const tr = runtime.current.transition;
 
-    // Les brackets ne s'affichent QUE sur la mosaïque (idle, selecting, lock).
-    // Pendant burst, zoom M0, hold, stackEntrance, spinDezoom, isolated ou returning, ils sont STRICTEMENT masqués.
-    const isDetailActive =
-      tr.phase !== "idle" && tr.phase !== "selecting" && tr.phase !== "lock";
-
-    if (isDetailActive) {
+    // Les brackets appartiennent à la mosaïque. En vue détail ils n'existent
+    // plus du tout ; pendant la timeline c'est `bracketAlpha` qui les éteint,
+    // à la fin de la piste `lock`, sans coupure.
+    if (tr.phase === "isolated" || tr.phase === "returning") {
       mesh.visible = false;
       opacityRef.current = 0;
       return;
@@ -226,34 +224,10 @@ export function FocusIndicator({
       material.color.set(brackets.color);
     }
 
-    // Gestion du pincement doux, retour à la position initiale, et fade vers l'extérieur
-    let currentPadding = brackets.padding;
-    let lockAlpha = 1;
-
-    if (tr.phase === "lock") {
-      const t = tr.lockProgress;
-
-      // 1ère phase (0.0 -> 0.55) : Pincement très doux et soyeux puis retour exact à la position initiale
-      const pinchWindow = 0.55;
-      if (t <= pinchWindow) {
-        const u = t / pinchWindow;
-        // sin²(u * π) : vitesse nulle au début, sommet doux à u=0.5, arrivée à vitesse nulle à u=1.0
-        const s = Math.sin(u * Math.PI);
-        const pinchPx = s * s * transition.lockBracketTighten;
-        currentPadding = Math.max(0, brackets.padding - pinchPx);
-        lockAlpha = 1;
-      } else {
-        // 2ème phase (0.55 -> 1.0) : Expansion légère vers l'extérieur tout en s'estompant (fade out)
-        const v = (t - pinchWindow) / (1 - pinchWindow);
-        // Smoothstep (départ à vitesse nulle continue avec le retour du pincement)
-        const vEased = v * v * (3 - 2 * v);
-        const expandPx = vEased * transition.lockBracketExpand;
-        currentPadding = brackets.padding + expandPx;
-        // Fondu progressif et doux
-        const fadeProgress = Math.cos(v * Math.PI * 0.5);
-        lockAlpha = Math.max(0, fadeProgress);
-      }
-    }
+    // Pincement puis expansion : la forme est décrite par la timeline, on ne
+    // fait que l'appliquer au padding de repos.
+    const currentPadding = Math.max(0, brackets.padding + tr.frame.bracketPad);
+    const lockAlpha = tr.frame.bracketAlpha;
 
     const baseOpacity = dampTowards(opacityRef.current, 1, indicator.fadeSpeed, delta);
     opacityRef.current = baseOpacity;

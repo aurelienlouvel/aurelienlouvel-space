@@ -286,7 +286,6 @@ export function SecondaryGalleryPlanes({
   const { size, camera } = useThree();
   const groupRef = useRef<Group>(null);
   const meshRefs = useRef<(Mesh | null)[]>([]);
-  const wrappedSlotsRef = useRef<boolean[]>([]);
 
   // Détection responsive : desktop (>= 1024px et paysage) vs mobile
   const isDesktop = size.width >= 1024 && size.width >= size.height;
@@ -384,59 +383,35 @@ export function SecondaryGalleryPlanes({
     if (!group || !principalPoint || pool.length === 0) return;
 
     const tr = runtime.current.transition;
-    const isBursting = tr.phase === "burst";
-    const isMainZoom = tr.phase === "mainZoom";
-    const isMainHold = tr.phase === "mainHold";
-    const isStackEntrance = tr.phase === "stackEntrance";
-    const isSpinDezoom = tr.phase === "spinDezoom";
-    const isIsolated = tr.phase === "isolated";
-    const isReturning = tr.phase === "returning";
+    const frame = tr.frame;
 
-    if (
-      !isBursting &&
-      !isMainZoom &&
-      !isMainHold &&
-      !isStackEntrance &&
-      !isSpinDezoom &&
-      !isIsolated &&
-      !isReturning
-    ) {
+    if (tr.phase !== "playing" && tr.phase !== "isolated" && tr.phase !== "returning") {
       group.visible = false;
       return;
     }
-
     group.visible = true;
 
-    let burstProgress = 1;
-    if (isBursting) {
-      burstProgress = tr.easedBurstProgress;
-    } else if (isMainZoom || isMainHold || isStackEntrance || isSpinDezoom || isIsolated) {
-      burstProgress = 1;
-    } else if (isReturning) {
-      const returnProg = tr.easedReturnProgress ?? 0;
-      burstProgress = Math.max(0, 1 - returnProg);
-    }
+    const cfg = debug.current.transition;
+    const effectiveGap = cfg.mediaGap ?? gap;
 
-    const currentZoom = Math.max(0.01, camera.zoom);
-    const effectiveGap = debug.current.transition.mediaGap ?? gap;
-    const stackSlideOffset = debug.current.transition.stackSlideOffset ?? 350;
-    const exitSlideOffset = debug.current.transition.exitSlideOffset ?? 350;
-
-    // ── Dimensions responsive ───────────────────────────────────────────────
-    // Desktop : largeur = ~34% de la largeur d'écran (avec un minimum de 380px)
-    // Mobile  : hauteur = ~48% de la hauteur d'écran (avec un minimum de 260px)
-    const desktopWidthRatio = debug.current.transition.desktopMediaWidthRatio ?? 0.34;
-    const mobileHeightRatio = debug.current.transition.mobileMediaHeightRatio ?? 0.48;
+    // ── Géométrie de la colonne, figée au zoom de destination ───────────────
+    // Les cartes contre-compensent le zoom caméra pour occuper une largeur
+    // constante à l'écran. Lue au zoom *courant*, cette compensation annule
+    // exactement la rampe de zoom — plus rien ne bouge à l'image pendant une
+    // seconde et demie — et fait glisser hauteurs de cycle et positions de
+    // repos sous l'animation, si bien que le rouleau poursuit une cible mobile.
+    // On l'évalue donc une fois pour toutes au zoom final : la colonne a une
+    // géométrie fixe, et c'est la caméra seule qui produit l'effet d'échelle.
+    const refZoom = Math.max(0.01, debug.current.camera.zoom * cfg.detailZoom);
+    const desktopWidthRatio = cfg.desktopMediaWidthRatio ?? 0.34;
+    const mobileHeightRatio = cfg.mobileMediaHeightRatio ?? 0.48;
 
     let baseColWidth = 0;
     let baseColHeight = 0;
-
     if (isDesktop) {
-      const targetWidthPx = Math.max(380, size.width * desktopWidthRatio);
-      baseColWidth = targetWidthPx / currentZoom;
+      baseColWidth = Math.max(380, size.width * desktopWidthRatio) / refZoom;
     } else {
-      const targetHeightPx = Math.max(260, size.height * mobileHeightRatio);
-      baseColHeight = targetHeightPx / currentZoom;
+      baseColHeight = Math.max(260, size.height * mobileHeightRatio) / refZoom;
     }
 
     const K = Math.max(1, uniqueCount);
@@ -461,123 +436,87 @@ export function SecondaryGalleryPlanes({
 
     const totalPoolSpan = oneCycleHeight * totalCycles;
 
-    // Calcul des positions de repos restingY pour chaque slot :
-    // Le slot centerSlotIdx (M0) est ancré à principalPoint.y (centre de l'écran)
+    // Positions de repos : M0 ancré au centre, la colonne se construit de part
+    // et d'autre. Constantes pendant toute la timeline, maintenant que la
+    // géométrie ne dépend plus du zoom courant.
     const restingY: number[] = new Array(pool.length);
     restingY[centerSlotIdx] = principalPoint.y;
 
-    // Progression vers le bas pour les slots s > centerSlotIdx
     for (let s = centerSlotIdx + 1; s < pool.length; s++) {
-      const prevSlot = pool[s - 1];
-      const curSlot = pool[s];
-      const prevH = uniqueHeights[prevSlot.galleryIdx % K];
-      const curH = uniqueHeights[curSlot.galleryIdx % K];
+      const prevH = uniqueHeights[pool[s - 1].galleryIdx % K];
+      const curH = uniqueHeights[pool[s].galleryIdx % K];
       restingY[s] = restingY[s - 1] - prevH * 0.5 - effectiveGap - curH * 0.5;
     }
 
-    // Progression vers le haut pour les slots s < centerSlotIdx
     for (let s = centerSlotIdx - 1; s >= 0; s--) {
-      const nextSlot = pool[s + 1];
-      const curSlot = pool[s];
-      const nextH = uniqueHeights[nextSlot.galleryIdx % K];
-      const curH = uniqueHeights[curSlot.galleryIdx % K];
+      const nextH = uniqueHeights[pool[s + 1].galleryIdx % K];
+      const curH = uniqueHeights[pool[s].galleryIdx % K];
       restingY[s] = restingY[s + 1] + nextH * 0.5 + effectiveGap + curH * 0.5;
     }
 
-    // ── Réinitialisation de la mémoire anti-pop lors d'une nouvelle sélection
-    if (tr.phase === "idle" || tr.phase === "selecting" || tr.phase === "lock" || tr.phase === "burst") {
-      if (wrappedSlotsRef.current.length !== pool.length || wrappedSlotsRef.current.some(Boolean)) {
-        wrappedSlotsRef.current = new Array(pool.length).fill(false);
-      }
-    }
-
-    const stackM0Rise = debug.current.transition.stackM0Rise ?? 90;
-
-    // ── Animation et défilement ─────────────────────────────────────────────
-    let scrollY = 0;
-    if (isSpinDezoom) {
-      const reelLoops = Math.max(1, debug.current.transition.reelLoops ?? 2);
-      const spinProgress = tr.easedSpinDezoomProgress ?? 0;
-      // Course continue strictement vers le haut : démarre exactement à stackM0Rise et termine
-      // à reelLoops * oneCycleHeight (modulo cycle = 0, atterrissage parfait sur M0 au centre)
-      const totalSpinDist = reelLoops * oneCycleHeight - stackM0Rise;
-      scrollY = stackM0Rise + totalSpinDist * spinProgress;
-    } else if (isIsolated || isReturning) {
-      scrollY = tr.columnScrollY;
-    }
+    // ── Rouleau ─────────────────────────────────────────────────────────────
+    // La course vaut exactement `reelLoops` cycles : à l'arrivée, modulo la
+    // hauteur de cycle, l'image est celle du repos. C'est ce qui permet à la
+    // timeline de rendre la main au défilement libre sans aucune coupure —
+    // exactement, pas approximativement, la hauteur de cycle étant désormais
+    // constante.
+    const reelLoops = Math.max(1, cfg.reelLoops ?? 2);
+    const scrollY = frame.scroll * reelLoops * oneCycleHeight + tr.columnScrollY;
 
     const anchorY = principalPoint.y;
-    // Seuil de sortie haute du champ visible : au-delà, le slot boucle sous l'écran
     const visibleHalfH = (size.height / Math.max(0.1, camera.zoom)) * 0.5;
     const topLimit = anchorY + Math.max(visibleHalfH + 300, oneCycleHeight * 0.75);
     const screenTop = camera.position.y + visibleHalfH;
     const screenBottom = camera.position.y - visibleHalfH;
+
+    // M0 part exactement de la tuile de la mosaïque — mêmes dimensions, même
+    // position — pour que la reprise soit invisible.
+    const mainStartW = principalPoint.width * frame.tileScale;
+    const mainStartH = principalPoint.height * frame.tileScale;
 
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
       if (!mesh) return;
 
       const isMain = s === centerSlotIdx;
-      const offset = slot.relativeIdx; // s - centerSlotIdx
+      const offset = slot.relativeIdx;
 
       let y = restingY[s] + scrollY;
-
-      // ── Émergence séquentielle (Temps 6) ──────────────────────────────────
-      if (isStackEntrance) {
-        const entranceT = tr.easedStackEntranceProgress ?? 0;
-        const m0Rise = stackM0Rise * entranceT;
-        const slideDist = (1 - entranceT) * stackSlideOffset;
-
-        if (isMain) {
-          // M0 commence à monter vers le haut dès que M1 entre, mais moins vite que M1
-          y = restingY[centerSlotIdx] + m0Rise;
-        } else if (offset >= 1) {
-          // M1 (et suivants) montent depuis le bas plus rapidement pour rattraper le bon espacement
-          y = restingY[s] + m0Rise - slideDist;
-        } else {
-          // Cartes au-dessus : restent strictement invisibles
-          y = restingY[s] + m0Rise;
-        }
-      } else if (isReturning) {
-        if (!isMain) {
-          const returnProg = tr.easedReturnProgress ?? 0;
-          const slideDist = returnProg * exitSlideOffset;
-          if (offset > 0) {
-            y -= slideDist;
-          } else if (offset < 0) {
-            y += slideDist;
-          }
-        }
+      if (!isMain && frame.slide !== 0) {
+        y += offset > 0 ? -frame.slide : frame.slide;
       }
 
-      // Bouclage infini périodique modulaire
+      // À l'entrée, la colonne ne se déploie que vers le bas : une carte située
+      // au-dessus de M0 n'apparaît qu'une fois ramenée par le bas. Le test est
+      // une fonction pure du défilement (monotone pendant la timeline) plutôt
+      // qu'une mémoire, donc il rejoue à l'identique en scrub, et il bascule au
+      // moment du bouclage — hors champ, donc invisible. Avec `reelLoops >= 2`
+      // tous les slots ont bouclé avant la fin, et la levée du garde en vue
+      // détail ne change rien.
+      const gatedAbove =
+        tr.phase === "playing" && offset < 0 && restingY[s] + scrollY <= topLimit;
+
       if (pool.length > 1 && totalPoolSpan > 100) {
-        if (isSpinDezoom || isIsolated || isReturning) {
-          const unwrappedY = y;
-          // Dès qu'une carte supérieure (offset < 0) a franchi le haut et bouclé par le bas, elle est mémorisée
-          if (unwrappedY > topLimit) {
-            wrappedSlotsRef.current[s] = true;
-          }
-          y = wrapPeriodic(unwrappedY, totalPoolSpan, topLimit);
-        }
+        y = wrapPeriodic(y, totalPoolSpan, topLimit);
       }
 
-      // Rendu strictement 2D plat (suppression de l'arc de cercle 3D)
       mesh.position.set(principalPoint.x, y, 0);
       mesh.rotation.set(0, 0, 0);
-
-      // Priorité de rendu : M0 au premier plan
       mesh.renderOrder = isMain ? 10 : 5;
 
       const curItemIdx = slot.galleryIdx % K;
       const targetW = uniqueWidths[curItemIdx];
       const targetH = uniqueHeights[curItemIdx];
-      const fadeZone = Math.max(100, targetH * 0.35);
 
-      // Calcul du fondu d'entrée/sortie ultra-doux aux extrémités de l'écran
-      const cardTop = y + targetH * 0.5;
-      const cardBottom = y - targetH * 0.5;
+      // M0 : taille de tuile → taille de colonne, piloté par la piste `reveal`.
+      const drawW = isMain ? mainStartW + (targetW - mainStartW) * frame.reveal : targetW;
+      const drawH = isMain ? mainStartH + (targetH - mainStartH) * frame.reveal : targetH;
+      mesh.scale.set(drawW, drawH, 1);
 
+      // Fondu doux aux extrémités de l'écran
+      const fadeZone = Math.max(100, drawH * 0.35);
+      const cardTop = y + drawH * 0.5;
+      const cardBottom = y - drawH * 0.5;
       let edgeFade = 1;
       if (cardBottom < screenBottom + fadeZone) {
         edgeFade = Math.max(0, Math.min(1, (cardTop - screenBottom) / fadeZone));
@@ -585,46 +524,16 @@ export function SecondaryGalleryPlanes({
         edgeFade = Math.max(0, Math.min(1, (screenTop - cardBottom) / fadeZone));
       }
 
-      if (isMain) {
-        if (isBursting || isReturning) {
-          const startW = principalPoint.width * (debug.current.transition.selectScale || 1.0);
-          const startH = principalPoint.height * (debug.current.transition.selectScale || 1.0);
-          const curW = startW + (targetW - startW) * burstProgress;
-          const curH = startH + (targetH - startH) * burstProgress;
-          mesh.scale.set(curW, curH, 1);
-        } else {
-          mesh.scale.set(targetW, targetH, 1);
-        }
-      } else {
-        mesh.scale.set(targetW, targetH, 1);
-      }
-
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
-        if (isMain && (isBursting || isMainZoom || isMainHold || isStackEntrance)) {
-          mat.opacity = 1;
-        } else if (isBursting || isMainZoom || isMainHold) {
+        if (gatedAbove) {
           mat.opacity = 0;
-        } else if (isStackEntrance) {
-          if (offset === 1) {
-            mat.opacity = Math.min(1, (tr.easedStackEntranceProgress ?? 0) * 1.5) * edgeFade;
-          } else if (offset > 1) {
-            mat.opacity = Math.max(0, Math.min(1, ((tr.easedStackEntranceProgress ?? 0) - 0.2) * 1.5)) * edgeFade;
-          } else {
-            mat.opacity = 0;
-          }
-        } else if (isSpinDezoom) {
-          if (isMain) {
-            mat.opacity = edgeFade;
-          } else if (offset > 0) {
-            mat.opacity = edgeFade;
-          } else {
-            mat.opacity = wrappedSlotsRef.current[s] ? edgeFade : 0;
-          }
-        } else if (isIsolated) {
+        } else if (isMain) {
+          // M0 reste opaque : pendant le retour elle se superpose exactement à
+          // la tuile de la mosaïque qui réapparaît, même image au même endroit.
           mat.opacity = edgeFade;
-        } else if (isReturning) {
-          mat.opacity = Math.max(0, 1 - (tr.easedReturnProgress ?? 0)) * edgeFade;
+        } else {
+          mat.opacity = frame.columnOpacity * edgeFade;
         }
       }
     });
