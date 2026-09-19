@@ -12,13 +12,9 @@ import {
 import type { LayoutStats } from "./layout-types";
 import type { ArtifactDetail } from "@/sanity/queries";
 import {
-  TRANSITION_PRESETS,
-  cloneTransitionConfig,
-  timelineEnd,
   type EasingName,
   type TrackName,
   type TransitionConfig,
-  type TransitionPresetName,
 } from "./transition-presets";
 
 /** Champs numériques de la config — ceux qu'un slider peut piloter. */
@@ -26,8 +22,8 @@ type NumericTransitionField = {
   [K in keyof TransitionConfig]: TransitionConfig[K] extends number ? K : never;
 }[keyof TransitionConfig];
 
-const STORAGE_KEY = "play-debug-v24";
-const VISIBILITY_STORAGE_KEY = "play-debug-visibility-v1";
+const STORAGE_KEY = "play-debug-v25";
+const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 const EASING_OPTIONS: EasingName[] = [
@@ -36,166 +32,37 @@ const EASING_OPTIONS: EasingName[] = [
   "easeOutQuad",
   "easeInCubic",
   "easeInOutCubic",
+  "easeInOutQuint",
   "easeOutExpo",
   "easeOutQuint",
 ];
 
-export interface SectionVisibility {
-  studio: boolean;
-  artifactDetails: boolean;
-  transition: boolean;
-  brackets: boolean;
-  indicator: boolean;
-  camera: boolean;
-  layout: boolean;
-  stats: boolean;
-  pan: boolean;
-  physics: boolean;
-  overlay: boolean;
-  image: boolean;
-}
+export type DebugTab =
+  | "camera"
+  | "media"
+  | "canvas"
+  | "selection"
+  | "transition"
+  | "focus";
 
-export type ViewPreset =
-  | "studio"
-  | "visuals"
-  | "layout"
-  | "physics"
-  | "overlay"
-  | "all"
-  | "custom";
+const TABS: { id: DebugTab; label: string; icon: string }[] = [
+  { id: "camera", label: "camera", icon: "📷" },
+  { id: "media", label: "media", icon: "🖼" },
+  { id: "canvas", label: "canvas", icon: "🪐" },
+  { id: "selection", label: "selection", icon: "🔲" },
+  { id: "transition", label: "transition", icon: "🎬" },
+  { id: "focus", label: "focus", icon: "🎯" },
+];
 
-const DEFAULT_VISIBILITY: SectionVisibility = {
-  studio: true,
-  artifactDetails: true,
-  transition: true,
-  brackets: false,
-  indicator: false,
-  camera: false,
-  layout: false,
-  stats: false,
-  pan: false,
-  physics: false,
-  overlay: false,
-  image: false,
-};
-
-const PRESET_MAP: Record<Exclude<ViewPreset, "custom">, SectionVisibility> = {
-  studio: {
-    studio: true,
-    artifactDetails: true,
-    transition: true,
-    brackets: false,
-    indicator: false,
-    camera: false,
-    layout: false,
-    stats: false,
-    pan: false,
-    physics: false,
-    overlay: false,
-    image: false,
-  },
-  visuals: {
-    studio: false,
-    artifactDetails: false,
-    transition: false,
-    brackets: true,
-    indicator: true,
-    camera: false,
-    layout: false,
-    stats: false,
-    pan: false,
-    physics: false,
-    overlay: false,
-    image: true,
-  },
-  layout: {
-    studio: false,
-    artifactDetails: false,
-    transition: false,
-    brackets: false,
-    indicator: false,
-    camera: true,
-    layout: true,
-    stats: true,
-    pan: false,
-    physics: false,
-    overlay: false,
-    image: false,
-  },
-  physics: {
-    studio: false,
-    artifactDetails: false,
-    transition: false,
-    brackets: false,
-    indicator: false,
-    camera: false,
-    layout: false,
-    stats: false,
-    pan: true,
-    physics: true,
-    overlay: false,
-    image: false,
-  },
-  overlay: {
-    studio: false,
-    artifactDetails: false,
-    transition: false,
-    brackets: false,
-    indicator: false,
-    camera: false,
-    layout: false,
-    stats: false,
-    pan: false,
-    physics: false,
-    overlay: true,
-    image: false,
-  },
-  all: {
-    studio: true,
-    artifactDetails: true,
-    transition: true,
-    brackets: true,
-    indicator: true,
-    camera: true,
-    layout: true,
-    stats: true,
-    pan: true,
-    physics: true,
-    overlay: true,
-    image: true,
-  },
-};
-
-function loadVisibility(): { visibility: SectionVisibility; preset: ViewPreset } {
-  if (typeof window === "undefined") {
-    return { visibility: DEFAULT_VISIBILITY, preset: "studio" };
-  }
+function loadSavedTab(): DebugTab {
+  if (typeof window === "undefined") return "transition";
   try {
-    const raw = window.localStorage.getItem(VISIBILITY_STORAGE_KEY);
-    if (!raw) return { visibility: DEFAULT_VISIBILITY, preset: "studio" };
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.visibility === "object") {
-      return {
-        visibility: { ...DEFAULT_VISIBILITY, ...parsed.visibility },
-        preset: (parsed.preset as ViewPreset) || "custom",
-      };
-    }
+    const saved = window.localStorage.getItem(TAB_STORAGE_KEY) as DebugTab | null;
+    if (saved && TABS.some((t) => t.id === saved)) return saved;
   } catch {
     // fallback
   }
-  return { visibility: DEFAULT_VISIBILITY, preset: "studio" };
-}
-
-function saveVisibility(visibility: SectionVisibility, preset: ViewPreset) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      VISIBILITY_STORAGE_KEY,
-      JSON.stringify({ visibility, preset }),
-    );
-  } catch {
-    // ignore
-  }
+  return "transition";
 }
 
 function restore(state: PlayDebugState) {
@@ -267,1031 +134,42 @@ const LEVA_THEME = {
   },
 };
 
-// ── 0. Display Filter & Actions Control ─────────────────────────
-function SettingsSection({
-  preset,
-  visibility,
-  onPresetChange,
-  onToggle,
-  onSave,
-  onCopy,
-}: {
-  preset: ViewPreset;
-  visibility: SectionVisibility;
-  onPresetChange: (p: ViewPreset) => void;
-  onToggle: (key: keyof SectionVisibility, val: boolean) => void;
-  onSave: () => void;
-  onCopy: () => void;
-}) {
-  const setControlsRef = useRef<((values: Record<string, unknown>) => void) | null>(null);
-
-  const [, setControls] = useControls("⚙️ Display & Actions", () => ({
-    "Filter Preset": {
-      value: preset,
-      options: {
-        "🎬 Studio & Transition": "studio",
-        "🔲 Visuals (Brackets & Indicator)": "visuals",
-        "🪐 Layout & Camera": "layout",
-        "🧲 Physics & Pan": "physics",
-        "🌊 Selection Overlay": "overlay",
-        "✨ Show All Sections": "all",
-        "🛠 Custom Selection": "custom",
-      },
-      onChange: (val: ViewPreset, _p: string, ctx: { initial: boolean }) => {
-        if (!ctx.initial) {
-          onPresetChange(val);
-        }
-      },
-    },
-    "Toggle Sections": folder(
-      {
-        "Studio Animation": {
-          value: visibility.studio,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("studio", v);
-          },
-        },
-        "Artifact Details": {
-          value: visibility.artifactDetails,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("artifactDetails", v);
-          },
-        },
-        "Transition (3 Phases)": {
-          value: visibility.transition,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("transition", v);
-          },
-        },
-        "Corner Brackets": {
-          value: visibility.brackets,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("brackets", v);
-          },
-        },
-        "Focus Indicator": {
-          value: visibility.indicator,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("indicator", v);
-          },
-        },
-        "Camera & Fisheye": {
-          value: visibility.camera,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("camera", v);
-          },
-        },
-        "Gravity Layout": {
-          value: visibility.layout,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("layout", v);
-          },
-        },
-        "Layout Stats": {
-          value: visibility.stats,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("stats", v);
-          },
-        },
-        "Pan & Inertia": {
-          value: visibility.pan,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("pan", v);
-          },
-        },
-        "Physics (Repulsion)": {
-          value: visibility.physics,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("physics", v);
-          },
-        },
-        "Selection Overlay": {
-          value: visibility.overlay,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("overlay", v);
-          },
-        },
-        "Image Plane": {
-          value: visibility.image,
-          onChange: (v: boolean, _p: string, ctx: { initial: boolean }) => {
-            if (!ctx.initial) onToggle("image", v);
-          },
-        },
-      },
-      { collapsed: true },
-    ),
-    actions: buttonGroup({
-      "💾 Save Settings": onSave,
-      "📋 Copy JSON": onCopy,
-    }),
-  }));
-
-  useEffect(() => {
-    setControlsRef.current = setControls as unknown as (
-      values: Record<string, unknown>,
-    ) => void;
-  }, [setControls]);
-
-  // Synchronize Leva checkboxes when preset changes externally
-  useEffect(() => {
-    setControlsRef.current?.({
-      "Filter Preset": preset,
-      "Studio Animation": visibility.studio,
-      "Artifact Details": visibility.artifactDetails,
-      "Transition (3 Phases)": visibility.transition,
-      "Corner Brackets": visibility.brackets,
-      "Focus Indicator": visibility.indicator,
-      "Camera & Fisheye": visibility.camera,
-      "Gravity Layout": visibility.layout,
-      "Layout Stats": visibility.stats,
-      "Pan & Inertia": visibility.pan,
-      "Physics (Repulsion)": visibility.physics,
-      "Selection Overlay": visibility.overlay,
-      "Image Plane": visibility.image,
-    });
-  }, [preset, visibility]);
-
-  return null;
-}
-
-// ── 1. Animation Studio ─────────────────────────────────────────
-function StudioSection({
-  state,
-  onReplayLock,
-  onSimulateSelect,
-  onResetTransition,
-}: {
-  state: PlayDebugRef;
-  onReplayLock: () => void;
-  onSimulateSelect: () => void;
-  onResetTransition: () => void;
-}) {
-  useControls("🎬 Animation Studio", () => ({
-    actions: buttonGroup({
-      "▶ Replay Lock": onReplayLock,
-      "▶ Simulate Select": onSimulateSelect,
-      "⏹ Reset": onResetTransition,
-    }),
-    "Infinite lock loop": {
-      value: state.current.studio.loopLock,
-      label: "Infinite loop (L)",
-      onChange: (v: boolean) => {
-        state.current.studio.loopLock = v;
-      },
-    },
-    "Speed (slow-mo)": {
-      value: state.current.studio.speed,
-      label: "Playback speed",
-      options: {
-        "0.1x (Ultra slow)": 0.1,
-        "0.25x (Slow motion)": 0.25,
-        "0.5x (Half speed)": 0.5,
-        "1.0x (Normal speed)": 1.0,
-      },
-      onChange: (v: number) => {
-        state.current.studio.speed = v;
-      },
-    },
-    "Manual scrub": {
-      value: state.current.studio.scrubMode,
-      label: "Pause & Scrub",
-      onChange: (v: boolean) => {
-        state.current.studio.scrubMode = v;
-      },
-    },
-    "Frame scrubber": {
-      value: state.current.studio.scrubProgress,
-      min: 0.0,
-      max: 1.0,
-      step: 0.005,
-      label: "Scrubber (0-100%)",
-      onChange: (v: number) => {
-        state.current.studio.scrubProgress = v;
-      },
-    },
-  }));
-
-  return null;
-}
-
-// ── 2. Transition (Timeline) ────────────────────────────────────
-/**
- * Le pane suit le modèle : une horloge et des pistes. Chaque piste expose son
- * départ, sa durée et son easing — c'est exactement ce qui définit la
- * chorégraphie, et le recouvrement entre pistes se règle en déplaçant un
- * départ, sans toucher au reste.
- */
-const TRACK_CONTROLS: {
-  field: TrackName;
-  label: string;
-  maxStart: number;
-  maxDuration: number;
-}[] = [
-  { field: "lock", label: "lock — brackets", maxStart: 2, maxDuration: 2 },
-  { field: "scatter", label: "scatter — mosaïque", maxStart: 3, maxDuration: 3 },
-  { field: "reveal", label: "reveal — M0 → colonne", maxStart: 3, maxDuration: 3 },
-  { field: "hero", label: "hero — zoom montant", maxStart: 3, maxDuration: 3 },
-  { field: "scroll", label: "scroll — rouleau", maxStart: 5, maxDuration: 6 },
-  { field: "slide", label: "slide — entrée secondaires", maxStart: 5, maxDuration: 4 },
-  { field: "columnFade", label: "columnFade — opacité colonne", maxStart: 5, maxDuration: 3 },
-  { field: "dezoom", label: "dezoom — vers la vue détail", maxStart: 5, maxDuration: 5 },
-];
-
-const AMPLITUDE_CONTROLS: {
-  field: NumericTransitionField;
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-}[] = [
-  { field: "lockBracketTighten", label: "Bracket pinch (px)", min: 0, max: 40, step: 1 },
-  { field: "lockBracketExpand", label: "Bracket expand (px)", min: 0, max: 60, step: 1 },
-  { field: "lockScalePunch", label: "Scale punch", min: 0, max: 0.2, step: 0.005 },
-  { field: "overlayExitDuration", label: "Wave exit (s)", min: 0.05, max: 1.2, step: 0.02 },
-  { field: "scatterDistance", label: "Scatter distance", min: 500, max: 6000, step: 50 },
-  { field: "heroZoom", label: "Hero zoom (× détail)", min: 1, max: 2.5, step: 0.05 },
-  { field: "detailZoom", label: "Detail zoom (× base)", min: 0.5, max: 4, step: 0.05 },
-  { field: "reelLoops", label: "Reel loops", min: 1, max: 8, step: 1 },
-  { field: "slideOffset", label: "Slide offset", min: 0, max: 1200, step: 20 },
-  { field: "textRevealAt", label: "Text reveal at (s)", min: 0, max: 6, step: 0.05 },
-];
-
-const EXIT_CONTROLS: {
-  field: NumericTransitionField;
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-}[] = [
-  { field: "exitSlideOffset", label: "Exit slide offset", min: 0, max: 1200, step: 20 },
-  { field: "repulseReturnDelay", label: "Mosaic return delay (s)", min: 0, max: 1.5, step: 0.05 },
-  { field: "cameraReturnDelay", label: "Camera return delay (s)", min: 0, max: 1, step: 0.02 },
-];
-
-function markCustom(state: PlayDebugRef, ctx: { initial: boolean }) {
-  if (!ctx.initial && state.current.transition.preset !== "custom") {
-    state.current.transition.preset = "custom";
-  }
-}
-
-function numberControl(
-  state: PlayDebugRef,
-  field: NumericTransitionField,
-  min: number,
-  max: number,
-  step: number,
-) {
-  return {
-    value: state.current.transition[field],
-    min,
-    max,
-    step,
-    onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
-      state.current.transition[field] = v;
-      markCustom(state, ctx);
-    },
-  };
-}
-
-function trackFolder(
-  state: PlayDebugRef,
-  field: TrackName,
-  maxStart: number,
-  maxDuration: number,
-) {
-  const track = state.current.transition[field];
-  return folder(
-    {
-      Start: {
-        value: track.start,
-        min: 0,
-        max: maxStart,
-        step: 0.02,
-        onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
-          state.current.transition[field].start = v;
-          markCustom(state, ctx);
-        },
-      },
-      Duration: {
-        value: track.duration,
-        min: 0.05,
-        max: maxDuration,
-        step: 0.02,
-        onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
-          state.current.transition[field].duration = v;
-          markCustom(state, ctx);
-        },
-      },
-      Easing: {
-        value: track.easing,
-        options: EASING_OPTIONS,
-        onChange: (v: string, _p: string, ctx: { initial: boolean }) => {
-          state.current.transition[field].easing = v as EasingName;
-          markCustom(state, ctx);
-        },
-      },
-    },
-    { collapsed: true },
-  );
-}
-
-const TRANSITION_PANEL = "⚡ Transition (Timeline)";
-
-function TransitionSection({ state }: { state: PlayDebugRef }) {
-  // Appliquer un preset remonte la révision, ce qui remonte le sous-composant :
-  // Leva relit alors toutes les valeurs depuis l'état. Plus fiable qu'un `set`
-  // piloté par une table de libellés, qui se désynchronise au moindre renommage.
-  const [revision, setRevision] = useState(0);
-
-  useControls(TRANSITION_PANEL, () => ({
-    preset: {
-      value: state.current.transition.preset,
-      options: {
-        Cinematic: "cinematic",
-        Snappy: "snappy",
-        Dramatic: "dramatic",
-        Custom: "custom",
-      },
-      onChange: (
-        presetKey: TransitionPresetName,
-        _p: string,
-        ctx: { initial: boolean },
-      ) => {
-        if (ctx.initial || presetKey === "custom" || !TRANSITION_PRESETS[presetKey]) return;
-        // Copie profonde : sans elle, régler une piste modifierait le preset
-        // lui-même, partagé par toutes les configs qui en sont issues.
-        Object.assign(
-          state.current.transition,
-          cloneTransitionConfig({ ...TRANSITION_PRESETS[presetKey], preset: presetKey }),
-        );
-        setRevision((r) => r + 1);
-      },
-    },
-  }));
-
-  return <TransitionParams key={revision} state={state} />;
-}
-
-function TransitionParams({ state }: { state: PlayDebugRef }) {
-  useControls(TRANSITION_PANEL, () => ({
-    "0 • Hold (avant la timeline)": folder(
-      {
-        "Hold duration (s)": {
-          value: state.current.transition.selectDuration,
-          min: 0.2,
-          max: 2.0,
-          step: 0.05,
-          onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
-            state.current.transition.selectDuration = v;
-            markCustom(state, ctx);
-          },
-        },
-        "Hold zoom": numberControl(state, "selectZoom", 1, 1.5, 0.01),
-        "Hold tile scale": numberControl(state, "selectScale", 0.8, 1.5, 0.01),
-        "Hold repulsion": numberControl(state, "selectRepulse", 0, 2000, 10),
-        "Hold easing": {
-          value: state.current.transition.selectEasing,
-          options: EASING_OPTIONS,
-          onChange: (v: string, _p: string, ctx: { initial: boolean }) => {
-            state.current.transition.selectEasing = v as EasingName;
-            markCustom(state, ctx);
-          },
-        },
-      },
-      { collapsed: true },
-    ),
-    "1 • Pistes": folder(
-      Object.fromEntries(
-        TRACK_CONTROLS.map((t) => [
-          t.label,
-          trackFolder(state, t.field, t.maxStart, t.maxDuration),
-        ]),
-      ),
-      { collapsed: false },
-    ),
-    "2 • Amplitudes": folder(
-      Object.fromEntries(
-        AMPLITUDE_CONTROLS.map((c) => [
-          c.label,
-          numberControl(state, c.field, c.min, c.max, c.step),
-        ]),
-      ),
-      { collapsed: true },
-    ),
-    "3 • Sortie": folder(
-      {
-        "exit — retour mosaïque": trackFolder(state, "exit", 2, 3),
-        ...Object.fromEntries(
-          EXIT_CONTROLS.map((c) => [
-            c.label,
-            numberControl(state, c.field, c.min, c.max, c.step),
-          ]),
-        ),
-      },
-      { collapsed: true },
-    ),
-  }));
-
-  return null;
-}
-
-// ── 2b. Artifact Details (artifact-details) ─────────────────────
-function ArtifactDetailsSection({
-  state,
-  onSimulateSelect,
-  onResetTransition,
-  runtime,
-  selectedArtifact,
-  apiStatus = "idle",
-  onCloseDetail,
-}: {
-  state: PlayDebugRef;
-  onSimulateSelect: () => void;
-  onResetTransition: () => void;
-  runtime?: RefObject<PlayRuntimeState>;
-  selectedArtifact?: ArtifactDetail | null;
-  apiStatus?: "idle" | "fetching" | "ready" | "error";
-  onCloseDetail?: () => void;
-}) {
-  const [, set] = useControls(
-    "artifact-details",
-    () => ({
-      Actions: buttonGroup({
-        "▶ Enter Detail": onSimulateSelect,
-        "◀ Exit Detail": () => (onCloseDetail ? onCloseDetail() : onResetTransition()),
-        "🔄 Force Reset": onResetTransition,
-      }),
-      "Status Monitor": folder(
-        {
-          Phase: {
-            value: "idle",
-            editable: false,
-          },
-          "Target Slug": {
-            value: "none",
-            editable: false,
-          },
-          "API Status": {
-            value: "idle",
-            editable: false,
-          },
-          "Media Count": {
-            value: 1,
-            editable: false,
-          },
-          "Scroll Y": {
-            value: 0,
-            editable: false,
-          },
-          "Clock t / total": {
-            value: "0.00 / 0.00 s",
-            editable: false,
-          },
-        },
-        { collapsed: false },
-      ),
-      // Les réglages de la chorégraphie vivent dans le pane Timeline. Ne
-      // restent ici que ceux qui décrivent la vue détail elle-même, une fois
-      // la transition terminée.
-      "Vue détail": folder(
-        {
-          "Media column ratio": {
-            value: state.current.transition.detailColumnRatio,
-            min: 0.2,
-            max: 0.8,
-            step: 0.01,
-            onChange: (v: number) => {
-              state.current.transition.detailColumnRatio = v;
-            },
-          },
-          "Media width % (desktop)": {
-            value: state.current.transition.desktopMediaWidthRatio,
-            min: 0.15,
-            max: 0.7,
-            step: 0.01,
-            onChange: (v: number) => {
-              state.current.transition.desktopMediaWidthRatio = v;
-            },
-          },
-          "Media height % (mobile)": {
-            value: state.current.transition.mobileMediaHeightRatio,
-            min: 0.2,
-            max: 0.9,
-            step: 0.01,
-            onChange: (v: number) => {
-              state.current.transition.mobileMediaHeightRatio = v;
-            },
-          },
-          "Media gap (px)": {
-            value: state.current.transition.mediaGap,
-            min: 0,
-            max: 200,
-            step: 2,
-            onChange: (v: number) => {
-              state.current.transition.mediaGap = v;
-            },
-          },
-          "Scroll damping": {
-            value: state.current.transition.detailScrollDamping,
-            min: 2,
-            max: 30,
-            step: 0.5,
-            onChange: (v: number) => {
-              state.current.transition.detailScrollDamping = v;
-            },
-          },
-          "Scroll speed": {
-            value: state.current.transition.detailScrollSpeed,
-            min: 0.2,
-            max: 3,
-            step: 0.05,
-            onChange: (v: number) => {
-              state.current.transition.detailScrollSpeed = v;
-            },
-          },
-        },
-        { collapsed: false },
-      ),
-    }),
-    [],
-  );
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (runtime?.current) {
-        const tr = runtime.current.transition;
-        const curPhase = tr.phase;
-        const curScroll = Math.round(tr.columnScrollY || 0);
-        const total = timelineEnd(state.current.transition);
-        const slug = selectedArtifact?.slug ?? (curPhase === "idle" ? "none" : "...");
-        const mediaCount = selectedArtifact?.gallery?.length ? selectedArtifact.gallery.length + 1 : 1;
-        set({
-          Phase: curPhase,
-          "Target Slug": slug,
-          "API Status": apiStatus,
-          "Media Count": mediaCount,
-          "Scroll Y": curScroll,
-          "Clock t / total": `${tr.t.toFixed(2)} / ${total.toFixed(2)} s`,
-        });
-      }
-    }, 100);
-    return () => clearInterval(id);
-  }, [runtime, selectedArtifact, apiStatus, set, state]);
-
-  return null;
-}
-
-// ── 3. Corner Brackets ──────────────────────────────────────────
-function BracketsSection({ state }: { state: PlayDebugRef }) {
-  useControls("🔲 Corner Brackets", () => ({
-    "Padding (px)": {
-      value: state.current.brackets.padding,
-      min: 0,
-      max: 40,
-      step: 1,
-      onChange: (v: number) => {
-        state.current.brackets.padding = v;
-      },
-    },
-    "Radius (px)": {
-      value: state.current.brackets.radius,
-      min: 0,
-      max: 80,
-      step: 1,
-      onChange: (v: number) => {
-        state.current.brackets.radius = v;
-      },
-    },
-    "Angle (deg)": {
-      value: state.current.brackets.angle,
-      min: 0,
-      max: 360,
-      step: 5,
-      onChange: (v: number) => {
-        state.current.brackets.angle = v;
-      },
-    },
-    "Arm length (px)": {
-      value: state.current.brackets.arm,
-      min: 2,
-      max: 30,
-      step: 1,
-      onChange: (v: number) => {
-        state.current.brackets.arm = v;
-      },
-    },
-    "Thickness (px)": {
-      value: state.current.brackets.thickness,
-      min: 1,
-      max: 10,
-      step: 0.5,
-      onChange: (v: number) => {
-        state.current.brackets.thickness = v;
-      },
-    },
-    Color: {
-      value: state.current.brackets.color,
-      onChange: (v: string) => {
-        state.current.brackets.color = v;
-      },
-    },
-  }));
-
-  return null;
-}
-
-// ── 4. Focus Indicator ──────────────────────────────────────────
-function IndicatorSection({ state }: { state: PlayDebugRef }) {
-  useControls("🎯 Focus Indicator", () => ({
-    "Fade speed": {
-      value: state.current.indicator.fadeSpeed,
-      min: 1,
-      max: 30,
-      step: 1,
-      onChange: (v: number) => {
-        state.current.indicator.fadeSpeed = v;
-      },
-    },
-    "Move speed": {
-      value: state.current.indicator.moveSpeed,
-      min: 1,
-      max: 30,
-      step: 1,
-      onChange: (v: number) => {
-        state.current.indicator.moveSpeed = v;
-      },
-    },
-  }));
-
-  return null;
-}
-
-// ── 5. Camera & Fisheye ─────────────────────────────────────────
-function CameraSection({ state }: { state: PlayDebugRef }) {
+// ── 1. Tab Camera ───────────────────────────────────────────────
+function CameraTab({ state }: { state: PlayDebugRef }) {
   useControls("📷 Camera & Fisheye", () => ({
-    "Camera zoom": {
+    "Camera zoom (base)": {
       value: state.current.camera.zoom,
-      min: 0.3,
+      min: 0.2,
       max: 2.0,
       step: 0.05,
       onChange: (v: number) => {
         state.current.camera.zoom = v;
       },
     },
-    "Enable fisheye": {
-      value: state.current.fisheye.enabled,
-      onChange: (v: boolean) => {
-        state.current.fisheye.enabled = v;
+    Fisheye: folder({
+      "Fisheye enabled": {
+        value: state.current.fisheye.enabled,
+        onChange: (v: boolean) => {
+          state.current.fisheye.enabled = v;
+        },
       },
-    },
-    "Fisheye strength": {
-      value: state.current.fisheye.strength,
-      min: 0.0,
-      max: 0.15,
-      step: 0.002,
-      onChange: (v: number) => {
-        state.current.fisheye.strength = v;
+      "Fisheye strength": {
+        value: state.current.fisheye.strength,
+        min: 0.0,
+        max: 0.08,
+        step: 0.002,
+        onChange: (v: number) => {
+          state.current.fisheye.strength = v;
+        },
       },
-    },
-  }));
-
-  return null;
-}
-
-// ── 6. Gravity Layout ───────────────────────────────────────────
-function LayoutSection({
-  state,
-  onLayoutChange,
-}: {
-  state: PlayDebugRef;
-  onLayoutChange: () => void;
-}) {
-  useControls("🪐 Gravity Layout", () => ({
-    actions: buttonGroup({
-      "🔄 Recompute Layout": onLayoutChange,
     }),
-    "Max width": {
-      value: state.current.gravity.maxWidth,
-      min: 200,
-      max: 1200,
-      step: 20,
-      onChange: (v: number) => {
-        state.current.gravity.maxWidth = v;
-      },
-    },
-    "Max height": {
-      value: state.current.gravity.maxHeight,
-      min: 200,
-      max: 1200,
-      step: 20,
-      onChange: (v: number) => {
-        state.current.gravity.maxHeight = v;
-      },
-    },
-    "Min gap (px)": {
-      value: state.current.gravity.gap,
-      min: 20,
-      max: 400,
-      step: 10,
-      onChange: (v: number) => {
-        state.current.gravity.gap = v;
-      },
-    },
-    "Repeat gap (px)": {
-      value: state.current.gravity.repeatGap,
-      min: 50,
-      max: 500,
-      step: 10,
-      onChange: (v: number) => {
-        state.current.gravity.repeatGap = v;
-      },
-    },
-    "Scale variance": {
-      value: state.current.gravity.scaleVariance,
-      min: 0.0,
-      max: 0.5,
-      step: 0.02,
-      onChange: (v: number) => {
-        state.current.gravity.scaleVariance = v;
-      },
-    },
-    "Tile repeats": {
-      value: state.current.gravity.repeat,
-      min: 1,
-      max: 6,
-      step: 1,
-      onChange: (v: number) => {
-        state.current.gravity.repeat = v;
-      },
-    },
-    "Anti-neighbor": {
-      value: state.current.gravity.antiNeighbor,
-      onChange: (v: boolean) => {
-        state.current.gravity.antiNeighbor = v;
-      },
-    },
-    Iterations: {
-      value: state.current.gravity.iterations,
-      min: 500,
-      max: 15000,
-      step: 500,
-      onChange: (v: number) => {
-        state.current.gravity.iterations = v;
-      },
-    },
-    Seed: {
-      value: state.current.gravity.seed,
-      min: 0,
-      max: 9999,
-      step: 1,
-      onChange: (v: number) => {
-        state.current.gravity.seed = v;
-      },
-    },
-    "Target aspect": {
-      value: state.current.gravity.targetAspect,
-      min: 0.5,
-      max: 3.0,
-      step: 0.1,
-      onChange: (v: number) => {
-        state.current.gravity.targetAspect = v;
-      },
-    },
   }));
-
   return null;
 }
 
-// ── 7. Layout Stats ─────────────────────────────────────────────
-function StatsSection({ stats }: { stats: LayoutStats }) {
-  useControls("📊 Layout Stats", () => ({
-    Density: {
-      value: stats.densityPercent,
-      editable: false,
-    },
-    "Occupied area": {
-      value: stats.occupiedAreaFormatted,
-      editable: false,
-    },
-    "Bounding box": {
-      value: stats.boundingBoxAreaFormatted,
-      editable: false,
-    },
-    "Compute time": {
-      value: stats.computeTimeFormatted,
-      editable: false,
-    },
-  }));
-
-  return null;
-}
-
-// ── 8. Pan & Inertia ────────────────────────────────────────────
-function PanSection({ state }: { state: PlayDebugRef }) {
-  useControls("👆 Pan & Inertia", () => ({
-    "Drag threshold (px)": {
-      value: state.current.pan.dragThreshold,
-      min: 1,
-      max: 20,
-      step: 1,
-      onChange: (v: number) => {
-        state.current.pan.dragThreshold = v;
-      },
-    },
-    "Velocity window (ms)": {
-      value: state.current.pan.velocityWindowMs,
-      min: 20,
-      max: 200,
-      step: 10,
-      onChange: (v: number) => {
-        state.current.pan.velocityWindowMs = v;
-      },
-    },
-    "Inertia friction": {
-      value: state.current.pan.friction,
-      min: -8.0,
-      max: -0.5,
-      step: 0.25,
-      onChange: (v: number) => {
-        state.current.pan.friction = v;
-      },
-    },
-  }));
-
-  return null;
-}
-
-// ── 9. Physics (Repulsion) ──────────────────────────────────────
-function PhysicsSection({ state }: { state: PlayDebugRef }) {
-  useControls("🧲 Physics (Repulsion)", () => ({
-    "Enable physics": {
-      value: state.current.physics.enabled,
-      onChange: (v: boolean) => {
-        state.current.physics.enabled = v;
-      },
-    },
-    "Repulsion strength": {
-      value: state.current.physics.strength,
-      min: 500,
-      max: 15000,
-      step: 100,
-      onChange: (v: number) => {
-        state.current.physics.strength = v;
-      },
-    },
-    "Effect radius": {
-      value: state.current.physics.radius,
-      min: 500,
-      max: 6000,
-      step: 100,
-      onChange: (v: number) => {
-        state.current.physics.radius = v;
-      },
-    },
-    "Spring stiffness": {
-      value: state.current.physics.spring,
-      min: 0.1,
-      max: 3.0,
-      step: 0.05,
-      onChange: (v: number) => {
-        state.current.physics.spring = v;
-      },
-    },
-    Damping: {
-      value: state.current.physics.damping,
-      min: 2,
-      max: 40,
-      step: 0.5,
-      onChange: (v: number) => {
-        state.current.physics.damping = v;
-      },
-    },
-    "Restitution (bounce)": {
-      value: state.current.physics.restitution,
-      min: 0.0,
-      max: 1.0,
-      step: 0.05,
-      onChange: (v: number) => {
-        state.current.physics.restitution = v;
-      },
-    },
-    Friction: {
-      value: state.current.physics.friction,
-      min: 0.0,
-      max: 1.0,
-      step: 0.05,
-      onChange: (v: number) => {
-        state.current.physics.friction = v;
-      },
-    },
-    "Lock rotation": {
-      value: state.current.physics.lockRotation,
-      onChange: (v: boolean) => {
-        state.current.physics.lockRotation = v;
-      },
-    },
-    Mass: {
-      value: state.current.physics.mass,
-      min: 0.2,
-      max: 5.0,
-      step: 0.1,
-      onChange: (v: number) => {
-        state.current.physics.mass = v;
-      },
-    },
-  }));
-
-  return null;
-}
-
-// ── 10. Selection Overlay ───────────────────────────────────────
-function OverlaySection({ state }: { state: PlayDebugRef }) {
-  useControls("🌊 Selection Overlay", () => ({
-    "Wave direction": {
-      value: state.current.overlay.direction,
-      options: {
-        "Bottom → Top": "bottom-to-top",
-        "Top → Bottom": "top-to-bottom",
-        "Left → Right": "left-to-right",
-        "Right → Left": "right-to-left",
-        "Bottom-Left → Top-Right": "bl-to-tr",
-        "Top-Left → Bottom-Right": "tl-to-br",
-      },
-      onChange: (v: WaveDirection) => {
-        state.current.overlay.direction = v;
-      },
-    },
-    "Crest softness": {
-      value: state.current.overlay.crestSoftness,
-      min: 0.02,
-      max: 0.35,
-      step: 0.005,
-      onChange: (v: number) => {
-        state.current.overlay.crestSoftness = v;
-      },
-    },
-    "Wave amplitude": {
-      value: state.current.overlay.waveAmplitude,
-      min: 0.0,
-      max: 0.06,
-      step: 0.001,
-      onChange: (v: number) => {
-        state.current.overlay.waveAmplitude = v;
-      },
-    },
-    "Wave frequency": {
-      value: state.current.overlay.waveFrequency,
-      min: 1.0,
-      max: 10.0,
-      step: 0.2,
-      onChange: (v: number) => {
-        state.current.overlay.waveFrequency = v;
-      },
-    },
-    "Wave speed": {
-      value: state.current.overlay.waveSpeed,
-      min: 0.0,
-      max: 8.0,
-      step: 0.2,
-      onChange: (v: number) => {
-        state.current.overlay.waveSpeed = v;
-      },
-    },
-    Iridescence: {
-      value: state.current.overlay.iridescence,
-      min: 0.0,
-      max: 1.0,
-      step: 0.02,
-      onChange: (v: number) => {
-        state.current.overlay.iridescence = v;
-      },
-    },
-    "Base opacity": {
-      value: state.current.overlay.baseOpacity,
-      min: 0.0,
-      max: 1.0,
-      step: 0.02,
-      onChange: (v: number) => {
-        state.current.overlay.baseOpacity = v;
-      },
-    },
-    "Glow intensity": {
-      value: state.current.overlay.glowIntensity,
-      min: 0.0,
-      max: 3.0,
-      step: 0.05,
-      onChange: (v: number) => {
-        state.current.overlay.glowIntensity = v;
-      },
-    },
-  }));
-
-  return null;
-}
-
-// ── 11. Image Plane ─────────────────────────────────────────────
-function ImageSection({ state }: { state: PlayDebugRef }) {
-  useControls("🖼 Image Plane", () => ({
+// ── 2. Tab Media ────────────────────────────────────────────────
+function MediaTab({ state }: { state: PlayDebugRef }) {
+  useControls("🖼 Media Settings", () => ({
     "Corner radius (px)": {
       value: state.current.plane.radius,
       min: 0,
@@ -1302,6 +180,1069 @@ function ImageSection({ state }: { state: PlayDebugRef }) {
       },
     },
   }));
+  return null;
+}
+
+// ── 3. Tab Canvas ───────────────────────────────────────────────
+function CanvasTab({
+  state,
+  stats,
+  onLayoutChange,
+}: {
+  state: PlayDebugRef;
+  stats?: LayoutStats;
+  onLayoutChange: () => void;
+}) {
+  useControls("🪐 Canvas Layout & Navigation", () => ({
+    Actions: buttonGroup({
+      "🔄 Recompute Layout": onLayoutChange,
+    }),
+    "Media Dimensions & Gaps": folder({
+      "Max width": {
+        value: state.current.gravity.maxWidth,
+        min: 200,
+        max: 1200,
+        step: 20,
+        onChange: (v: number) => {
+          state.current.gravity.maxWidth = v;
+          onLayoutChange();
+        },
+      },
+      "Max height": {
+        value: state.current.gravity.maxHeight,
+        min: 200,
+        max: 1200,
+        step: 20,
+        onChange: (v: number) => {
+          state.current.gravity.maxHeight = v;
+          onLayoutChange();
+        },
+      },
+      "Target aspect": {
+        value: state.current.gravity.targetAspect,
+        min: 0.5,
+        max: 3.0,
+        step: 0.1,
+        onChange: (v: number) => {
+          state.current.gravity.targetAspect = v;
+          onLayoutChange();
+        },
+      },
+      "Min gap (px)": {
+        value: state.current.gravity.gap,
+        min: 20,
+        max: 400,
+        step: 10,
+        onChange: (v: number) => {
+          state.current.gravity.gap = v;
+          onLayoutChange();
+        },
+      },
+      "Repeat gap (px)": {
+        value: state.current.gravity.repeatGap,
+        min: 50,
+        max: 500,
+        step: 10,
+        onChange: (v: number) => {
+          state.current.gravity.repeatGap = v;
+          onLayoutChange();
+        },
+      },
+      "Scale variance": {
+        value: state.current.gravity.scaleVariance,
+        min: 0.0,
+        max: 0.5,
+        step: 0.02,
+        onChange: (v: number) => {
+          state.current.gravity.scaleVariance = v;
+          onLayoutChange();
+        },
+      },
+    }),
+    "Mosaic Generation": folder({
+      "Tile repeats": {
+        value: state.current.gravity.repeat,
+        min: 1,
+        max: 6,
+        step: 1,
+        onChange: (v: number) => {
+          state.current.gravity.repeat = v;
+          onLayoutChange();
+        },
+      },
+      "Anti-neighbor": {
+        value: state.current.gravity.antiNeighbor,
+        onChange: (v: boolean) => {
+          state.current.gravity.antiNeighbor = v;
+          onLayoutChange();
+        },
+      },
+      Iterations: {
+        value: state.current.gravity.iterations,
+        min: 1000,
+        max: 20000,
+        step: 500,
+        onChange: (v: number) => {
+          state.current.gravity.iterations = v;
+          onLayoutChange();
+        },
+      },
+      Seed: {
+        value: state.current.gravity.seed,
+        min: 1,
+        max: 100,
+        step: 1,
+        onChange: (v: number) => {
+          state.current.gravity.seed = v;
+          onLayoutChange();
+        },
+      },
+    }),
+    "Pan & Inertia": folder({
+      "Drag threshold (px)": {
+        value: state.current.pan.dragThreshold,
+        min: 1,
+        max: 20,
+        step: 1,
+        onChange: (v: number) => {
+          state.current.pan.dragThreshold = v;
+        },
+      },
+      "Velocity window (ms)": {
+        value: state.current.pan.velocityWindowMs,
+        min: 20,
+        max: 200,
+        step: 10,
+        onChange: (v: number) => {
+          state.current.pan.velocityWindowMs = v;
+        },
+      },
+      "Inertia friction": {
+        value: state.current.pan.friction,
+        min: -8,
+        max: -0.5,
+        step: 0.25,
+        onChange: (v: number) => {
+          state.current.pan.friction = v;
+        },
+      },
+    }),
+    ...(stats
+      ? {
+          "Layout Stats": folder({
+            Density: { value: stats.densityPercent, editable: false },
+            "Occupied area": { value: stats.occupiedAreaFormatted, editable: false },
+            "Bounding box": { value: stats.boundingBoxAreaFormatted, editable: false },
+            "Compute time": { value: stats.computeTimeFormatted, editable: false },
+          }),
+        }
+      : {}),
+  }));
+  return null;
+}
+
+// ── 4. Tab Selection ────────────────────────────────────────────
+function SelectionTab({ state }: { state: PlayDebugRef }) {
+  useControls("🔲 Selection, Brackets & Repulsion", () => ({
+    "Hold to Select": folder({
+      "Hold duration (s)": {
+        value: state.current.transition.selectDuration,
+        min: 0.2,
+        max: 2.0,
+        step: 0.05,
+        onChange: (v: number) => {
+          state.current.transition.selectDuration = v;
+        },
+      },
+      "Hold zoom": {
+        value: state.current.transition.selectZoom,
+        min: 1.0,
+        max: 1.5,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.transition.selectZoom = v;
+        },
+      },
+      "Hold tile scale": {
+        value: state.current.transition.selectScale,
+        min: 0.8,
+        max: 1.5,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.transition.selectScale = v;
+        },
+      },
+      "Hold repulsion": {
+        value: state.current.transition.selectRepulse,
+        min: 0,
+        max: 2000,
+        step: 10,
+        onChange: (v: number) => {
+          state.current.transition.selectRepulse = v;
+        },
+      },
+      "Hold easing": {
+        value: state.current.transition.selectEasing,
+        options: EASING_OPTIONS,
+        onChange: (v: string) => {
+          state.current.transition.selectEasing = v as EasingName;
+        },
+      },
+    }),
+    "Physique de Répulsion (Mosaïque)": folder({
+      "Physics enabled": {
+        value: state.current.physics.enabled,
+        onChange: (v: boolean) => {
+          state.current.physics.enabled = v;
+        },
+      },
+      Strength: {
+        value: state.current.physics.strength,
+        min: 200,
+        max: 8000,
+        step: 50,
+        onChange: (v: number) => {
+          state.current.physics.strength = v;
+        },
+      },
+      Radius: {
+        value: state.current.physics.radius,
+        min: 500,
+        max: 6000,
+        step: 50,
+        onChange: (v: number) => {
+          state.current.physics.radius = v;
+        },
+      },
+      Damping: {
+        value: state.current.physics.damping,
+        min: 2,
+        max: 30,
+        step: 0.5,
+        onChange: (v: number) => {
+          state.current.physics.damping = v;
+        },
+      },
+      Spring: {
+        value: state.current.physics.spring,
+        min: 0.1,
+        max: 2.0,
+        step: 0.05,
+        onChange: (v: number) => {
+          state.current.physics.spring = v;
+        },
+      },
+      Restitution: {
+        value: state.current.physics.restitution,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        onChange: (v: number) => {
+          state.current.physics.restitution = v;
+        },
+      },
+      Friction: {
+        value: state.current.physics.friction,
+        min: 0,
+        max: 1,
+        step: 0.02,
+        onChange: (v: number) => {
+          state.current.physics.friction = v;
+        },
+      },
+      Mass: {
+        value: state.current.physics.mass,
+        min: 0.1,
+        max: 5,
+        step: 0.1,
+        onChange: (v: number) => {
+          state.current.physics.mass = v;
+        },
+      },
+    }),
+    "Corner Brackets": folder({
+      "Padding (px)": {
+        value: state.current.brackets.padding,
+        min: 0,
+        max: 60,
+        step: 1,
+        onChange: (v: number) => {
+          state.current.brackets.padding = v;
+        },
+      },
+      "Radius (px)": {
+        value: state.current.brackets.radius,
+        min: 0,
+        max: 80,
+        step: 1,
+        onChange: (v: number) => {
+          state.current.brackets.radius = v;
+        },
+      },
+      "Angle (deg)": {
+        value: state.current.brackets.angle,
+        min: 10,
+        max: 90,
+        step: 1,
+        onChange: (v: number) => {
+          state.current.brackets.angle = v;
+        },
+      },
+      "Arm length (px)": {
+        value: state.current.brackets.arm,
+        min: 0,
+        max: 40,
+        step: 1,
+        onChange: (v: number) => {
+          state.current.brackets.arm = v;
+        },
+      },
+      "Thickness (px)": {
+        value: state.current.brackets.thickness,
+        min: 1,
+        max: 12,
+        step: 0.5,
+        onChange: (v: number) => {
+          state.current.brackets.thickness = v;
+        },
+      },
+      Color: {
+        value: state.current.brackets.color,
+        onChange: (v: string) => {
+          if (HEX_COLOR.test(v)) state.current.brackets.color = v;
+        },
+      },
+    }),
+    "Focus Indicator": folder({
+      "Move speed": {
+        value: state.current.indicator.moveSpeed,
+        min: 1,
+        max: 30,
+        step: 0.5,
+        onChange: (v: number) => {
+          state.current.indicator.moveSpeed = v;
+        },
+      },
+      "Fade speed": {
+        value: state.current.indicator.fadeSpeed,
+        min: 5,
+        max: 60,
+        step: 1,
+        onChange: (v: number) => {
+          state.current.indicator.fadeSpeed = v;
+        },
+      },
+    }),
+    "Selection Overlay Wave": folder({
+      Direction: {
+        value: state.current.overlay.direction,
+        options: {
+          "Top-left to bottom-right": "tl-to-br",
+          "Bottom-left to top-right": "bl-to-tr",
+          "Left to right": "left-to-right",
+          "Right to left": "right-to-left",
+          "Bottom to top": "bottom-to-top",
+          "Top to bottom": "top-to-bottom",
+        },
+        onChange: (v: WaveDirection) => {
+          state.current.overlay.direction = v;
+        },
+      },
+      "Wave speed": {
+        value: state.current.overlay.waveSpeed,
+        min: 0.0,
+        max: 8.0,
+        step: 0.2,
+        onChange: (v: number) => {
+          state.current.overlay.waveSpeed = v;
+        },
+      },
+      "Wave frequency": {
+        value: state.current.overlay.waveFrequency,
+        min: 1.0,
+        max: 20.0,
+        step: 0.5,
+        onChange: (v: number) => {
+          state.current.overlay.waveFrequency = v;
+        },
+      },
+      "Wave amplitude": {
+        value: state.current.overlay.waveAmplitude,
+        min: 0.01,
+        max: 0.3,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.overlay.waveAmplitude = v;
+        },
+      },
+      "Crest softness": {
+        value: state.current.overlay.crestSoftness,
+        min: 0.05,
+        max: 0.8,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.overlay.crestSoftness = v;
+        },
+      },
+      Iridescence: {
+        value: state.current.overlay.iridescence,
+        min: 0.0,
+        max: 1.0,
+        step: 0.02,
+        onChange: (v: number) => {
+          state.current.overlay.iridescence = v;
+        },
+      },
+      "Base opacity": {
+        value: state.current.overlay.baseOpacity,
+        min: 0.0,
+        max: 1.0,
+        step: 0.02,
+        onChange: (v: number) => {
+          state.current.overlay.baseOpacity = v;
+        },
+      },
+      "Glow intensity": {
+        value: state.current.overlay.glowIntensity,
+        min: 0.0,
+        max: 3.0,
+        step: 0.05,
+        onChange: (v: number) => {
+          state.current.overlay.glowIntensity = v;
+        },
+      },
+    }),
+  }));
+  return null;
+}
+
+// ── 5. Tab Transition ───────────────────────────────────────────
+function TransitionTab({
+  state,
+  onReplayLock,
+  onSimulateSelect,
+  onResetTransition,
+}: {
+  state: PlayDebugRef;
+  onReplayLock: () => void;
+  onSimulateSelect: () => void;
+  onResetTransition: () => void;
+}) {
+  const tr = state.current.transition;
+
+  function trackRow(
+    field: TrackName,
+    maxStart = 4,
+    maxDuration = 4,
+  ) {
+    const track = tr[field];
+    return folder(
+      {
+        Start: {
+          value: track.start,
+          min: 0,
+          max: maxStart,
+          step: 0.02,
+          onChange: (v: number) => {
+            tr[field].start = v;
+          },
+        },
+        Duration: {
+          value: track.duration,
+          min: 0.05,
+          max: maxDuration,
+          step: 0.02,
+          onChange: (v: number) => {
+            tr[field].duration = v;
+          },
+        },
+        Easing: {
+          value: track.easing,
+          options: EASING_OPTIONS,
+          onChange: (v: string) => {
+            tr[field].easing = v as EasingName;
+          },
+        },
+      },
+      { collapsed: true },
+    );
+  }
+
+  useControls("🎬 Transition Studio & Timeline", () => ({
+    "Studio Controls": folder({
+      Actions: buttonGroup({
+        "▶ Replay (R)": onReplayLock,
+        "▶ Simulate Select": onSimulateSelect,
+        "⏹ Reset": onResetTransition,
+      }),
+      "Playback speed": {
+        value: state.current.studio.speed,
+        options: {
+          "0.1x (Ultra slow)": 0.1,
+          "0.25x (Slow motion)": 0.25,
+          "0.5x (Half speed)": 0.5,
+          "1.0x (Normal speed)": 1.0,
+        },
+        onChange: (v: number) => {
+          state.current.studio.speed = v;
+        },
+      },
+      "Infinite loop (L)": {
+        value: state.current.studio.loopLock,
+        onChange: (v: boolean) => {
+          state.current.studio.loopLock = v;
+        },
+      },
+      "Scrub mode": {
+        value: state.current.studio.scrubMode,
+        onChange: (v: boolean) => {
+          state.current.studio.scrubMode = v;
+        },
+      },
+      "Scrub timeline": {
+        value: state.current.studio.scrubProgress,
+        min: 0,
+        max: 1,
+        step: 0.005,
+        onChange: (v: number) => {
+          state.current.studio.scrubProgress = v;
+        },
+      },
+    }),
+
+    "Transition IN (Chorégraphie)": folder({
+      "1. lock — brackets": folder(
+        {
+          Start: {
+            value: tr.lock.start,
+            min: 0,
+            max: 2,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.lock.start = v;
+            },
+          },
+          Duration: {
+            value: tr.lock.duration,
+            min: 0.05,
+            max: 2,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.lock.duration = v;
+            },
+          },
+          "Tighten pinch (px)": {
+            value: tr.lockBracketTighten,
+            min: 0,
+            max: 40,
+            step: 1,
+            onChange: (v: number) => {
+              tr.lockBracketTighten = v;
+            },
+          },
+          "Expand (px)": {
+            value: tr.lockBracketExpand,
+            min: 0,
+            max: 60,
+            step: 1,
+            onChange: (v: number) => {
+              tr.lockBracketExpand = v;
+            },
+          },
+          "Scale punch": {
+            value: tr.lockScalePunch,
+            min: 0,
+            max: 0.2,
+            step: 0.005,
+            onChange: (v: number) => {
+              tr.lockScalePunch = v;
+            },
+          },
+        },
+        { collapsed: true },
+      ),
+      "2. scatter — mosaïque": folder(
+        {
+          Start: {
+            value: tr.scatter.start,
+            min: 0,
+            max: 3,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.scatter.start = v;
+            },
+          },
+          Duration: {
+            value: tr.scatter.duration,
+            min: 0.05,
+            max: 3,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.scatter.duration = v;
+            },
+          },
+          Easing: {
+            value: tr.scatter.easing,
+            options: EASING_OPTIONS,
+            onChange: (v: string) => {
+              tr.scatter.easing = v as EasingName;
+            },
+          },
+          "Scatter distance": {
+            value: tr.scatterDistance,
+            min: 500,
+            max: 6000,
+            step: 50,
+            onChange: (v: number) => {
+              tr.scatterDistance = v;
+            },
+          },
+        },
+        { collapsed: true },
+      ),
+      "3. reveal — morph M0": trackRow("reveal", 3, 3),
+      "4. hero — zoom M0": folder(
+        {
+          Start: {
+            value: tr.hero.start,
+            min: 0,
+            max: 3,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.hero.start = v;
+            },
+          },
+          Duration: {
+            value: tr.hero.duration,
+            min: 0.05,
+            max: 3,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.hero.duration = v;
+            },
+          },
+          Easing: {
+            value: tr.hero.easing,
+            options: EASING_OPTIONS,
+            onChange: (v: string) => {
+              tr.hero.easing = v as EasingName;
+            },
+          },
+          "Hero zoom (× détail)": {
+            value: tr.heroZoom,
+            min: 1,
+            max: 2.5,
+            step: 0.05,
+            onChange: (v: number) => {
+              tr.heroZoom = v;
+            },
+          },
+        },
+        { collapsed: true },
+      ),
+      "5. slide — entrée M1": folder(
+        {
+          Start: {
+            value: tr.slide.start,
+            min: 0,
+            max: 4,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.slide.start = v;
+            },
+          },
+          Duration: {
+            value: tr.slide.duration,
+            min: 0.05,
+            max: 4,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.slide.duration = v;
+            },
+          },
+          Easing: {
+            value: tr.slide.easing,
+            options: EASING_OPTIONS,
+            onChange: (v: string) => {
+              tr.slide.easing = v as EasingName;
+            },
+          },
+          "Slide offset (px)": {
+            value: tr.slideOffset,
+            min: 0,
+            max: 1200,
+            step: 20,
+            onChange: (v: number) => {
+              tr.slideOffset = v;
+            },
+          },
+        },
+        { collapsed: true },
+      ),
+      "6. columnFade — opacité": trackRow("columnFade", 4, 3),
+      "7. scroll — wheel spin": folder(
+        {
+          "Media count to spin": {
+            value: tr.spinMediaCount,
+            min: 1,
+            max: 60,
+            step: 1,
+            label: "Médias à défiler (ex: 30)",
+            onChange: (v: number) => {
+              tr.spinMediaCount = v;
+            },
+          },
+          "Spin easing": {
+            value: tr.spinEasing,
+            options: EASING_OPTIONS,
+            label: "Easing du spin",
+            onChange: (v: string) => {
+              tr.spinEasing = v as EasingName;
+            },
+          },
+          Start: {
+            value: tr.scroll.start,
+            min: 0,
+            max: 5,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.scroll.start = v;
+            },
+          },
+          Duration: {
+            value: tr.scroll.duration,
+            min: 0.2,
+            max: 6,
+            step: 0.05,
+            onChange: (v: number) => {
+              tr.scroll.duration = v;
+            },
+          },
+        },
+        { collapsed: false },
+      ),
+      "8. dezoom — recul & cadrage": folder(
+        {
+          Start: {
+            value: tr.dezoom.start,
+            min: 0,
+            max: 5,
+            step: 0.02,
+            onChange: (v: number) => {
+              tr.dezoom.start = v;
+            },
+          },
+          Duration: {
+            value: tr.dezoom.duration,
+            min: 0.1,
+            max: 5,
+            step: 0.05,
+            onChange: (v: number) => {
+              tr.dezoom.duration = v;
+            },
+          },
+          Easing: {
+            value: tr.dezoom.easing,
+            options: EASING_OPTIONS,
+            onChange: (v: string) => {
+              tr.dezoom.easing = v as EasingName;
+            },
+          },
+          "Detail zoom (× base)": {
+            value: tr.detailZoom,
+            min: 0.5,
+            max: 4,
+            step: 0.05,
+            onChange: (v: number) => {
+              tr.detailZoom = v;
+            },
+          },
+        },
+        { collapsed: true },
+      ),
+      "9. text — reveal": folder(
+        {
+          "Text reveal at (s)": {
+            value: tr.textRevealAt,
+            min: 0,
+            max: 6,
+            step: 0.05,
+            onChange: (v: number) => {
+              tr.textRevealAt = v;
+            },
+          },
+        },
+        { collapsed: true },
+      ),
+    }),
+
+    "Transition OUT (Retour)": folder({
+      "exit — retour mosaïque": folder(
+        {
+          Duration: {
+            value: tr.exit.duration,
+            min: 0.1,
+            max: 3,
+            step: 0.05,
+            onChange: (v: number) => {
+              tr.exit.duration = v;
+            },
+          },
+          Easing: {
+            value: tr.exit.easing,
+            options: EASING_OPTIONS,
+            onChange: (v: string) => {
+              tr.exit.easing = v as EasingName;
+            },
+          },
+        },
+        { collapsed: true },
+      ),
+      "Exit slide offset": {
+        value: tr.exitSlideOffset,
+        min: 0,
+        max: 1200,
+        step: 20,
+        onChange: (v: number) => {
+          tr.exitSlideOffset = v;
+        },
+      },
+      "Mosaic return delay (s)": {
+        value: tr.repulseReturnDelay,
+        min: 0,
+        max: 1.5,
+        step: 0.05,
+        onChange: (v: number) => {
+          tr.repulseReturnDelay = v;
+        },
+      },
+      "Camera return delay (s)": {
+        value: tr.cameraReturnDelay,
+        min: 0,
+        max: 1,
+        step: 0.02,
+        onChange: (v: number) => {
+          tr.cameraReturnDelay = v;
+        },
+      },
+    }),
+  }));
+
+  return null;
+}
+
+// ── 6. Tab Focus ────────────────────────────────────────────────
+function FocusTab({
+  state,
+  onResetTransition,
+  runtime,
+  selectedArtifact,
+  apiStatus = "idle",
+  onCloseDetail,
+}: {
+  state: PlayDebugRef;
+  onResetTransition: () => void;
+  runtime?: RefObject<PlayRuntimeState>;
+  selectedArtifact?: ArtifactDetail | null;
+  apiStatus?: "idle" | "fetching" | "ready" | "error";
+  onCloseDetail?: () => void;
+}) {
+  const tr = state.current.transition;
+  const [, set] = useControls("🎯 Focus View & Wheel Arc", () => ({
+    Actions: buttonGroup({
+      "◀ Exit Detail": () => (onCloseDetail ? onCloseDetail() : onResetTransition()),
+      "🔄 Force Reset": onResetTransition,
+    }),
+
+    "Roue & Arc (Wheel Curvature)": folder({
+      "Center column ratio": {
+        value: tr.detailColumnRatio,
+        min: 0.1,
+        max: 1.0,
+        step: 0.02,
+        label: "Position horizontale (0.5=centre)",
+        onChange: (v: number) => {
+          tr.detailColumnRatio = v;
+        },
+      },
+      "Arc curvature (px)": {
+        value: tr.arcCurvature,
+        min: -400,
+        max: 400,
+        step: 10,
+        label: "Courbure arc (centre rentré)",
+        onChange: (v: number) => {
+          tr.arcCurvature = v;
+        },
+      },
+      "Arc rotation (deg)": {
+        value: tr.arcRotation,
+        min: -30,
+        max: 30,
+        step: 1,
+        label: "Rotation vers extérieur",
+        onChange: (v: number) => {
+          tr.arcRotation = v;
+        },
+      },
+      "Media gap (px)": {
+        value: tr.mediaGap,
+        min: 0,
+        max: 120,
+        step: 2,
+        onChange: (v: number) => {
+          tr.mediaGap = v;
+        },
+      },
+      "Desktop width ratio": {
+        value: tr.desktopMediaWidthRatio,
+        min: 0.15,
+        max: 0.6,
+        step: 0.01,
+        onChange: (v: number) => {
+          tr.desktopMediaWidthRatio = v;
+        },
+      },
+      "Mobile height ratio": {
+        value: tr.mobileMediaHeightRatio,
+        min: 0.2,
+        max: 0.8,
+        step: 0.02,
+        onChange: (v: number) => {
+          tr.mobileMediaHeightRatio = v;
+        },
+      },
+    }),
+
+    "Magnétisme / Snap au Centre": folder({
+      "Snap enabled": {
+        value: tr.snapEnabled,
+        label: "Aimantation au centre",
+        onChange: (v: boolean) => {
+          tr.snapEnabled = v;
+        },
+      },
+      "Snap strength": {
+        value: tr.snapStrength,
+        min: 1,
+        max: 30,
+        step: 1,
+        label: "Force de rappel",
+        onChange: (v: number) => {
+          tr.snapStrength = v;
+        },
+      },
+      "Snap delay (s)": {
+        value: tr.snapDelay,
+        min: 0.0,
+        max: 1.0,
+        step: 0.05,
+        label: "Délai après arrêt",
+        onChange: (v: number) => {
+          tr.snapDelay = v;
+        },
+      },
+      "Snap velocity threshold": {
+        value: tr.snapThreshold,
+        min: 0.01,
+        max: 0.5,
+        step: 0.01,
+        label: "Seuil de vélocité",
+        onChange: (v: number) => {
+          tr.snapThreshold = v;
+        },
+      },
+    }),
+
+    "Scroll Libre (Inertie)": folder({
+      "Scroll damping": {
+        value: tr.detailScrollDamping,
+        min: 2,
+        max: 30,
+        step: 0.5,
+        onChange: (v: number) => {
+          tr.detailScrollDamping = v;
+        },
+      },
+      "Scroll speed multiplier": {
+        value: tr.detailScrollSpeed,
+        min: 0.2,
+        max: 3.0,
+        step: 0.05,
+        onChange: (v: number) => {
+          tr.detailScrollSpeed = v;
+        },
+      },
+    }),
+
+    "Status Monitor": folder({
+      Phase: {
+        value: "idle",
+        editable: false,
+      },
+      "Target Slug": {
+        value: "none",
+        editable: false,
+      },
+      "API Status": {
+        value: "idle",
+        editable: false,
+      },
+      "Scroll Y": {
+        value: 0,
+        editable: false,
+      },
+      "Clock t": {
+        value: "0.00 s",
+        editable: false,
+      },
+    }),
+  }));
+
+  // Update read-only monitor fields
+  useEffect(() => {
+    let handle: number;
+    let lastPhase = "";
+    let lastSlug = "";
+    let lastStatus = "";
+    let lastScroll = -999999;
+    let lastClock = "";
+
+    function poll() {
+      if (runtime?.current) {
+        const rc = runtime.current;
+        const currentPhase = rc.transition.phase;
+        const currentSlug = selectedArtifact?.slug ?? "none";
+        const currentScroll = Math.round(rc.transition.columnScrollY);
+        const currentClock = `${rc.transition.t.toFixed(2)} s`;
+
+        if (
+          currentPhase !== lastPhase ||
+          currentSlug !== lastSlug ||
+          apiStatus !== lastStatus ||
+          currentScroll !== lastScroll ||
+          currentClock !== lastClock
+        ) {
+          lastPhase = currentPhase;
+          lastSlug = currentSlug;
+          lastStatus = apiStatus;
+          lastScroll = currentScroll;
+          lastClock = currentClock;
+
+          set({
+            Phase: currentPhase,
+            "Target Slug": currentSlug,
+            "API Status": apiStatus,
+            "Scroll Y": currentScroll,
+            "Clock t": currentClock,
+          });
+        }
+      }
+      handle = requestAnimationFrame(poll);
+    }
+    handle = requestAnimationFrame(poll);
+    return () => cancelAnimationFrame(handle);
+  }, [runtime, selectedArtifact, apiStatus, set]);
 
   return null;
 }
@@ -1336,36 +1277,22 @@ export function PlayDebug({
     initializedRef.current = true;
   }
 
-  const [displayState, setDisplayState] = useState(() => loadVisibility());
+  const [activeTab, setActiveTab] = useState<DebugTab>(() => loadSavedTab());
 
-  const handlePresetChange = (preset: ViewPreset) => {
-    if (preset === "custom") {
-      setDisplayState((prev) => {
-        const next = { ...prev, preset: "custom" as const };
-        saveVisibility(next.visibility, "custom");
-        return next;
-      });
-      return;
+  const handleTabChange = (tab: DebugTab) => {
+    setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(TAB_STORAGE_KEY, tab);
+      } catch {
+        // ignore
+      }
     }
-    const newVisibility = { ...PRESET_MAP[preset] };
-    const next = { visibility: newVisibility, preset };
-    setDisplayState(next);
-    saveVisibility(newVisibility, preset);
-  };
-
-  const handleToggle = (key: keyof SectionVisibility, val: boolean) => {
-    setDisplayState((prev) => {
-      const newVis = { ...prev.visibility, [key]: val };
-      const next = { visibility: newVis, preset: "custom" as const };
-      saveVisibility(newVis, "custom");
-      return next;
-    });
   };
 
   const saveToLocalStorage = () => {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.current));
-      saveVisibility(displayState.visibility, displayState.preset);
       toast.success("Settings saved to localStorage");
     } catch {
       toast.error("Unable to save settings to localStorage");
@@ -1381,31 +1308,72 @@ export function PlayDebug({
       );
   };
 
-  const { visibility, preset } = displayState;
-
   return (
     <>
-      <Leva theme={LEVA_THEME} titleBar={{ title: "oré • debug" }} />
-      <SettingsSection
-        preset={preset}
-        visibility={visibility}
-        onPresetChange={handlePresetChange}
-        onToggle={handleToggle}
-        onSave={saveToLocalStorage}
-        onCopy={copyJson}
+      {/* Sleek Floating Tab Navigation Header */}
+      <div className="fixed top-3 right-3 z-[999999] flex flex-col items-end pointer-events-auto select-none">
+        <div className="flex items-center gap-1 p-1 bg-[#141414]/95 backdrop-blur-md border border-white/10 rounded-lg shadow-2xl mb-2">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                className={`px-2.5 py-1 text-xs font-mono rounded transition-all duration-150 flex items-center gap-1.5 ${
+                  isActive
+                    ? "bg-white text-black font-semibold shadow-sm"
+                    : "text-white/60 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+          <div className="w-[1px] h-4 bg-white/15 mx-1" />
+          <button
+            onClick={saveToLocalStorage}
+            title="Save settings to localStorage"
+            className="px-2 py-1 text-xs text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
+          >
+            💾
+          </button>
+          <button
+            onClick={copyJson}
+            title="Copy JSON config to clipboard"
+            className="px-2 py-1 text-xs text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
+          >
+            📋
+          </button>
+        </div>
+      </div>
+
+      <Leva
+        theme={LEVA_THEME}
+        titleBar={{ title: `oré • debug (${activeTab})` }}
       />
-      {visibility.studio && (
-        <StudioSection
+
+      {activeTab === "camera" && <CameraTab state={state} />}
+      {activeTab === "media" && <MediaTab state={state} />}
+      {activeTab === "canvas" && (
+        <CanvasTab
+          state={state}
+          stats={stats}
+          onLayoutChange={onLayoutChange}
+        />
+      )}
+      {activeTab === "selection" && <SelectionTab state={state} />}
+      {activeTab === "transition" && (
+        <TransitionTab
           state={state}
           onReplayLock={onReplayLock}
           onSimulateSelect={onSimulateSelect}
           onResetTransition={onResetTransition}
         />
       )}
-      {visibility.artifactDetails && (
-        <ArtifactDetailsSection
+      {activeTab === "focus" && (
+        <FocusTab
           state={state}
-          onSimulateSelect={onSimulateSelect}
           onResetTransition={onResetTransition}
           runtime={runtime}
           selectedArtifact={selectedArtifact}
@@ -1413,18 +1381,6 @@ export function PlayDebug({
           onCloseDetail={onCloseDetail}
         />
       )}
-      {visibility.transition && <TransitionSection state={state} />}
-      {visibility.brackets && <BracketsSection state={state} />}
-      {visibility.indicator && <IndicatorSection state={state} />}
-      {visibility.camera && <CameraSection state={state} />}
-      {visibility.layout && (
-        <LayoutSection state={state} onLayoutChange={onLayoutChange} />
-      )}
-      {visibility.stats && stats && <StatsSection stats={stats} />}
-      {visibility.pan && <PanSection state={state} />}
-      {visibility.physics && <PhysicsSection state={state} />}
-      {visibility.overlay && <OverlaySection state={state} />}
-      {visibility.image && <ImageSection state={state} />}
     </>
   );
 }

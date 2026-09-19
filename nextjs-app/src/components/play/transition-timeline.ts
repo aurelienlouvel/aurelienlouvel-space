@@ -169,7 +169,7 @@ function samplePlaying(
   frame.mosaicOpacity = 1 - scatterT;
 
   frame.reveal = trackAt(config.reveal, t);
-  frame.scroll = trackAt(config.scroll, t);
+  frame.scroll = evaluateEasing(config.spinEasing || config.scroll.easing, trackRaw(config.scroll, t));
   frame.slide = config.slideOffset * (1 - trackAt(config.slide, t));
   frame.columnOpacity = trackAt(config.columnFade, t);
 

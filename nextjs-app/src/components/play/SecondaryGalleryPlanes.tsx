@@ -378,7 +378,10 @@ export function SecondaryGalleryPlanes({
     };
   }, [gallery, principalPoint, primaryMedia]);
 
-  useFrame(() => {
+  const lastTargetScrollYRef = useRef(0);
+  const quietTimeRef = useRef(0);
+
+  useFrame((_, delta) => {
     const group = groupRef.current;
     if (!group || !principalPoint || pool.length === 0) return;
 
@@ -395,13 +398,6 @@ export function SecondaryGalleryPlanes({
     const effectiveGap = cfg.mediaGap ?? gap;
 
     // ── Géométrie de la colonne, figée au zoom de destination ───────────────
-    // Les cartes contre-compensent le zoom caméra pour occuper une largeur
-    // constante à l'écran. Lue au zoom *courant*, cette compensation annule
-    // exactement la rampe de zoom — plus rien ne bouge à l'image pendant une
-    // seconde et demie — et fait glisser hauteurs de cycle et positions de
-    // repos sous l'animation, si bien que le rouleau poursuit une cible mobile.
-    // On l'évalue donc une fois pour toutes au zoom final : la colonne a une
-    // géométrie fixe, et c'est la caméra seule qui produit l'effet d'échelle.
     const refZoom = Math.max(0.01, debug.current.camera.zoom * cfg.detailZoom);
     const desktopWidthRatio = cfg.desktopMediaWidthRatio ?? 0.34;
     const mobileHeightRatio = cfg.mobileMediaHeightRatio ?? 0.48;
@@ -437,8 +433,7 @@ export function SecondaryGalleryPlanes({
     const totalPoolSpan = oneCycleHeight * totalCycles;
 
     // Positions de repos : M0 ancré au centre, la colonne se construit de part
-    // et d'autre. Constantes pendant toute la timeline, maintenant que la
-    // géométrie ne dépend plus du zoom courant.
+    // et d'autre.
     const restingY: number[] = new Array(pool.length);
     restingY[centerSlotIdx] = principalPoint.y;
 
@@ -454,23 +449,22 @@ export function SecondaryGalleryPlanes({
       restingY[s] = restingY[s + 1] + nextH * 0.5 + effectiveGap + curH * 0.5;
     }
 
-    // ── Rouleau ─────────────────────────────────────────────────────────────
-    // La course vaut exactement `reelLoops` cycles : à l'arrivée, modulo la
-    // hauteur de cycle, l'image est celle du repos. C'est ce qui permet à la
-    // timeline de rendre la main au défilement libre sans aucune coupure —
-    // exactement, pas approximativement, la hauteur de cycle étant désormais
-    // constante.
-    const reelLoops = Math.max(1, cfg.reelLoops ?? 2);
-    const scrollY = frame.scroll * reelLoops * oneCycleHeight + tr.columnScrollY;
+    // ── Rouleau (Spin de la wheel basé sur le nombre de médias) ─────────────
+    const spinCount = Math.max(1, cfg.spinMediaCount ?? 30);
+    let spinDistance = 0;
+    for (let i = 0; i < spinCount; i++) {
+      spinDistance += uniqueHeights[i % K] + effectiveGap;
+    }
+    const scrollY = frame.scroll * spinDistance + tr.columnScrollY;
 
     const anchorY = principalPoint.y;
+    const screenCenterY = camera.position.y;
     const visibleHalfH = (size.height / Math.max(0.1, camera.zoom)) * 0.5;
     const topLimit = anchorY + Math.max(visibleHalfH + 300, oneCycleHeight * 0.75);
-    const screenTop = camera.position.y + visibleHalfH;
-    const screenBottom = camera.position.y - visibleHalfH;
+    const screenTop = screenCenterY + visibleHalfH;
+    const screenBottom = screenCenterY - visibleHalfH;
 
-    // M0 part exactement de la tuile de la mosaïque — mêmes dimensions, même
-    // position — pour que la reprise soit invisible.
+    // M0 part exactement de la tuile de la mosaïque
     const mainStartW = principalPoint.width * frame.tileScale;
     const mainStartH = principalPoint.height * frame.tileScale;
 
@@ -486,13 +480,7 @@ export function SecondaryGalleryPlanes({
         y += offset > 0 ? -frame.slide : frame.slide;
       }
 
-      // À l'entrée, la colonne ne se déploie que vers le bas : une carte située
-      // au-dessus de M0 n'apparaît qu'une fois ramenée par le bas. Le test est
-      // une fonction pure du défilement (monotone pendant la timeline) plutôt
-      // qu'une mémoire, donc il rejoue à l'identique en scrub, et il bascule au
-      // moment du bouclage — hors champ, donc invisible. Avec `reelLoops >= 2`
-      // tous les slots ont bouclé avant la fin, et la levée du garde en vue
-      // détail ne change rien.
+      // À l'entrée, la colonne ne se déploie que vers le bas
       const gatedAbove =
         tr.phase === "playing" && offset < 0 && restingY[s] + scrollY <= topLimit;
 
@@ -500,8 +488,27 @@ export function SecondaryGalleryPlanes({
         y = wrapPeriodic(y, totalPoolSpan, topLimit);
       }
 
-      mesh.position.set(principalPoint.x, y, 0);
-      mesh.rotation.set(0, 0, 0);
+      // ── Roue & Arc de cercle (Wheel Curvature) ──────────────────────────
+      // L'image au centre est plus vers le centre de l'écran (gauche en paysage).
+      // Les autres médias s'écartent vers l'extérieur et s'inclinent en rotation.
+      const dy = y - screenCenterY;
+      const normY = Math.max(-2, Math.min(2, dy / Math.max(1, visibleHalfH)));
+
+      // Incurvation en arc (translation vers l'intérieur pour le centre, vers l'extérieur pour les bords)
+      const arcCurve = cfg.arcCurvature ?? 140;
+      const arcShift = -arcCurve * Math.max(0, 1 - normY * normY * 0.7);
+
+      // Rotation vers l'extérieur de l'écran (gauche en paysage, haut en portrait)
+      const arcAngleDeg = cfg.arcRotation ?? 12;
+      const rotZ = isDesktop
+        ? normY * ((arcAngleDeg * Math.PI) / 180)
+        : -normY * ((arcAngleDeg * Math.PI) / 180);
+
+      // Pendant la transition d'entrée, M0 part parfaitement droit et l'arc s'installe avec reveal
+      const revealFactor = isMain ? frame.reveal : 1;
+      const posX = principalPoint.x + arcShift * revealFactor;
+      mesh.position.set(posX, y, 0);
+      mesh.rotation.set(0, 0, rotZ * revealFactor);
       mesh.renderOrder = isMain ? 10 : 5;
 
       const curItemIdx = slot.galleryIdx % K;
@@ -529,14 +536,52 @@ export function SecondaryGalleryPlanes({
         if (gatedAbove) {
           mat.opacity = 0;
         } else if (isMain) {
-          // M0 reste opaque : pendant le retour elle se superpose exactement à
-          // la tuile de la mosaïque qui réapparaît, même image au même endroit.
           mat.opacity = edgeFade;
         } else {
           mat.opacity = frame.columnOpacity * edgeFade;
         }
       }
     });
+
+    // ── Système magnétique de snap au centre (Focus mode) ───────────────────
+    if (tr.phase === "isolated" && cfg.snapEnabled) {
+      const scrollDiff = Math.abs(tr.targetColumnScrollY - lastTargetScrollYRef.current);
+      lastTargetScrollYRef.current = tr.targetColumnScrollY;
+
+      if (scrollDiff > 0.05) {
+        quietTimeRef.current = 0;
+      } else {
+        quietTimeRef.current += delta;
+      }
+
+      const snapDelay = cfg.snapDelay ?? 0.15;
+      if (quietTimeRef.current >= snapDelay) {
+        const currentSpeed = Math.abs(tr.columnScrollY - tr.targetColumnScrollY);
+        if (currentSpeed < 12) {
+          // Trouver le média le plus proche du centre vertical (screenCenterY)
+          let closestOffset = Infinity;
+          pool.forEach((_, s) => {
+            const m = meshRefs.current[s];
+            if (!m) return;
+            const dist = m.position.y - screenCenterY;
+            if (Math.abs(dist) < Math.abs(closestOffset)) {
+              closestOffset = dist;
+            }
+          });
+
+          if (
+            Math.abs(closestOffset) > 0.8 &&
+            Math.abs(closestOffset) < oneCycleHeight * 0.5
+          ) {
+            const snapSpeed = Math.max(1, cfg.snapStrength ?? 10);
+            tr.targetColumnScrollY -= closestOffset * Math.min(1, delta * snapSpeed);
+          }
+        }
+      }
+    } else {
+      quietTimeRef.current = 0;
+      lastTargetScrollYRef.current = tr.targetColumnScrollY;
+    }
   });
 
   if (!principalPoint || pool.length === 0) {

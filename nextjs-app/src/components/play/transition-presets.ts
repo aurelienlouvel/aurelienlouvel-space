@@ -98,12 +98,19 @@ export type TransitionConfig = {
   scatterDistance: number; // Écartement radial final de la mosaïque (unités monde)
   heroZoom: number; // Sommet de l'arc, en multiple du zoom de détail (ex: 1.45×)
   detailZoom: number; // Zoom de la vue détail stabilisée (× zoom de base)
-  reelLoops: number; // Nombre de cycles parcourus par le rouleau
+  spinMediaCount: number; // Nombre de médias à faire défiler pendant le rouleau
+  spinEasing: EasingName; // Easing dédié pour le rouleau
   slideOffset: number; // Amplitude d'entrée des cartes secondaires (unités monde)
   textRevealAt: number; // Instant d'apparition du panneau de texte (s)
 
-  // ── 3. Vue détail ────────────────────────────────────────────────────────
+  // ── 3. Vue détail & Wheel Arc ─────────────────────────────────────────────
   detailColumnRatio: number; // Position horizontale du centre de la colonne
+  arcCurvature: number; // Décalage en arc (px) : centre vers l'intérieur, extrémités vers l'extérieur
+  arcRotation: number; // Rotation des médias vers l'extérieur de l'écran (degrés)
+  snapEnabled: boolean; // Aimantation du média le plus proche au centre à l'arrêt du scroll
+  snapStrength: number; // Vitesse de rappel magnétique
+  snapDelay: number; // Délai d'inactivité avant le déclenchement du snap (s)
+  snapThreshold: number; // Seuil de vélocité pour déclencher le snap
   desktopMediaWidthRatio: number; // Largeur des médias sur desktop (% écran)
   mobileMediaHeightRatio: number; // Hauteur des médias sur mobile (% écran)
   mediaGap: number; // Espace entre médias consécutifs (px écran)
@@ -184,10 +191,17 @@ const BASE_AMPLITUDES = {
   scatterDistance: 2800,
   heroZoom: 1.45,
   detailZoom: 1.8,
-  reelLoops: 2,
+  spinMediaCount: 30,
+  spinEasing: "easeInOutCubic" as EasingName,
   slideOffset: 260,
   textRevealAt: 2.45,
-  detailColumnRatio: 0.5,
+  detailColumnRatio: 0.62,
+  arcCurvature: 140,
+  arcRotation: 12,
+  snapEnabled: true,
+  snapStrength: 10,
+  snapDelay: 0.15,
+  snapThreshold: 0.05,
   desktopMediaWidthRatio: 0.34,
   mobileMediaHeightRatio: 0.48,
   mediaGap: 32,
@@ -236,7 +250,7 @@ export const TRANSITION_PRESETS: Record<
     lockScalePunch: 0.03,
     overlayExitDuration: 0.22,
     heroZoom: 1.35,
-    reelLoops: 2,
+    spinMediaCount: 20,
     textRevealAt: 1.9,
     detailScrollDamping: 14,
     detailScrollSpeed: 1.2,
@@ -258,7 +272,7 @@ export const TRANSITION_PRESETS: Record<
     overlayExitDuration: 0.4,
     scatterDistance: 3400,
     heroZoom: 1.65,
-    reelLoops: 2,
+    spinMediaCount: 40,
     slideOffset: 350,
     textRevealAt: 3.4,
     desktopMediaWidthRatio: 0.36,
