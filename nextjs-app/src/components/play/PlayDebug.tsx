@@ -487,14 +487,14 @@ const TRACK_CONTROLS: {
   maxStart: number;
   maxDuration: number;
 }[] = [
-  { field: "lock", label: "lock — brackets", maxStart: 1.5, maxDuration: 1.5 },
-  { field: "scatter", label: "scatter — mosaïque", maxStart: 2, maxDuration: 2.5 },
-  { field: "reveal", label: "reveal — M0 → colonne", maxStart: 2, maxDuration: 2.5 },
-  { field: "hero", label: "hero — zoom montant", maxStart: 2, maxDuration: 2.5 },
-  { field: "scroll", label: "scroll — rouleau", maxStart: 3, maxDuration: 4 },
-  { field: "slide", label: "slide — entrée secondaires", maxStart: 3, maxDuration: 2.5 },
-  { field: "columnFade", label: "columnFade — opacité colonne", maxStart: 3, maxDuration: 2 },
-  { field: "dezoom", label: "dezoom — vers la vue détail", maxStart: 3, maxDuration: 3 },
+  { field: "lock", label: "lock — brackets", maxStart: 2, maxDuration: 2 },
+  { field: "scatter", label: "scatter — mosaïque", maxStart: 3, maxDuration: 3 },
+  { field: "reveal", label: "reveal — M0 → colonne", maxStart: 3, maxDuration: 3 },
+  { field: "hero", label: "hero — zoom montant", maxStart: 3, maxDuration: 3 },
+  { field: "scroll", label: "scroll — rouleau", maxStart: 5, maxDuration: 6 },
+  { field: "slide", label: "slide — entrée secondaires", maxStart: 5, maxDuration: 4 },
+  { field: "columnFade", label: "columnFade — opacité colonne", maxStart: 5, maxDuration: 3 },
+  { field: "dezoom", label: "dezoom — vers la vue détail", maxStart: 5, maxDuration: 5 },
 ];
 
 const AMPLITUDE_CONTROLS: {
@@ -513,7 +513,7 @@ const AMPLITUDE_CONTROLS: {
   { field: "detailZoom", label: "Detail zoom (× base)", min: 0.5, max: 4, step: 0.05 },
   { field: "reelLoops", label: "Reel loops", min: 1, max: 8, step: 1 },
   { field: "slideOffset", label: "Slide offset", min: 0, max: 1200, step: 20 },
-  { field: "textRevealAt", label: "Text reveal at (s)", min: 0, max: 4, step: 0.05 },
+  { field: "textRevealAt", label: "Text reveal at (s)", min: 0, max: 6, step: 0.05 },
 ];
 
 const EXIT_CONTROLS: {
