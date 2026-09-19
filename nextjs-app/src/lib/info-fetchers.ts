@@ -579,11 +579,32 @@ export async function getLetterboxdEntries(
       Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : []
     ) as Array<Record<string, unknown>>;
 
-    // RSS is already newest-first — the first `count` entries are the last
-    // `count` films watched.
+    // `/rss/` is the ACTIVITY feed: ordered by pubDate (when the entry was
+    // typed into Letterboxd) and mixing in list publications. Reading its head
+    // gives "most recently logged", which is not "most recently watched" —
+    // backfilling the diary with an old film pushes it to the top as if it
+    // were a fresh watch.
+    //
+    // So rebuild the DIARY view instead: keep only items carrying a
+    // watchedDate (that's what marks an item as a diary entry rather than a
+    // list or a review with no log), then order by that date. Ties — several
+    // films the same day — fall back to log order, newest first.
     const entries = items
-      .filter((item) => item["letterboxd:filmTitle"])
-      .slice(0, count);
+      .filter(
+        (item) =>
+          item["letterboxd:filmTitle"] && item["letterboxd:watchedDate"],
+      )
+      .map((item) => ({
+        item,
+        watchedDate: String(item["letterboxd:watchedDate"]),
+        loggedAt: Date.parse(String(item.pubDate ?? "")) || 0,
+      }))
+      .sort(
+        (a, b) =>
+          b.watchedDate.localeCompare(a.watchedDate) || b.loggedAt - a.loggedAt,
+      )
+      .slice(0, count)
+      .map(({ item }) => item);
 
     return entries.map((entry) => {
       const filmTitle = String(entry["letterboxd:filmTitle"]);
