@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { fileRefToUrl, isVideoRef } from "@/lib/sanity-utils";
@@ -17,6 +17,16 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const isVideo = isVideoRef(project.thumbnailRef);
   const ratio = thumbnailRatio(project.thumbnailRef);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Prefetch à l'intention (survol / focus clavier / début de touch) : tant que
+  // `prefetch` vaut false rien ne part, donc la grille ne tire pas les 16
+  // projets au chargement. Au premier survol il passe à true et Next lance un
+  // prefetch COMPLET — au-delà de la frontière `loading.tsx`, donc le contenu
+  // du projet lui-même — et le garde en cache. Au clic, le drawer démarre et
+  // les données sont déjà là.
+  // NB : Next désactive tout prefetch en `next dev`, c'est visible en build.
+  const [intent, setIntent] = useState(false);
+  const onIntent = () => setIntent(true);
 
   useEffect(() => {
     if (!isVideo || !videoRef.current) return;
@@ -40,6 +50,10 @@ export function ProjectCard({ project }: ProjectCardProps) {
       href={`/work/${project.slug}`}
       className="group relative block transition-transform duration-300 hover:scale-[0.97]"
       transitionTypes={['nav-forward']}
+      prefetch={intent}
+      onMouseEnter={onIntent}
+      onFocus={onIntent}
+      onTouchStart={onIntent}
       onClick={() => sessionStorage.setItem(WORK_SCROLL_KEY, String(getScrollY()))}
     >
       {/* Ratio réservé (bg-muted gris) avant chargement → zéro layout shift,

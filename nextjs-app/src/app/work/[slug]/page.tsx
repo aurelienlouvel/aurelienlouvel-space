@@ -1,4 +1,3 @@
-import { ViewTransition } from "react";
 import { notFound } from "next/navigation";
 import { client } from "@/sanity/client";
 import {
@@ -14,7 +13,6 @@ import { ProjectMediaBlock } from "@/components/blocks/ProjectMediaBlock";
 import { MatesBlock } from "@/components/blocks/MatesBlock";
 import { ContentRenderer } from "@/components/blocks/ContentRenderer";
 import { ProjectPageClient } from "@/components/layout/ProjectPageClient";
-import { PageShell } from "@/components/layout/PageShell";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Separator } from "@/components/ui/Separator";
 import {
@@ -31,6 +29,11 @@ export async function generateStaticParams() {
   return slugs.map((s) => ({ slug: s.slug }));
 }
 
+/**
+ * Contenu seul : la coquille animée (ViewTransition + PageShell + feuille
+ * blanche) est dans `layout.tsx`, et `loading.tsx` en tient le squelette le
+ * temps de ce fetch. C'est ce découpage qui rend la transition instantanée.
+ */
 export default async function ProjectPage({
   params,
 }: {
@@ -47,143 +50,121 @@ export default async function ProjectPage({
   const isVideo = isVideoRef(project.thumbnailRef);
 
   return (
-    <ViewTransition
-      enter={{ "nav-forward": "view-transition-enter-fwd", default: "none" }}
-      exit={{ "nav-back": "view-transition-exit-back", default: "none" }}
-      default="none"
-    >
-      <PageShell restore="top">
-        <main className="w-full bg-white rounded-t-2xl">
-          <div className="mx-auto max-w-5xl pt-4 sm:pt-16 sm:pb-64">
-            <ProjectPageClient
-              title={project.title}
-              redirectUrl={project.redirectUrl}
-            />
+    <>
+      <ProjectPageClient
+        title={project.title}
+        redirectUrl={project.redirectUrl}
+      />
 
-            <div className="px-16 py-12">
-              <h1 className="max-w-[820] text-pretty mb-8">{project.title}</h1>
+      <div className="px-4 sm:px-16 py-8 sm:py-12">
+        <h1 className="max-w-[820px] text-pretty mb-8 text-4xl sm:text-6xl px-1 sm:px-0">
+          {project.title}
+        </h1>
 
-              <div className="flex flex-row items-center gap-4 px-1.5">
-                {/* Organisation */}
-                {project.organisation && (
-                  <div className="flex items-center gap-2">
-                    {project.organisation.logoUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={project.organisation.logoUrl}
-                        alt=""
-                        className="h-6 w-6 rounded-sm object-contain"
-                      />
-                    )}
-                    <span className="text-md font-medium text-stone-700">
-                      {project.organisation.name}
-                    </span>
-                  </div>
-                )}
-
-                {/* Tags — colored */}
-                {project.tags && project.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {project.tags.map((tag) => (
-                      <Tag
-                        key={tag._id}
-                        name={tag.name}
-                        color={tag.color}
-                        icon={tag.icon}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-2">
+          {/* Organisation */}
+          {project.organisation && (
+            <div className="flex items-center gap-2 flex-nowrap">
+              {project.organisation.logoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={project.organisation.logoUrl}
+                  alt=""
+                  className="h-6 w-6 rounded-sm object-contain flex-shrink-0"
+                />
+              )}
+              <span className="text-md font-medium text-stone-700 whitespace-nowrap">
+                {project.organisation.name}
+              </span>
             </div>
+          )}
 
-            {mediaUrl && (
-              <ProjectMediaBlock
-                url={mediaUrl}
-                isVideo={isVideo}
-                title={project.title}
-              />
-            )}
-
-            <div className="px-16 py-12 flex flex-wrap gap-12">
-              {/* Role */}
-              {project.roles && project.roles.length > 0 && (
-                <RoleBlock roles={project.roles} />
-              )}
-
-              {/* Mates */}
-              {project.mates && project.mates.length > 0 && (
-                <div className="shrink-0">
-                  <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-400 mb-2">
-                    <HugeiconsIcon
-                      icon={UserMultipleIcon}
-                      size={12}
-                      strokeWidth={2}
-                    />
-                    mates
-                  </div>
-                  <MatesBlock mates={project.mates} />
-                </div>
-              )}
-
-              {/* Timeline */}
-              {project.startDate && (
-                <div className="shrink-0">
-                  <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-400 mb-3">
-                    <HugeiconsIcon
-                      icon={Calendar02Icon}
-                      size={12}
-                      strokeWidth={2}
-                    />
-                    timeline
-                  </div>
-                  <p className="text-lg font-semibold text-stone-700 whitespace-nowrap">
-                    {(() => {
-                      const start = formatMonth(project.startDate!);
-                      const end = project.endDate
-                        ? formatMonth(project.endDate)
-                        : "Present";
-                      if (start === end) return start;
-                      return (
-                        <>
-                          {start}
-                          <span className="px-2 font-semibold text-stone-400">
-                            →
-                          </span>
-                          {end}
-                        </>
-                      );
-                    })()}
-                  </p>
-                </div>
-              )}
-
-              {/* Duration */}
-              {project.startDate && (
-                <div className="shrink-0">
-                  <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-400 mb-3">
-                    <HugeiconsIcon
-                      icon={Clock04Icon}
-                      size={12}
-                      strokeWidth={2}
-                    />
-                    duration
-                  </div>
-                  <p className="text-lg font-semibold text-stone-700 whitespace-nowrap">
-                    {calcDuration(project.startDate, project.endDate)}
-                  </p>
-                </div>
-              )}
+          {/* Tags — colored */}
+          {project.tags && project.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {project.tags.map((tag) => (
+                <Tag
+                  key={tag._id}
+                  name={tag.name}
+                  color={tag.color}
+                  icon={tag.icon}
+                />
+              ))}
             </div>
+          )}
+        </div>
+      </div>
 
-            <Separator />
+      {mediaUrl && (
+        <ProjectMediaBlock
+          url={mediaUrl}
+          isVideo={isVideo}
+          title={project.title}
+        />
+      )}
 
-            <div className="mt-4">
-              <ContentRenderer content={project.content} />
+      <div className="px-6 sm:px-16 py-8 sm:py-12 flex flex-wrap gap-8 sm:gap-12">
+        {/* Role */}
+        {project.roles && project.roles.length > 0 && (
+          <RoleBlock roles={project.roles} />
+        )}
+
+        {/* Mates */}
+        {project.mates && project.mates.length > 0 && (
+          <div className="shrink-0">
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-400 mb-2">
+              <HugeiconsIcon icon={UserMultipleIcon} size={12} strokeWidth={2} />
+              mates
             </div>
+            <MatesBlock mates={project.mates} />
           </div>
-        </main>
-      </PageShell>
-    </ViewTransition>
+        )}
+
+        {/* Timeline */}
+        {project.startDate && (
+          <div className="shrink-0">
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-400 mb-3">
+              <HugeiconsIcon icon={Calendar02Icon} size={12} strokeWidth={2} />
+              timeline
+            </div>
+            <p className="text-lg font-semibold text-stone-700 whitespace-nowrap">
+              {(() => {
+                const start = formatMonth(project.startDate!);
+                const end = project.endDate
+                  ? formatMonth(project.endDate)
+                  : "Present";
+                if (start === end) return start;
+                return (
+                  <>
+                    {start}
+                    <span className="px-2 font-semibold text-stone-400">→</span>
+                    {end}
+                  </>
+                );
+              })()}
+            </p>
+          </div>
+        )}
+
+        {/* Duration */}
+        {project.startDate && (
+          <div className="shrink-0">
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-400 mb-3">
+              <HugeiconsIcon icon={Clock04Icon} size={12} strokeWidth={2} />
+              duration
+            </div>
+            <p className="text-lg font-semibold text-stone-700 whitespace-nowrap">
+              {calcDuration(project.startDate, project.endDate)}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <Separator />
+
+      <div className="mt-4">
+        <ContentRenderer content={project.content} />
+      </div>
+    </>
   );
 }
