@@ -45,13 +45,13 @@ export type DebugTab =
   | "transition"
   | "focus";
 
-const TABS: { id: DebugTab; label: string; icon: string }[] = [
-  { id: "camera", label: "camera", icon: "📷" },
-  { id: "media", label: "media", icon: "🖼" },
-  { id: "canvas", label: "canvas", icon: "🪐" },
-  { id: "selection", label: "selection", icon: "🔲" },
-  { id: "transition", label: "transition", icon: "🎬" },
-  { id: "focus", label: "focus", icon: "🎯" },
+const TABS: { id: DebugTab; label: string }[] = [
+  { id: "camera", label: "camera" },
+  { id: "media", label: "media" },
+  { id: "canvas", label: "canvas" },
+  { id: "selection", label: "selection" },
+  { id: "transition", label: "transition" },
+  { id: "focus", label: "focus" },
 ];
 
 function loadSavedTab(): DebugTab {
@@ -136,7 +136,7 @@ const LEVA_THEME = {
 
 // ── 1. Tab Camera ───────────────────────────────────────────────
 function CameraTab({ state }: { state: PlayDebugRef }) {
-  useControls("📷 Camera & Fisheye", () => ({
+  useControls("Camera & Fisheye", () => ({
     "Camera zoom (base)": {
       value: state.current.camera.zoom,
       min: 0.2,
@@ -169,7 +169,7 @@ function CameraTab({ state }: { state: PlayDebugRef }) {
 
 // ── 2. Tab Media ────────────────────────────────────────────────
 function MediaTab({ state }: { state: PlayDebugRef }) {
-  useControls("🖼 Media Settings", () => ({
+  useControls("Media Settings", () => ({
     "Corner radius (px)": {
       value: state.current.plane.radius,
       min: 0,
@@ -193,9 +193,9 @@ function CanvasTab({
   stats?: LayoutStats;
   onLayoutChange: () => void;
 }) {
-  useControls("🪐 Canvas Layout & Navigation", () => ({
+  useControls("Canvas Layout & Navigation", () => ({
     Actions: buttonGroup({
-      "🔄 Recompute Layout": onLayoutChange,
+      "Recompute Layout": onLayoutChange,
     }),
     "Media Dimensions & Gaps": folder({
       "Max width": {
@@ -343,7 +343,7 @@ function CanvasTab({
 
 // ── 4. Tab Selection ────────────────────────────────────────────
 function SelectionTab({ state }: { state: PlayDebugRef }) {
-  useControls("🔲 Selection, Brackets & Repulsion", () => ({
+  useControls("Selection, Brackets & Repulsion", () => ({
     "Hold to Select": folder({
       "Hold duration (s)": {
         value: state.current.transition.selectDuration,
@@ -389,7 +389,7 @@ function SelectionTab({ state }: { state: PlayDebugRef }) {
         },
       },
     }),
-    "Physique de Répulsion (Mosaïque)": folder({
+    "Mosaic Repulsion Physics": folder({
       "Physics enabled": {
         value: state.current.physics.enabled,
         onChange: (v: boolean) => {
@@ -668,12 +668,12 @@ function TransitionTab({
     );
   }
 
-  useControls("🎬 Transition Studio & Timeline", () => ({
+  useControls("Transition Studio & Timeline", () => ({
     "Studio Controls": folder({
       Actions: buttonGroup({
-        "▶ Replay (R)": onReplayLock,
-        "▶ Simulate Select": onSimulateSelect,
-        "⏹ Reset": onResetTransition,
+        "Replay (R)": onReplayLock,
+        "Simulate Select": onSimulateSelect,
+        Reset: onResetTransition,
       }),
       "Playback speed": {
         value: state.current.studio.speed,
@@ -710,8 +710,8 @@ function TransitionTab({
       },
     }),
 
-    "Transition IN (Chorégraphie)": folder({
-      "1. lock — brackets": folder(
+    "Transition IN (Choreography)": folder({
+      "1. Lock (Brackets)": folder(
         {
           Start: {
             value: tr.lock.start,
@@ -761,7 +761,7 @@ function TransitionTab({
         },
         { collapsed: true },
       ),
-      "2. scatter — mosaïque": folder(
+      "2. Scatter (Mosaic)": folder(
         {
           Start: {
             value: tr.scatter.start,
@@ -800,8 +800,8 @@ function TransitionTab({
         },
         { collapsed: true },
       ),
-      "3. reveal — morph M0": trackRow("reveal", 3, 3),
-      "4. hero — zoom M0": folder(
+      "3. Reveal (Hero Morph)": trackRow("reveal", 3, 3),
+      "4. Hero (Peak Zoom)": folder(
         {
           Start: {
             value: tr.hero.start,
@@ -828,7 +828,7 @@ function TransitionTab({
               tr.hero.easing = v as EasingName;
             },
           },
-          "Hero zoom (× détail)": {
+          "Hero zoom (x detail)": {
             value: tr.heroZoom,
             min: 1,
             max: 2.5,
@@ -840,7 +840,7 @@ function TransitionTab({
         },
         { collapsed: true },
       ),
-      "5. slide — entrée M1": folder(
+      "5. Slide (Secondary Entry)": folder(
         {
           Start: {
             value: tr.slide.start,
@@ -879,15 +879,15 @@ function TransitionTab({
         },
         { collapsed: true },
       ),
-      "6. columnFade — opacité": trackRow("columnFade", 4, 3),
-      "7. scroll — wheel spin": folder(
+      "6. Column Fade (Opacity)": trackRow("columnFade", 4, 3),
+      "7. Scroll (Wheel Spin & Blur)": folder(
         {
           "Media count to spin": {
             value: tr.spinMediaCount,
             min: 1,
             max: 60,
             step: 1,
-            label: "Médias à défiler (ex: 30)",
+            label: "Items to scroll past",
             onChange: (v: number) => {
               tr.spinMediaCount = v;
             },
@@ -895,7 +895,7 @@ function TransitionTab({
           "Spin easing": {
             value: tr.spinEasing,
             options: EASING_OPTIONS,
-            label: "Easing du spin",
+            label: "Spin curve",
             onChange: (v: string) => {
               tr.spinEasing = v as EasingName;
             },
@@ -918,10 +918,37 @@ function TransitionTab({
               tr.scroll.duration = v;
             },
           },
+          "Motion blur enabled": {
+            value: tr.wheelMotionBlur,
+            label: "Enable motion blur",
+            onChange: (v: boolean) => {
+              tr.wheelMotionBlur = v;
+            },
+          },
+          "Motion blur strength": {
+            value: tr.wheelMotionBlurStrength,
+            min: 0.1,
+            max: 3.0,
+            step: 0.1,
+            label: "Blur intensity",
+            onChange: (v: number) => {
+              tr.wheelMotionBlurStrength = v;
+            },
+          },
+          "Motion blur max": {
+            value: tr.wheelMotionBlurMax,
+            min: 0.01,
+            max: 0.25,
+            step: 0.01,
+            label: "Max blur streak",
+            onChange: (v: number) => {
+              tr.wheelMotionBlurMax = v;
+            },
+          },
         },
         { collapsed: false },
       ),
-      "8. dezoom — recul & cadrage": folder(
+      "8. Dezoom (Framing)": folder(
         {
           Start: {
             value: tr.dezoom.start,
@@ -948,7 +975,7 @@ function TransitionTab({
               tr.dezoom.easing = v as EasingName;
             },
           },
-          "Detail zoom (× base)": {
+          "Detail zoom (x base)": {
             value: tr.detailZoom,
             min: 0.5,
             max: 4,
@@ -960,7 +987,7 @@ function TransitionTab({
         },
         { collapsed: true },
       ),
-      "9. text — reveal": folder(
+      "9. Text Reveal": folder(
         {
           "Text reveal at (s)": {
             value: tr.textRevealAt,
@@ -976,8 +1003,8 @@ function TransitionTab({
       ),
     }),
 
-    "Transition OUT (Retour)": folder({
-      "exit — retour mosaïque": folder(
+    "Transition OUT (Exit)": folder({
+      "Exit (Return to Mosaic)": folder(
         {
           Duration: {
             value: tr.exit.duration,
@@ -1048,19 +1075,19 @@ function FocusTab({
   onCloseDetail?: () => void;
 }) {
   const tr = state.current.transition;
-  const [, set] = useControls("🎯 Focus View & Wheel Arc", () => ({
+  const [, set] = useControls("Focus View & Wheel Arc", () => ({
     Actions: buttonGroup({
-      "◀ Exit Detail": () => (onCloseDetail ? onCloseDetail() : onResetTransition()),
-      "🔄 Force Reset": onResetTransition,
+      "Exit Detail": () => (onCloseDetail ? onCloseDetail() : onResetTransition()),
+      "Force Reset": onResetTransition,
     }),
 
-    "Roue & Arc (Wheel Curvature)": folder({
+    "Wheel & Arc Curvature": folder({
       "Center column ratio": {
         value: tr.detailColumnRatio,
         min: 0.1,
         max: 1.0,
         step: 0.02,
-        label: "Position horizontale (0.5=centre)",
+        label: "Column position (0.5=center)",
         onChange: (v: number) => {
           tr.detailColumnRatio = v;
         },
@@ -1070,7 +1097,7 @@ function FocusTab({
         min: -400,
         max: 400,
         step: 10,
-        label: "Courbure arc (centre rentré)",
+        label: "Arc curvature (center inset px)",
         onChange: (v: number) => {
           tr.arcCurvature = v;
         },
@@ -1080,7 +1107,7 @@ function FocusTab({
         min: -30,
         max: 30,
         step: 1,
-        label: "Rotation vers extérieur",
+        label: "Rotation toward exterior (deg)",
         onChange: (v: number) => {
           tr.arcRotation = v;
         },
@@ -1114,10 +1141,40 @@ function FocusTab({
       },
     }),
 
-    "Magnétisme / Snap au Centre": folder({
+    "Wheel Motion Blur": folder({
+      "Motion blur enabled": {
+        value: tr.wheelMotionBlur,
+        label: "Enable motion blur",
+        onChange: (v: boolean) => {
+          tr.wheelMotionBlur = v;
+        },
+      },
+      "Motion blur strength": {
+        value: tr.wheelMotionBlurStrength,
+        min: 0.1,
+        max: 3.0,
+        step: 0.1,
+        label: "Blur intensity",
+        onChange: (v: number) => {
+          tr.wheelMotionBlurStrength = v;
+        },
+      },
+      "Motion blur max": {
+        value: tr.wheelMotionBlurMax,
+        min: 0.01,
+        max: 0.25,
+        step: 0.01,
+        label: "Max blur streak",
+        onChange: (v: number) => {
+          tr.wheelMotionBlurMax = v;
+        },
+      },
+    }),
+
+    "Center Magnetic Snap": folder({
       "Snap enabled": {
         value: tr.snapEnabled,
-        label: "Aimantation au centre",
+        label: "Snap to center enabled",
         onChange: (v: boolean) => {
           tr.snapEnabled = v;
         },
@@ -1127,7 +1184,7 @@ function FocusTab({
         min: 1,
         max: 30,
         step: 1,
-        label: "Force de rappel",
+        label: "Snap magnetic strength",
         onChange: (v: number) => {
           tr.snapStrength = v;
         },
@@ -1137,7 +1194,7 @@ function FocusTab({
         min: 0.0,
         max: 1.0,
         step: 0.05,
-        label: "Délai après arrêt",
+        label: "Snap idle delay (s)",
         onChange: (v: number) => {
           tr.snapDelay = v;
         },
@@ -1147,14 +1204,14 @@ function FocusTab({
         min: 0.01,
         max: 0.5,
         step: 0.01,
-        label: "Seuil de vélocité",
+        label: "Snap velocity threshold",
         onChange: (v: number) => {
           tr.snapThreshold = v;
         },
       },
     }),
 
-    "Scroll Libre (Inertie)": folder({
+    "Free Scroll (Inertia)": folder({
       "Scroll damping": {
         value: tr.detailScrollDamping,
         min: 2,
@@ -1319,14 +1376,13 @@ export function PlayDebug({
               <button
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
-                className={`px-2.5 py-1 text-xs font-mono rounded transition-all duration-150 flex items-center gap-1.5 ${
+                className={`px-3 py-1 text-xs font-mono rounded transition-all duration-150 capitalize ${
                   isActive
                     ? "bg-white text-black font-semibold shadow-sm"
                     : "text-white/60 hover:text-white hover:bg-white/10"
                 }`}
               >
-                <span>{tab.icon}</span>
-                <span>{tab.label}</span>
+                {tab.label}
               </button>
             );
           })}
@@ -1334,16 +1390,16 @@ export function PlayDebug({
           <button
             onClick={saveToLocalStorage}
             title="Save settings to localStorage"
-            className="px-2 py-1 text-xs text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
+            className="px-2.5 py-1 text-xs font-mono text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
           >
-            💾
+            Save
           </button>
           <button
             onClick={copyJson}
             title="Copy JSON config to clipboard"
-            className="px-2 py-1 text-xs text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
+            className="px-2.5 py-1 text-xs font-mono text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
           >
-            📋
+            Copy
           </button>
         </div>
       </div>

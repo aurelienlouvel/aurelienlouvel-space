@@ -100,6 +100,9 @@ export type TransitionConfig = {
   detailZoom: number; // Zoom de la vue détail stabilisée (× zoom de base)
   spinMediaCount: number; // Nombre de médias à faire défiler pendant le rouleau
   spinEasing: EasingName; // Easing dédié pour le rouleau
+  wheelMotionBlur: boolean; // Flou de mouvement sur les cartes pendant le spin / scroll rapide
+  wheelMotionBlurStrength: number; // Multiplicateur d'intensité du flou (ex: 1.0)
+  wheelMotionBlurMax: number; // Plafond maximal de flou en espace UV (ex: 0.08)
   slideOffset: number; // Amplitude d'entrée des cartes secondaires (unités monde)
   textRevealAt: number; // Instant d'apparition du panneau de texte (s)
 
@@ -193,6 +196,9 @@ const BASE_AMPLITUDES = {
   detailZoom: 1.8,
   spinMediaCount: 30,
   spinEasing: "easeInOutCubic" as EasingName,
+  wheelMotionBlur: true,
+  wheelMotionBlurStrength: 1.0,
+  wheelMotionBlurMax: 0.08,
   slideOffset: 260,
   textRevealAt: 2.45,
   detailColumnRatio: 0.62,

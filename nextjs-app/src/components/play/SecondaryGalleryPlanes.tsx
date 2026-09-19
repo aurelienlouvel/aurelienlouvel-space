@@ -48,11 +48,13 @@ type PoolSlot = {
 type PlaneUniforms = {
   uSize: IUniform<Vector2>;
   uRadius: IUniform<number>;
+  uMotionBlur: IUniform<number>;
 };
 
 const ROUNDING_PARS = /* glsl */ `
 uniform vec2 uSize;
 uniform float uRadius;
+uniform float uMotionBlur;
 
 ${GLSL_PIXEL_WIDTH}
 
@@ -63,7 +65,25 @@ float sdRoundedRect(vec2 p, vec2 halfSize, float radius) {
 }
 `;
 
-const ROUNDING_MASK = /* glsl */ `
+const MOTION_BLUR_MAP = /* glsl */ `
+#ifdef USE_MAP
+  vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+  if (uMotionBlur > 0.0008) {
+    vec2 bStep = vec2(0.0, uMotionBlur);
+    sampledDiffuseColor = sampledDiffuseColor * 0.22
+      + texture2D( map, vMapUv + bStep * 0.35 ) * 0.19
+      + texture2D( map, vMapUv - bStep * 0.35 ) * 0.19
+      + texture2D( map, vMapUv + bStep * 0.70 ) * 0.12
+      + texture2D( map, vMapUv - bStep * 0.70 ) * 0.12
+      + texture2D( map, vMapUv + bStep * 1.05 ) * 0.08
+      + texture2D( map, vMapUv - bStep * 1.05 ) * 0.08;
+  }
+  #ifdef DECODE_VIDEO_TEXTURE
+    sampledDiffuseColor = vec4( mix( pow( sampledDiffuseColor.rgb + vec3( 0.055 ), vec3( 1.0 / 2.4 ) ) * vec3( 1.0 / 1.055 ), sampledDiffuseColor.rgb * vec3( 1.0 / 12.92 ), lessThan( sampledDiffuseColor.rgb, vec3( 0.04045 ) ) ), sampledDiffuseColor.a );
+  #endif
+  diffuseColor *= sampledDiffuseColor;
+#endif
+
   vec2 framePoint = (vUv - 0.5) * uSize;
   float frameDistance = sdRoundedRect(framePoint, uSize * 0.5, uRadius);
   float frameEdge = pixelWidth(framePoint) * 0.5;
@@ -77,17 +97,18 @@ function roundCorners(
   attachUniforms(this, parameters, {
     uSize: { value: new Vector2(1, 1) },
     uRadius: { value: 0 },
+    uMotionBlur: { value: 0 },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
     .replace("#include <common>", `#include <common>\n${ROUNDING_PARS}`)
     .replace(
       "#include <map_fragment>",
-      `#include <map_fragment>\n${ROUNDING_MASK}`,
+      MOTION_BLUR_MAP,
     );
 }
 
 function roundCornersCacheKey() {
-  return "play-artifact-rounded";
+  return "play-secondary-planes-motion-blur";
 }
 
 // ── Cache global de textures vidéo partagées (1 seul élément vidéo HTML5 par URL) ──
@@ -380,6 +401,9 @@ export function SecondaryGalleryPlanes({
 
   const lastTargetScrollYRef = useRef(0);
   const quietTimeRef = useRef(0);
+  const prevScrollYRef = useRef(0);
+  const motionBlurValRef = useRef(0);
+  const lastPhaseRef = useRef<string>("idle");
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -457,6 +481,35 @@ export function SecondaryGalleryPlanes({
     }
     const scrollY = frame.scroll * spinDistance + tr.columnScrollY;
 
+    // ── Calcul de la vélocité et du Motion Blur de la roue ─────────────────
+    let deltaScroll = 0;
+    if (lastPhaseRef.current !== tr.phase) {
+      prevScrollYRef.current = scrollY;
+      lastPhaseRef.current = tr.phase;
+    } else if (delta > 0) {
+      deltaScroll = (scrollY - prevScrollYRef.current) / delta;
+      prevScrollYRef.current = scrollY;
+    }
+
+    const isBlurActive = cfg.wheelMotionBlur ?? true;
+    let targetBlur = 0;
+    if (isBlurActive && (tr.phase === "playing" || tr.phase === "isolated")) {
+      const speed = Math.abs(deltaScroll);
+      const refCardH = Math.max(100, isDesktop ? baseColWidth / 1.5 : baseColHeight);
+      const normSpeed = speed / refCardH;
+      const blurStrength = cfg.wheelMotionBlurStrength ?? 1.0;
+      const blurMax = cfg.wheelMotionBlurMax ?? 0.08;
+      targetBlur = Math.min(blurMax, normSpeed * 0.0035 * blurStrength);
+    }
+
+    const smoothing = tr.phase === "playing" ? 25 : 15;
+    motionBlurValRef.current +=
+      (targetBlur - motionBlurValRef.current) * Math.min(1, delta * smoothing);
+    if (motionBlurValRef.current < 0.0005) {
+      motionBlurValRef.current = 0;
+    }
+    const currentMotionBlur = motionBlurValRef.current;
+
     const anchorY = principalPoint.y;
     const screenCenterY = camera.position.y;
     const visibleHalfH = (size.height / Math.max(0.1, camera.zoom)) * 0.5;
@@ -533,6 +586,10 @@ export function SecondaryGalleryPlanes({
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
+        const uniforms = uniformsOf<PlaneUniforms>(mat);
+        if (uniforms && uniforms.uMotionBlur) {
+          uniforms.uMotionBlur.value = currentMotionBlur;
+        }
         if (gatedAbove) {
           mat.opacity = 0;
         } else if (isMain) {
