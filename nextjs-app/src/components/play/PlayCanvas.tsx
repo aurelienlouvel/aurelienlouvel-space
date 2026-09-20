@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, type Variants } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Calendar02Icon } from "@hugeicons/core-free-icons";
 import { Canvas, events, useFrame } from "@react-three/fiber";
@@ -92,7 +92,7 @@ export type FisheyeParams = {
 };
 
 export const FISHEYE_DEFAULTS: FisheyeParams = {
-  enabled: true,
+  enabled: false,
   strength: 0.032,
 };
 
@@ -405,8 +405,8 @@ const INDICATOR_MOVE_SPEED = 6;
 // ── Ouverture — caméra ────────────────────────────────────────────────────
 const CAMERA_ZOOM = 0.8;
 const CAMERA_MOTION_BLUR_ENABLED = true;
-const CAMERA_MOTION_BLUR_STRENGTH = 1.0;
-const CAMERA_MOTION_BLUR_MAX = 0.08;
+const CAMERA_MOTION_BLUR_STRENGTH = 4.0;
+const CAMERA_MOTION_BLUR_MAX = 0.25;
 const CAMERA_SETTLE_SPEED = 8;
 /** Vitesse d'extinction des reliquats de courbe : assez rapide pour disparaître
  *  sous la seconde, assez lente pour ne jamais se voir comme un saut. */
@@ -431,6 +431,43 @@ const ARROW_DIRECTIONS: Record<string, readonly [number, number]> = {
 };
 /** Cône de ±60° autour de la direction pressée. */
 const DIRECTION_CONE_COS = Math.cos((60 * Math.PI) / 180);
+
+/**
+ * Animation fluide d'apparition du contenu texte depuis le bas lors du focus.
+ */
+const DETAIL_CONTAINER_VARIANTS: Variants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.05,
+    },
+  },
+  exit: {
+    opacity: 0,
+    y: 16,
+    transition: {
+      duration: 0.25,
+      ease: [0.16, 1, 0.3, 1],
+    },
+  },
+};
+
+const DETAIL_ITEM_VARIANTS: Variants = {
+  hidden: {
+    opacity: 0,
+    y: 28,
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.75,
+      ease: [0.16, 1, 0.3, 1],
+    },
+  },
+};
 
 /**
  * Tweakpane reste hors du SSR et chargé uniquement à la demande si #debug est présent.
@@ -1478,22 +1515,26 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       </div>
 
       {/* Panneau d'informations transparent sur les 50% droits de l'écran (aucun fond blanc opaque) */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {selectedArtifactDetail && isDetailVisible && (
           <motion.div
-            initial={{ opacity: 0, x: 40 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            key={selectedArtifactDetail._id}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            variants={DETAIL_CONTAINER_VARIANTS}
             className="fixed right-0 top-0 bottom-0 w-full lg:w-[50%] flex flex-col justify-center px-8 sm:px-16 pointer-events-none z-10 select-none"
           >
             <div className="max-w-xl pointer-events-auto flex flex-col">
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-950 mb-6 text-balance">
+              <motion.h1
+                variants={DETAIL_ITEM_VARIANTS}
+                className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-950 mb-6 text-balance"
+              >
                 {selectedArtifactDetail.title}
-              </h1>
+              </motion.h1>
 
               {selectedArtifactDetail.tags && selectedArtifactDetail.tags.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-6">
+                <motion.div variants={DETAIL_ITEM_VARIANTS} className="flex flex-wrap gap-2 mb-6">
                   {selectedArtifactDetail.tags.map((tag) => (
                     <Tag
                       key={tag._id}
@@ -1502,11 +1543,14 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
                       icon={tag.icon}
                     />
                   ))}
-                </div>
+                </motion.div>
               )}
 
               {selectedArtifactDetail.startDate && (
-                <div className="flex items-center gap-2 text-sm text-zinc-500 font-medium mb-6">
+                <motion.div
+                  variants={DETAIL_ITEM_VARIANTS}
+                  className="flex items-center gap-2 text-sm text-zinc-500 font-medium mb-6"
+                >
                   <HugeiconsIcon icon={Calendar02Icon} size={16} strokeWidth={2} />
                   <span>
                     {formatDateRange(
@@ -1514,26 +1558,32 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
                       selectedArtifactDetail.endDate ?? null,
                     )}
                   </span>
-                </div>
+                </motion.div>
               )}
 
               {selectedArtifactDetail.description && (
-                <div className="text-base sm:text-lg text-zinc-600 leading-relaxed whitespace-pre-line mb-8 max-h-48 overflow-y-auto">
+                <motion.div
+                  variants={DETAIL_ITEM_VARIANTS}
+                  className="text-base sm:text-lg text-zinc-600 leading-relaxed whitespace-pre-line mb-8 max-h-48 overflow-y-auto"
+                >
                   {selectedArtifactDetail.description}
-                </div>
+                </motion.div>
               )}
 
               {selectedArtifactDetail.contributors && selectedArtifactDetail.contributors.length > 0 && (
-                <div className="space-y-3 pt-4 border-t border-zinc-200/60 mb-6">
+                <motion.div
+                  variants={DETAIL_ITEM_VARIANTS}
+                  className="space-y-3 pt-4 border-t border-zinc-200/60 mb-6"
+                >
                   <span className="text-xs uppercase tracking-wider font-semibold text-zinc-400">
                     Collaborators
                   </span>
                   <MatesBlock mates={selectedArtifactDetail.contributors as unknown as Mate[]} />
-                </div>
+                </motion.div>
               )}
 
               {selectedArtifactDetail.roles && selectedArtifactDetail.roles.length > 0 && (
-                <div className="space-y-2 pt-2">
+                <motion.div variants={DETAIL_ITEM_VARIANTS} className="space-y-2 pt-2">
                   <span className="text-xs uppercase tracking-wider font-semibold text-zinc-400">
                     Roles
                   </span>
@@ -1547,7 +1597,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
                       </span>
                     ))}
                   </div>
-                </div>
+                </motion.div>
               )}
             </div>
           </motion.div>
