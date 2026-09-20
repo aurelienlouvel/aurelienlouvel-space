@@ -14,7 +14,7 @@ import {
   type WebGLProgramParametersWithUniforms,
 } from "three";
 import type { MediaKind } from "./artifact-media";
-import type { PlayDebugRef } from "./PlayCanvas";
+import type { PlayDebugRef, PlayRuntimeRef } from "./PlayCanvas";
 import {
   attachUniforms,
   clampRadius,
@@ -26,6 +26,7 @@ import {
 type PlaneUniforms = {
   uSize: IUniform<Vector2>;
   uRadius: IUniform<number>;
+  uMotionBlur: IUniform<Vector2>;
 };
 
 /**
@@ -42,6 +43,7 @@ function markAsSrgb(texture: Texture) {
 const ROUNDING_PARS = /* glsl */ `
 uniform vec2 uSize;
 uniform float uRadius;
+uniform vec2 uMotionBlur;
 
 ${GLSL_PIXEL_WIDTH}
 
@@ -52,7 +54,26 @@ float sdRoundedRect(vec2 p, vec2 halfSize, float radius) {
 }
 `;
 
-const ROUNDING_MASK = /* glsl */ `
+const MOTION_BLUR_MAP = /* glsl */ `
+#ifdef USE_MAP
+  vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+  float blurLen = length(uMotionBlur);
+  if (blurLen > 0.0008) {
+    vec2 bStep = uMotionBlur;
+    sampledDiffuseColor = sampledDiffuseColor * 0.22
+      + texture2D( map, vMapUv + bStep * 0.35 ) * 0.19
+      + texture2D( map, vMapUv - bStep * 0.35 ) * 0.19
+      + texture2D( map, vMapUv + bStep * 0.70 ) * 0.12
+      + texture2D( map, vMapUv - bStep * 0.70 ) * 0.12
+      + texture2D( map, vMapUv + bStep * 1.05 ) * 0.08
+      + texture2D( map, vMapUv - bStep * 1.05 ) * 0.08;
+  }
+  #ifdef DECODE_VIDEO_TEXTURE
+    sampledDiffuseColor = vec4( mix( pow( sampledDiffuseColor.rgb + vec3( 0.055 ), vec3( 1.0 / 2.4 ) ) * vec3( 1.0 / 1.055 ), sampledDiffuseColor.rgb * vec3( 1.0 / 12.92 ), lessThan( sampledDiffuseColor.rgb, vec3( 0.04045 ) ) ), sampledDiffuseColor.a );
+  #endif
+  diffuseColor *= sampledDiffuseColor;
+#endif
+
   vec2 framePoint = (vUv - 0.5) * uSize;
   float frameDistance = sdRoundedRect(framePoint, uSize * 0.5, uRadius);
   float frameEdge = pixelWidth(framePoint) * 0.5;
@@ -60,13 +81,7 @@ const ROUNDING_MASK = /* glsl */ `
 `;
 
 /**
- * Découpe le matériau en rectangle arrondi.
- *
- * Injection dans `MeshBasicMaterial` plutôt que `ShaderMaterial` maison : on
- * garde ainsi la gestion des couleurs de three, qui décode la texture sRGB en
- * entrée et ré-encode en sortie. La refaire à la main ne rapporterait qu'un
- * risque de la rater. Vrai autant pour une texture image que vidéo — les deux
- * arrivent ici sous la même forme (`THREE.Texture`), cf. `ArtifactPlaneMesh`.
+ * Découpe le matériau en rectangle arrondi et applique le motion blur directionnel.
  */
 function roundCorners(
   this: MeshBasicMaterial,
@@ -75,12 +90,13 @@ function roundCorners(
   attachUniforms(this, parameters, {
     uSize: { value: new Vector2(1, 1) },
     uRadius: { value: 0 },
+    uMotionBlur: { value: new Vector2(0, 0) },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
     .replace("#include <common>", `#include <common>\n${ROUNDING_PARS}`)
     .replace(
       "#include <map_fragment>",
-      `#include <map_fragment>\n${ROUNDING_MASK}`,
+      MOTION_BLUR_MAP,
     );
 }
 
@@ -90,7 +106,7 @@ function roundCorners(
  * matériaux qui injectent du code.
  */
 function roundCornersCacheKey() {
-  return "play-artifact-rounded";
+  return "play-artifact-grid-motion-blur";
 }
 
 type ArtifactPlaneProps = {
@@ -102,6 +118,7 @@ type ArtifactPlaneProps = {
   width: number;
   height: number;
   debug: PlayDebugRef;
+  runtime?: PlayRuntimeRef;
   meshRef?: (mesh: Mesh | null) => void;
   onHoverChange: (hovering: boolean, world: { x: number; y: number }) => void;
   onPointerDown?: (world: { x: number; y: number }) => void;
@@ -160,6 +177,7 @@ function ArtifactPlaneMesh({
   width,
   height,
   debug,
+  runtime,
   texture,
   meshRef,
   onHoverChange,
@@ -178,6 +196,18 @@ function ArtifactPlaneMesh({
       const sy = Math.max(1, rawSy);
       uniforms.uSize.value.set(sx, sy);
       uniforms.uRadius.value = clampRadius(debug.current.plane.radius, sx, sy);
+
+      if (runtime && runtime.current && runtime.current.cameraBlur) {
+        const cb = runtime.current.cameraBlur;
+        // cb est exprimé en unités proportionnelles au carreau standard (~400px).
+        // L'échelle inverse garantit un flou uniforme en pixels écran quel que soit l'aspect ratio.
+        uniforms.uMotionBlur.value.set(
+          cb.x * (400 / sx),
+          cb.y * (400 / sy),
+        );
+      } else {
+        uniforms.uMotionBlur.value.set(0, 0);
+      }
     }
   });
 

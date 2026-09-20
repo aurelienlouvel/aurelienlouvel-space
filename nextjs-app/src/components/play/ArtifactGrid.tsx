@@ -398,6 +398,7 @@ export function ArtifactGrid({
                   width={point.width}
                   height={point.height}
                   debug={debug}
+                  runtime={runtime}
                   meshRef={(mesh) => {
                     if (!meshRefs.current[k]) meshRefs.current[k] = [];
                     meshRefs.current[k][i] = mesh;

@@ -54,6 +54,72 @@ const TABS: { id: DebugTab; label: string }[] = [
   { id: "focus", label: "focus" },
 ];
 
+const TAB_KEYWORDS: Record<DebugTab, string[]> = {
+  camera: ["camera", "zoom", "fisheye", "motion", "blur", "strength", "streak"],
+  media: ["media", "radius", "corner", "round", "plane"],
+  canvas: [
+    "canvas",
+    "layout",
+    "grid",
+    "dimensions",
+    "width",
+    "height",
+    "aspect",
+    "gravity",
+    "pan",
+    "friction",
+    "drag",
+    "threshold",
+    "velocity",
+  ],
+  selection: [
+    "selection",
+    "brackets",
+    "padding",
+    "radius",
+    "angle",
+    "arm",
+    "thickness",
+    "color",
+    "repulsion",
+    "physics",
+    "spring",
+    "damping",
+    "mass",
+    "wave",
+    "iridescence",
+    "glow",
+    "hold",
+    "duration",
+  ],
+  transition: [
+    "transition",
+    "duration",
+    "entrance",
+    "scale",
+    "overshoot",
+    "slide",
+    "spin",
+    "distance",
+    "easing",
+    "magnetic",
+    "snap",
+    "dezoom",
+    "cards",
+  ],
+  focus: [
+    "focus",
+    "magnetic",
+    "snap",
+    "aspect",
+    "card",
+    "offset",
+    "detail",
+    "close",
+    "panel",
+  ],
+};
+
 function loadSavedTab(): DebugTab {
   if (typeof window === "undefined") return "transition";
   try {
@@ -126,7 +192,7 @@ const LEVA_THEME = {
     sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   },
   sizes: {
-    rootWidth: "460px",
+    rootWidth: "100%",
     controlWidth: "175px",
     numberInputMinWidth: "44px",
     rowHeight: "26px",
@@ -136,7 +202,7 @@ const LEVA_THEME = {
 
 // ── 1. Tab Camera ───────────────────────────────────────────────
 function CameraTab({ state }: { state: PlayDebugRef }) {
-  useControls("Camera & Fisheye", () => ({
+  useControls("Camera Controls", () => ({
     "Camera zoom (base)": {
       value: state.current.camera.zoom,
       min: 0.2,
@@ -146,6 +212,35 @@ function CameraTab({ state }: { state: PlayDebugRef }) {
         state.current.camera.zoom = v;
       },
     },
+    "Motion Blur (Camera & Canvas)": folder({
+      "Motion blur enabled": {
+        value: state.current.camera.motionBlur,
+        label: "Enable motion blur",
+        onChange: (v: boolean) => {
+          state.current.camera.motionBlur = v;
+        },
+      },
+      "Motion blur intensity": {
+        value: state.current.camera.motionBlurStrength,
+        min: 0.1,
+        max: 4.0,
+        step: 0.1,
+        label: "Blur intensity",
+        onChange: (v: number) => {
+          state.current.camera.motionBlurStrength = v;
+        },
+      },
+      "Motion blur max streak": {
+        value: state.current.camera.motionBlurMax,
+        min: 0.01,
+        max: 0.25,
+        step: 0.005,
+        label: "Max blur streak",
+        onChange: (v: number) => {
+          state.current.camera.motionBlurMax = v;
+        },
+      },
+    }),
     Fisheye: folder({
       "Fisheye enabled": {
         value: state.current.fisheye.enabled,
@@ -918,33 +1013,6 @@ function TransitionTab({
               tr.scroll.duration = v;
             },
           },
-          "Motion blur enabled": {
-            value: tr.wheelMotionBlur,
-            label: "Enable motion blur",
-            onChange: (v: boolean) => {
-              tr.wheelMotionBlur = v;
-            },
-          },
-          "Motion blur strength": {
-            value: tr.wheelMotionBlurStrength,
-            min: 0.1,
-            max: 3.0,
-            step: 0.1,
-            label: "Blur intensity",
-            onChange: (v: number) => {
-              tr.wheelMotionBlurStrength = v;
-            },
-          },
-          "Motion blur max": {
-            value: tr.wheelMotionBlurMax,
-            min: 0.01,
-            max: 0.25,
-            step: 0.01,
-            label: "Max blur streak",
-            onChange: (v: number) => {
-              tr.wheelMotionBlurMax = v;
-            },
-          },
         },
         { collapsed: false },
       ),
@@ -1141,36 +1209,6 @@ function FocusTab({
       },
     }),
 
-    "Wheel Motion Blur": folder({
-      "Motion blur enabled": {
-        value: tr.wheelMotionBlur,
-        label: "Enable motion blur",
-        onChange: (v: boolean) => {
-          tr.wheelMotionBlur = v;
-        },
-      },
-      "Motion blur strength": {
-        value: tr.wheelMotionBlurStrength,
-        min: 0.1,
-        max: 3.0,
-        step: 0.1,
-        label: "Blur intensity",
-        onChange: (v: number) => {
-          tr.wheelMotionBlurStrength = v;
-        },
-      },
-      "Motion blur max": {
-        value: tr.wheelMotionBlurMax,
-        min: 0.01,
-        max: 0.25,
-        step: 0.01,
-        label: "Max blur streak",
-        onChange: (v: number) => {
-          tr.wheelMotionBlurMax = v;
-        },
-      },
-    }),
-
     "Center Magnetic Snap": folder({
       "Snap enabled": {
         value: tr.snapEnabled,
@@ -1335,6 +1373,8 @@ export function PlayDebug({
   }
 
   const [activeTab, setActiveTab] = useState<DebugTab>(() => loadSavedTab());
+  const [searchQuery, setSearchQuery] = useState("");
+  const panelContentRef = useRef<HTMLDivElement>(null);
 
   const handleTabChange = (tab: DebugTab) => {
     setActiveTab(tab);
@@ -1346,6 +1386,70 @@ export function PlayDebug({
       }
     }
   };
+
+  useEffect(() => {
+    const container = panelContentRef.current;
+    if (!container) return;
+
+    const applyFilter = () => {
+      const q = searchQuery.trim().toLowerCase();
+      const rows = container.querySelectorAll<HTMLElement>(
+        '[class*="StyledRow"], [class*="StyledInputRow"]',
+      );
+      const folders = container.querySelectorAll<HTMLElement>(
+        '[class*="StyledFolder"]',
+      );
+
+      if (!q) {
+        rows.forEach((r) => (r.style.display = ""));
+        folders.forEach((f) => (f.style.display = ""));
+        return;
+      }
+
+      folders.forEach((folder) => {
+        const titleEl = folder.querySelector<HTMLElement>(
+          '[class*="StyledTitle"]',
+        );
+        const folderTitle = titleEl?.textContent?.toLowerCase() ?? "";
+        const folderMatches = folderTitle.includes(q);
+
+        const folderRows = folder.querySelectorAll<HTMLElement>(
+          '[class*="StyledRow"], [class*="StyledInputRow"]',
+        );
+        let anyRowVisible = false;
+
+        folderRows.forEach((row) => {
+          const text = row.textContent?.toLowerCase() ?? "";
+          if (folderMatches || text.includes(q)) {
+            row.style.display = "";
+            anyRowVisible = true;
+          } else {
+            row.style.display = "none";
+          }
+        });
+
+        if (folderMatches || anyRowVisible) {
+          folder.style.display = "";
+        } else {
+          folder.style.display = "none";
+        }
+      });
+
+      rows.forEach((row) => {
+        if (row.closest('[class*="StyledFolder"]')) return;
+        const text = row.textContent?.toLowerCase() ?? "";
+        row.style.display = text.includes(q) ? "" : "none";
+      });
+    };
+
+    applyFilter();
+    const t1 = setTimeout(applyFilter, 50);
+    const t2 = setTimeout(applyFilter, 160);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [searchQuery, activeTab]);
 
   const saveToLocalStorage = () => {
     try {
@@ -1367,47 +1471,101 @@ export function PlayDebug({
 
   return (
     <>
-      {/* Sleek Floating Tab Navigation Header */}
-      <div className="fixed top-3 right-3 z-[999999] flex flex-col items-end pointer-events-auto select-none">
-        <div className="flex items-center gap-1 p-1 bg-[#141414]/95 backdrop-blur-md border border-white/10 rounded-lg shadow-2xl mb-2">
+      {/* Sleek Floating Debug Panel: Header (2 lines) + Leva Controls Area */}
+      <div
+        id="leva__root"
+        className="fixed top-3 right-3 z-[999999] flex flex-col w-[392px] max-h-[calc(100vh-24px)] pointer-events-auto select-none rounded-xl border border-white/10 bg-[#141414]/95 backdrop-blur-md shadow-2xl overflow-hidden"
+      >
+        {/* Line 1: 6 Segmented Tabs */}
+        <div className="flex items-center gap-1 p-1.5 border-b border-white/5 bg-white/[0.02]">
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
+            const q = searchQuery.trim().toLowerCase();
+            const hasMatches =
+              Boolean(q) &&
+              TAB_KEYWORDS[tab.id]?.some((k) => k.includes(q));
             return (
               <button
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
-                className={`px-3 py-1 text-xs font-mono rounded transition-all duration-150 capitalize ${
+                className={`relative flex-1 py-1 text-[11px] font-mono rounded transition-all duration-150 capitalize text-center ${
                   isActive
                     ? "bg-white text-black font-semibold shadow-sm"
                     : "text-white/60 hover:text-white hover:bg-white/10"
                 }`}
               >
                 {tab.label}
+                {hasMatches && !isActive && (
+                  <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-400" />
+                )}
               </button>
             );
           })}
-          <div className="w-[1px] h-4 bg-white/15 mx-1" />
+        </div>
+
+        {/* Line 2: Search Input + Save & Copy Actions */}
+        <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 bg-[#161616]">
+          <div className="relative flex-1 min-w-0">
+            <svg
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/40 pointer-events-none"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 1114 0z"
+              />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search settings..."
+              className="w-full h-7 pl-8 pr-6 text-xs font-mono bg-white/5 hover:bg-white/10 focus:bg-white/[0.08] text-white placeholder:text-white/30 rounded border border-white/10 focus:border-white/30 outline-none transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs px-1"
+                title="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
           <button
             onClick={saveToLocalStorage}
             title="Save settings to localStorage"
-            className="px-2.5 py-1 text-xs font-mono text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
+            className="flex items-center gap-1 px-2.5 h-7 text-xs font-mono text-white/80 hover:text-white hover:bg-white/10 border border-white/10 rounded transition-all active:scale-95 shrink-0"
           >
             Save
           </button>
           <button
             onClick={copyJson}
-            title="Copy JSON config to clipboard"
-            className="px-2.5 py-1 text-xs font-mono text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
+            title="Copy JSON configuration to clipboard"
+            className="flex items-center gap-1 px-2.5 h-7 text-xs font-mono text-white/80 hover:text-white hover:bg-white/10 border border-white/10 rounded transition-all active:scale-95 shrink-0"
           >
             Copy
           </button>
         </div>
-      </div>
 
-      <Leva
-        theme={LEVA_THEME}
-        titleBar={{ title: `oré • debug (${activeTab})` }}
-      />
+        {/* Leva Controls Area: takes whatever height is needed, scrolls smoothly if taller than screen */}
+        <div
+          ref={panelContentRef}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain leva-custom-scroll"
+        >
+          <Leva
+            fill
+            flat
+            titleBar={false}
+            theme={LEVA_THEME}
+          />
+        </div>
+      </div>
 
       {activeTab === "camera" && <CameraTab state={state} />}
       {activeTab === "media" && <MediaTab state={state} />}

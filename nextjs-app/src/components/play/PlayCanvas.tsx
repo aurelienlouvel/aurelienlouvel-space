@@ -140,6 +140,13 @@ export const STUDIO_DEFAULTS: AnimationStudioParams = {
   scrubProgress: 0,
 };
 
+export type CameraDebugParams = {
+  zoom: number;
+  motionBlur: boolean;
+  motionBlurStrength: number;
+  motionBlurMax: number;
+};
+
 export type PlayDebugState = {
   plane: { radius: number };
   brackets: {
@@ -151,7 +158,7 @@ export type PlayDebugState = {
     color: string;
   };
   indicator: { fadeSpeed: number; moveSpeed: number };
-  camera: { zoom: number };
+  camera: CameraDebugParams;
   gravity: GravityParams;
   pan: { dragThreshold: number; velocityWindowMs: number; friction: number };
   physics: PhysicsParams;
@@ -192,6 +199,8 @@ export type PlayRuntimeState = {
     /** Phase de la frame précédente, pour détecter les sauts. */
     lastPhase: TransitionPhase;
   };
+  /** Vecteur de flou de mouvement induit par la caméra (unités proportionnelles écran). */
+  cameraBlur: { x: number; y: number };
   indicatorTarget: { x: number; y: number; width: number; height: number };
   repulsor: {
     active: boolean;
@@ -395,6 +404,9 @@ const INDICATOR_MOVE_SPEED = 6;
 
 // ── Ouverture — caméra ────────────────────────────────────────────────────
 const CAMERA_ZOOM = 0.8;
+const CAMERA_MOTION_BLUR_ENABLED = true;
+const CAMERA_MOTION_BLUR_STRENGTH = 1.0;
+const CAMERA_MOTION_BLUR_MAX = 0.08;
 const CAMERA_SETTLE_SPEED = 8;
 /** Vitesse d'extinction des reliquats de courbe : assez rapide pour disparaître
  *  sous la seconde, assez lente pour ne jamais se voir comme un saut. */
@@ -657,12 +669,16 @@ function CameraRig({
   onTextReveal?: () => void;
   onReturnComplete?: () => void;
 }) {
+  const prevCamPosRef = useRef({ x: 0, y: 0, initialized: false });
+  const blurSmoothedRef = useRef({ x: 0, y: 0 });
+
   // Priorité -1 : l'échantillonnage de la timeline doit précéder tous les autres
   // `useFrame`, qui lisent le frame qu'il vient de remplir. Une priorité négative
   // ordonne sans basculer r3f en rendu manuel (seul un `> 0` le ferait).
   useFrame((state, delta) => {
+    const cam = state.camera as OrthographicCamera;
     stepCamera(
-      state.camera as OrthographicCamera,
+      cam,
       runtime.current,
       velocity.current,
       debug.current.pan.friction,
@@ -674,6 +690,49 @@ function CameraRig({
       onTextReveal,
       onReturnComplete,
     );
+
+    // Vélocité instantanée de la caméra pour le flou de mouvement global
+    if (!prevCamPosRef.current.initialized) {
+      prevCamPosRef.current = { x: cam.position.x, y: cam.position.y, initialized: true };
+    }
+
+    const camVx = delta > 0 ? (cam.position.x - prevCamPosRef.current.x) / delta : 0;
+    const camVy = delta > 0 ? (cam.position.y - prevCamPosRef.current.y) / delta : 0;
+    prevCamPosRef.current.x = cam.position.x;
+    prevCamPosRef.current.y = cam.position.y;
+
+    const camCfg = debug.current.camera;
+    let targetBlurX = 0;
+    let targetBlurY = 0;
+
+    if (camCfg.motionBlur) {
+      const speed = Math.hypot(camVx, camVy);
+      const strength = camCfg.motionBlurStrength ?? 1.0;
+      const maxBlur = camCfg.motionBlurMax ?? 0.08;
+      // Normaliser par rapport à la taille d'une tuile standard (~400px)
+      const normSpeed = speed / 400;
+      const blurMag = Math.min(maxBlur, normSpeed * 0.0035 * strength);
+      if (speed > 1e-4) {
+        // Le flou s'étire dans le sens inverse du déplacement de la caméra (traînée apparente)
+        targetBlurX = (-camVx / speed) * blurMag;
+        targetBlurY = (-camVy / speed) * blurMag;
+      }
+    }
+
+    const smoothing = 20;
+    blurSmoothedRef.current.x +=
+      (targetBlurX - blurSmoothedRef.current.x) * Math.min(1, delta * smoothing);
+    blurSmoothedRef.current.y +=
+      (targetBlurY - blurSmoothedRef.current.y) * Math.min(1, delta * smoothing);
+
+    if (Math.abs(blurSmoothedRef.current.x) < 0.0004) blurSmoothedRef.current.x = 0;
+    if (Math.abs(blurSmoothedRef.current.y) < 0.0004) blurSmoothedRef.current.y = 0;
+
+    if (!runtime.current.cameraBlur) {
+      runtime.current.cameraBlur = { x: 0, y: 0 };
+    }
+    runtime.current.cameraBlur.x = blurSmoothedRef.current.x;
+    runtime.current.cameraBlur.y = blurSmoothedRef.current.y;
   }, -1);
 
   return null;
@@ -691,7 +750,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       color: BRACKET_COLOR,
     },
     indicator: { fadeSpeed: INDICATOR_FADE_SPEED, moveSpeed: INDICATOR_MOVE_SPEED },
-    camera: { zoom: CAMERA_ZOOM },
+    camera: {
+      zoom: CAMERA_ZOOM,
+      motionBlur: CAMERA_MOTION_BLUR_ENABLED,
+      motionBlurStrength: CAMERA_MOTION_BLUR_STRENGTH,
+      motionBlurMax: CAMERA_MOTION_BLUR_MAX,
+    },
     gravity: { ...GRAVITY_DEFAULTS },
     pan: {
       dragThreshold: DRAG_THRESHOLD,
@@ -711,6 +775,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     hovered: null,
     hoveredPos: null,
     camera: { targetX: 0, targetY: 0, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle" },
+    cameraBlur: { x: 0, y: 0 },
     indicatorTarget: {
       x: 0,
       y: 0,

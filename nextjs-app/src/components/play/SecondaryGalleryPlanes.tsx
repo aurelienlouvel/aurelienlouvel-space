@@ -491,14 +491,15 @@ export function SecondaryGalleryPlanes({
       prevScrollYRef.current = scrollY;
     }
 
-    const isBlurActive = cfg.wheelMotionBlur ?? true;
+    const camCfg = debug.current.camera;
+    const isBlurActive = camCfg.motionBlur ?? true;
     let targetBlur = 0;
     if (isBlurActive && (tr.phase === "playing" || tr.phase === "isolated")) {
       const speed = Math.abs(deltaScroll);
       const refCardH = Math.max(100, isDesktop ? baseColWidth / 1.5 : baseColHeight);
       const normSpeed = speed / refCardH;
-      const blurStrength = cfg.wheelMotionBlurStrength ?? 1.0;
-      const blurMax = cfg.wheelMotionBlurMax ?? 0.08;
+      const blurStrength = camCfg.motionBlurStrength ?? 1.0;
+      const blurMax = camCfg.motionBlurMax ?? 0.08;
       targetBlur = Math.min(blurMax, normSpeed * 0.0035 * blurStrength);
     }
 
