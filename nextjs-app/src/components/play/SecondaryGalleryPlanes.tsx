@@ -422,18 +422,21 @@ export function SecondaryGalleryPlanes({
     const cfg = debug.current.transition;
     const effectiveGap = cfg.mediaGap ?? gap;
 
-    // ── Géométrie de la colonne, figée au zoom de destination ───────────────
+    // ── Géométrie de la colonne et contain-fit avec marges d'écran garanties ──
     const refZoom = Math.max(0.01, debug.current.camera.zoom * cfg.detailZoom);
-    const desktopWidthRatio = cfg.desktopMediaWidthRatio ?? 0.34;
-    const mobileHeightRatio = cfg.mobileMediaHeightRatio ?? 0.48;
+    const screenW = size.width / refZoom;
+    const screenH = size.height / refZoom;
 
-    let baseColWidth = 0;
-    let baseColHeight = 0;
-    if (isDesktop) {
-      baseColWidth = Math.max(380, size.width * desktopWidthRatio) / refZoom;
-    } else {
-      baseColHeight = Math.max(260, size.height * mobileHeightRatio) / refZoom;
-    }
+    // Bornes maximales avec marges confortables quel que soit le ratio (portrait, paysage, carré) :
+    // - En paysage (desktop) : maxMediaWidthRatio (défaut 0.38) et maxMediaHeightRatio (défaut 0.78).
+    //   Garantit au minimum 11% de marge en haut/bas et dégage l'espace pour le texte à droite.
+    // - En portrait (mobile) : max 88% de la largeur et max 44% de la hauteur (marge haut + bas pour texte).
+    const maxW = isDesktop
+      ? screenW * (cfg.maxMediaWidthRatio ?? 0.38)
+      : screenW * (cfg.maxMediaWidthRatio ?? 0.88);
+    const maxH = isDesktop
+      ? screenH * (cfg.maxMediaHeightRatio ?? 0.78)
+      : screenH * (cfg.mobileMediaHeightRatio ?? 0.44);
 
     const K = Math.max(1, uniqueCount);
     const uniqueHeights: number[] = new Array(K);
@@ -441,13 +444,15 @@ export function SecondaryGalleryPlanes({
 
     for (let m = 0; m < K; m++) {
       const r = uniqueMedia[m]?.ratio ?? 1.5;
-      if (isDesktop) {
-        uniqueWidths[m] = baseColWidth;
-        uniqueHeights[m] = baseColWidth / r;
-      } else {
-        uniqueHeights[m] = baseColHeight;
-        uniqueWidths[m] = baseColHeight * r;
+      // Contain-fit strict dans la boîte de sécurité (maxW, maxH)
+      let w = maxW;
+      let h = w / r;
+      if (h > maxH) {
+        h = maxH;
+        w = h * r;
       }
+      uniqueWidths[m] = w;
+      uniqueHeights[m] = h;
     }
 
     let oneCycleHeight = 0;
@@ -497,7 +502,7 @@ export function SecondaryGalleryPlanes({
     let targetBlur = 0;
     if (isBlurActive && (tr.phase === "playing" || tr.phase === "isolated")) {
       const speed = Math.abs(deltaScroll);
-      const refCardH = Math.max(100, isDesktop ? baseColWidth / 1.5 : baseColHeight);
+      const refCardH = Math.max(100, uniqueHeights[0] ?? (isDesktop ? maxW / 1.5 : maxH));
       const normSpeed = speed / refCardH;
       const blurStrength = camCfg.motionBlurStrength ?? 1.0;
       const blurMax = camCfg.motionBlurMax ?? 0.08;
@@ -559,11 +564,13 @@ export function SecondaryGalleryPlanes({
         ? normY * ((arcAngleDeg * Math.PI) / 180)
         : -normY * ((arcAngleDeg * Math.PI) / 180);
 
-      // Pendant la transition d'entrée, M0 part parfaitement droit et l'arc s'installe avec reveal
-      const revealFactor = isMain ? frame.reveal : 1;
-      const posX = principalPoint.x + arcShift * revealFactor;
+      // Incurvation en arc et rotation : dès que la roue défile, M0 suit naturellement
+      // l'incurvation de l'arc ("déjà courbé"). Pendant le lock immobile, il reste calé sur principalPoint.
+      const wheelActive = frame.scroll > 0 || tr.columnScrollY !== 0 || tr.phase === "isolated";
+      const curveAmount = isMain ? (wheelActive ? 1 : Math.min(1, frame.reveal * 4)) : 1;
+      const posX = principalPoint.x + arcShift * curveAmount;
       mesh.position.set(posX, y, 0);
-      mesh.rotation.set(0, 0, rotZ * revealFactor);
+      mesh.rotation.set(0, 0, rotZ * curveAmount);
       mesh.renderOrder = isMain ? 10 : 5;
 
       const curItemIdx = slot.galleryIdx % K;

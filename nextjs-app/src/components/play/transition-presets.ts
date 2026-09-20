@@ -91,12 +91,14 @@ export type TransitionConfig = {
   exit: TrackSpec; // Retour vers la mosaïque
 
   // ── 2. Amplitudes ────────────────────────────────────────────────────────
+  lockBracketShrink: number; // Rétractation des brackets vers l'intérieur (px, ex: 12)
+  lockImageShrink: number; // Rétractation de l'image (0..0.3, ex: 0.08 = scale 0.92)
   lockBracketTighten: number; // Pincement des brackets vers l'intérieur (px)
   lockBracketExpand: number; // Expansion vers l'extérieur pendant le fondu (px)
   lockScalePunch: number; // Micro-rebond de confirmation sur la tuile
   overlayExitDuration: number; // Durée d'évacuation de la vague de sélection (s)
   scatterDistance: number; // Écartement radial final de la mosaïque (unités monde)
-  heroZoom: number; // Sommet de l'arc, en multiple du zoom de détail (ex: 1.45×)
+  heroZoom: number; // Sommet de l'arc, en multiple du zoom de détail (ex: 1.05×)
   detailZoom: number; // Zoom de la vue détail stabilisée (× zoom de base)
   spinMediaCount: number; // Nombre de médias à faire défiler pendant le rouleau
   spinEasing: EasingName; // Easing dédié pour le rouleau
@@ -105,6 +107,8 @@ export type TransitionConfig = {
   wheelMotionBlurMax: number; // Plafond maximal de flou en espace UV (ex: 0.08)
   slideOffset: number; // Amplitude d'entrée des cartes secondaires (unités monde)
   textRevealAt: number; // Instant d'apparition du panneau de texte (s)
+  maxMediaWidthRatio: number; // Largeur max autorisée du média (% écran, ex: 0.38)
+  maxMediaHeightRatio: number; // Hauteur max autorisée du média (% écran, ex: 0.78)
 
   // ── 3. Vue détail & Wheel Arc ─────────────────────────────────────────────
   detailColumnRatio: number; // Position horizontale du centre de la colonne
@@ -133,14 +137,14 @@ export type TransitionConfig = {
  * là où l'enchaînement séquentiel en demandait 3,5 — sans rien accélérer.
  */
 const BASE_TRACKS = {
-  lock: { start: 0.0, duration: 0.48, easing: "linear" },
+  lock: { start: 0.0, duration: 0.42, easing: "linear" },
   scatter: { start: 0.18, duration: 0.65, easing: "easeOutCubic" },
-  reveal: { start: 0.22, duration: 0.6, easing: "easeOutCubic" },
-  hero: { start: 0.16, duration: 0.7, easing: "easeOutCubic" },
-  columnFade: { start: 1.25, duration: 0.5, easing: "easeOutQuad" },
-  slide: { start: 1.25, duration: 0.65, easing: "easeOutCubic" },
-  scroll: { start: 1.28, duration: 1.8, easing: "easeInOutCubic" },
-  dezoom: { start: 1.85, duration: 1.45, easing: "easeInOutCubic" },
+  reveal: { start: 0.35, duration: 0.65, easing: "easeOutCubic" },
+  hero: { start: 0.35, duration: 0.7, easing: "easeOutCubic" },
+  columnFade: { start: 0.38, duration: 0.45, easing: "easeOutQuad" },
+  slide: { start: 0.38, duration: 0.65, easing: "easeOutCubic" },
+  scroll: { start: 0.42, duration: 2.0, easing: "easeInOutCubic" },
+  dezoom: { start: 1.45, duration: 1.25, easing: "easeInOutCubic" },
   exit: { start: 0.0, duration: 0.6, easing: "easeInOutCubic" },
 } as const satisfies Record<string, TrackSpec>;
 
@@ -187,12 +191,14 @@ export function timelineEnd(config: TransitionConfig): number {
 }
 
 const BASE_AMPLITUDES = {
-  lockBracketTighten: 8,
-  lockBracketExpand: 14,
+  lockBracketShrink: 12,
+  lockImageShrink: 0.08,
+  lockBracketTighten: 12,
+  lockBracketExpand: 0,
   lockScalePunch: 0.02,
   overlayExitDuration: 0.35,
   scatterDistance: 2800,
-  heroZoom: 1.45,
+  heroZoom: 1.05,
   detailZoom: 1.8,
   spinMediaCount: 8,
   spinEasing: "easeInOutCubic" as EasingName,
@@ -200,7 +206,7 @@ const BASE_AMPLITUDES = {
   wheelMotionBlurStrength: 1.0,
   wheelMotionBlurMax: 0.08,
   slideOffset: 680,
-  textRevealAt: 4.85,
+  textRevealAt: 2.55,
   detailColumnRatio: 0.6,
   arcCurvature: -16,
   arcRotation: 2,
@@ -209,7 +215,9 @@ const BASE_AMPLITUDES = {
   snapDelay: 0.15,
   snapThreshold: 0.05,
   desktopMediaWidthRatio: 0.34,
-  mobileMediaHeightRatio: 0.48,
+  mobileMediaHeightRatio: 0.44,
+  maxMediaWidthRatio: 0.38,
+  maxMediaHeightRatio: 0.78,
   mediaGap: 32,
   detailScrollDamping: 12,
   detailScrollSpeed: 1,

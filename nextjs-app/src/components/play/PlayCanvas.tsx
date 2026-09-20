@@ -498,6 +498,24 @@ function framingOffsetX(
 }
 
 /**
+ * Décalage vertical de la caméra en portrait pour cadrer le média dans la moitié supérieure,
+ * libérant la moitié inférieure pour le panneau d'informations.
+ */
+function framingOffsetY(
+  config: TransitionConfig,
+  baseZoom: number,
+  framing: number,
+  screenSize?: { width: number; height: number },
+): number {
+  const width = screenSize?.width ?? 1920;
+  const height = screenSize?.height ?? 1080;
+  const isDesktop = width >= 1024 && width >= height;
+  if (isDesktop || framing <= 0) return 0;
+  const visibleH = height / Math.max(0.1, baseZoom * config.detailZoom);
+  return -0.2 * visibleH * framing;
+}
+
+/**
  * Avance l'horloge et gère les seuls changements de phase qui subsistent.
  * Aucun mouvement ici : le mouvement est entièrement décrit par la timeline.
  */
@@ -600,7 +618,7 @@ function stepCamera(
   // La courbe : ce que la caméra devrait valoir à cet instant, sans mémoire.
   const curveZoom = baseZoom * frame.zoom;
   const curveX = rc.selectedPos.x + framingOffsetX(config, baseZoom, frame.framing, screenSize);
-  const curveY = rc.selectedPos.y;
+  const curveY = rc.selectedPos.y + framingOffsetY(config, baseZoom, frame.framing, screenSize);
 
   // Un changement de phase peut déplacer la courbe d'un coup — hold qui se
   // valide avant que le recentrage ait convergé, échappée en plein vol. On
@@ -1523,9 +1541,9 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
             animate="visible"
             exit="exit"
             variants={DETAIL_CONTAINER_VARIANTS}
-            className="fixed right-0 top-0 bottom-0 w-full lg:w-[50%] flex flex-col justify-center px-8 sm:px-16 pointer-events-none z-10 select-none"
+            className="fixed pointer-events-none z-10 select-none inset-x-0 bottom-0 top-[50%] flex flex-col justify-start px-6 sm:px-10 pb-8 overflow-y-auto lg:inset-y-0 lg:left-auto lg:right-0 lg:top-0 lg:bottom-0 lg:w-[50%] lg:h-full lg:justify-center lg:px-8 lg:sm:px-16 lg:overflow-visible"
           >
-            <div className="max-w-xl pointer-events-auto flex flex-col">
+            <div className="max-w-xl w-full pointer-events-auto flex flex-col my-auto lg:my-0">
               <motion.h1
                 variants={DETAIL_ITEM_VARIANTS}
                 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-950 mb-6 text-balance"

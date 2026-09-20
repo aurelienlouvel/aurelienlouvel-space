@@ -101,22 +101,15 @@ function smoothstep(t: number): number {
 }
 
 /**
- * Forme sculptée des brackets sur la piste `lock` : pincement en sin² (vitesse
- * nulle au départ, sommet doux, retour à vitesse nulle) puis expansion vers
- * l'extérieur en fondu. La piste est lue en temps *brut* — la courbe est déjà
- * dans la forme, l'easing de la piste n'a rien à y ajouter.
+ * Animation des brackets : rétrécissement vers l'intérieur (retrait progressif du padding)
+ * et fondu sortant fluide sans expansion parasite.
  */
 function sampleBrackets(config: TransitionConfig, t: number, frame: TransitionFrame) {
   const u = trackRaw(config.lock, t);
-  if (u <= LOCK_PINCH_WINDOW) {
-    const s = Math.sin((u / LOCK_PINCH_WINDOW) * Math.PI);
-    frame.bracketPad = -s * s * config.lockBracketTighten;
-    frame.bracketAlpha = 1;
-    return;
-  }
-  const v = (u - LOCK_PINCH_WINDOW) / (1 - LOCK_PINCH_WINDOW);
-  frame.bracketPad = smoothstep(v) * config.lockBracketExpand;
-  frame.bracketAlpha = Math.max(0, Math.cos(v * Math.PI * 0.5));
+  const shrinkDist = config.lockBracketShrink ?? config.lockBracketTighten ?? 12;
+  const shrinkProgress = Math.sin(Math.min(1, u * 1.2) * Math.PI * 0.5);
+  frame.bracketPad = -shrinkProgress * shrinkDist;
+  frame.bracketAlpha = Math.max(0, 1.0 - Math.pow(u, 1.4));
 }
 
 function sampleIdle(frame: TransitionFrame) {
@@ -159,7 +152,7 @@ function samplePlaying(
   // Le zoom est une seule courbe en deux rampes superposées : la seconde reprend
   // la première là où elle en est, au lieu de repartir d'une valeur recalculée.
   // Leur recouvrement est donc continu en vitesse, même s'il est large.
-  const heroZoom = config.detailZoom * config.heroZoom;
+  const heroZoom = config.detailZoom * (config.heroZoom ?? 1.05);
   const climbing = config.selectZoom + (heroZoom - config.selectZoom) * heroT;
   frame.zoom = climbing + (config.detailZoom - climbing) * dezoomT;
   frame.framing = dezoomT;
@@ -173,9 +166,17 @@ function samplePlaying(
   frame.slide = config.slideOffset * (1 - trackAt(config.slide, t));
   frame.columnOpacity = trackAt(config.columnFade, t);
 
-  frame.tileScale =
-    config.selectScale +
-    Math.sin(trackRaw(config.lock, t) * Math.PI) * config.lockScalePunch;
+  // Micro-animation de l'image sélectionnée pendant la confirmation :
+  // L'image rétrécit légèrement (squeeze), puis regrandit/ressort juste après.
+  const lockU = trackRaw(config.lock, t);
+  let tileScale = config.selectScale;
+  if (lockU > 0 && lockU < 1) {
+    const shrinkAmp = config.lockImageShrink ?? 0.08;
+    const dip = Math.sin(lockU * Math.PI);
+    const rebound = lockU > 0.6 ? Math.sin(((lockU - 0.6) / 0.4) * Math.PI) * 0.015 : 0;
+    tileScale = config.selectScale - dip * shrinkAmp + rebound;
+  }
+  frame.tileScale = tileScale;
   sampleBrackets(config, t, frame);
 
   frame.overlayExit = smoothstep(t / Math.max(0.01, config.overlayExitDuration));

@@ -826,22 +826,23 @@ function TransitionTab({
               tr.lock.duration = v;
             },
           },
-          "Tighten pinch (px)": {
-            value: tr.lockBracketTighten,
+          "Bracket shrink (px)": {
+            value: tr.lockBracketShrink ?? tr.lockBracketTighten ?? 12,
             min: 0,
             max: 40,
             step: 1,
             onChange: (v: number) => {
+              tr.lockBracketShrink = v;
               tr.lockBracketTighten = v;
             },
           },
-          "Expand (px)": {
-            value: tr.lockBracketExpand,
+          "Image shrink (squeeze)": {
+            value: tr.lockImageShrink ?? 0.08,
             min: 0,
-            max: 60,
-            step: 1,
+            max: 0.25,
+            step: 0.01,
             onChange: (v: number) => {
-              tr.lockBracketExpand = v;
+              tr.lockImageShrink = v;
             },
           },
           "Scale punch": {
@@ -1196,6 +1197,24 @@ function FocusTab({
         step: 0.01,
         onChange: (v: number) => {
           tr.desktopMediaWidthRatio = v;
+        },
+      },
+      "Max width (% screen)": {
+        value: tr.maxMediaWidthRatio ?? 0.38,
+        min: 0.2,
+        max: 0.8,
+        step: 0.01,
+        onChange: (v: number) => {
+          tr.maxMediaWidthRatio = v;
+        },
+      },
+      "Max height (% screen)": {
+        value: tr.maxMediaHeightRatio ?? 0.78,
+        min: 0.3,
+        max: 0.95,
+        step: 0.01,
+        onChange: (v: number) => {
+          tr.maxMediaHeightRatio = v;
         },
       },
       "Mobile height ratio": {

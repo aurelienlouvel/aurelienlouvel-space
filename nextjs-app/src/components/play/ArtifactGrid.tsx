@@ -205,6 +205,12 @@ function stepKinematicMeshes(
 
       const isTarget = i === targetIdx && dist < Math.max(pt.width, pt.height) * 0.5;
 
+      if (isTarget && (rc.transition.phase === "playing" || rc.transition.phase === "isolated")) {
+        mesh.visible = false;
+        continue;
+      }
+      mesh.visible = true;
+
       let curDx = 0;
       let curDy = 0;
       let scale = 1;
