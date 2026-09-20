@@ -79,7 +79,7 @@ const MOTION_BLUR_MAP = /* glsl */ `
       + texture2D( map, vMapUv - bStep * 1.05 ) * 0.08;
   }
   #ifdef DECODE_VIDEO_TEXTURE
-    sampledDiffuseColor = vec4( mix( pow( sampledDiffuseColor.rgb + vec3( 0.055 ), vec3( 1.0 / 2.4 ) ) * vec3( 1.0 / 1.055 ), sampledDiffuseColor.rgb * vec3( 1.0 / 12.92 ), lessThan( sampledDiffuseColor.rgb, vec3( 0.04045 ) ) ), sampledDiffuseColor.a );
+    sampledDiffuseColor = sRGBTransferEOTF( sampledDiffuseColor );
   #endif
   diffuseColor *= sampledDiffuseColor;
 #endif
@@ -165,6 +165,7 @@ export function getOrCreateImageTexture(
     url,
     (tex) => {
       tex.colorSpace = SRGBColorSpace;
+      tex.needsUpdate = true;
       sharedImageTextures.set(url, tex);
       onLoad?.(tex);
     },

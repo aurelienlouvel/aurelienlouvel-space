@@ -37,7 +37,10 @@ type PlaneUniforms = {
  * rendu WebGL) plutôt qu'en mutant la texture pendant le rendu React.
  */
 function markAsSrgb(texture: Texture) {
-  texture.colorSpace = SRGBColorSpace;
+  if (texture.colorSpace !== SRGBColorSpace) {
+    texture.colorSpace = SRGBColorSpace;
+    texture.needsUpdate = true;
+  }
 }
 
 const ROUNDING_PARS = /* glsl */ `
@@ -69,7 +72,7 @@ const MOTION_BLUR_MAP = /* glsl */ `
       + texture2D( map, vMapUv - bStep * 1.05 ) * 0.08;
   }
   #ifdef DECODE_VIDEO_TEXTURE
-    sampledDiffuseColor = vec4( mix( pow( sampledDiffuseColor.rgb + vec3( 0.055 ), vec3( 1.0 / 2.4 ) ) * vec3( 1.0 / 1.055 ), sampledDiffuseColor.rgb * vec3( 1.0 / 12.92 ), lessThan( sampledDiffuseColor.rgb, vec3( 0.04045 ) ) ), sampledDiffuseColor.a );
+    sampledDiffuseColor = sRGBTransferEOTF( sampledDiffuseColor );
   #endif
   diffuseColor *= sampledDiffuseColor;
 #endif
@@ -146,6 +149,10 @@ type ArtifactPlaneMediaProps = Omit<ArtifactPlaneProps, "kind">;
 
 function ArtifactPlaneImage(props: ArtifactPlaneMediaProps) {
   const texture = useTexture(props.url, markAsSrgb);
+  if (texture && texture.colorSpace !== SRGBColorSpace) {
+    texture.colorSpace = SRGBColorSpace;
+    texture.needsUpdate = true;
+  }
   return <ArtifactPlaneMesh {...props} texture={texture} />;
 }
 
@@ -158,11 +165,14 @@ function ArtifactPlaneImage(props: ArtifactPlaneMediaProps) {
  *
  * Défauts de drei (`muted`, `loop`, `playsInline`) : même convention que le
  * `<video>` DOM de `ProjectCard.tsx`, nécessaire de toute façon pour que
- * l'autoplay ne soit pas bloqué par le navigateur. `colorSpace` est posé par
- * le hook lui-même (`gl.outputColorSpace`) — pas besoin d'un `markAsSrgb` ici.
+ * l'autoplay ne soit pas bloqué par le navigateur. On garantit `colorSpace`
+ * à `SRGBColorSpace` pour que Three.js active le décodage vidéo sRGBTransferEOTF.
  */
 function ArtifactPlaneVideo(props: ArtifactPlaneMediaProps) {
   const texture = useVideoTexture(props.url);
+  if (texture && texture.colorSpace !== SRGBColorSpace) {
+    texture.colorSpace = SRGBColorSpace;
+  }
   return <ArtifactPlaneMesh {...props} texture={texture} />;
 }
 
