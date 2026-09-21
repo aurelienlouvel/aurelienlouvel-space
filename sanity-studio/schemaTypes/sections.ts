@@ -164,6 +164,28 @@ export const blockMedia = defineType({
               type: 'url',
               hidden: ({parent}) => (parent as {mediaType?: string})?.mediaType !== 'embed',
             }),
+            defineField({
+              name: 'embedScrollable',
+              title: 'Scroll slider',
+              description:
+                'Renders the embed wider than its frame and adds a slider below it to pan across a wide mockup.',
+              type: 'boolean',
+              initialValue: false,
+              hidden: ({parent}) => (parent as {mediaType?: string})?.mediaType !== 'embed',
+            }),
+            defineField({
+              name: 'embedScrollFactor',
+              title: 'Scrollable width (× the frame)',
+              description:
+                'Roughly the mockup width / height ratio divided by 1.778. Higher = wider mockup, longer travel.',
+              type: 'number',
+              initialValue: 3,
+              validation: (Rule) => Rule.min(1.5).max(10),
+              hidden: ({parent}) => {
+                const p = parent as {mediaType?: string; embedScrollable?: boolean}
+                return p?.mediaType !== 'embed' || !p?.embedScrollable
+              },
+            }),
             defineField({name: 'caption', title: 'Caption', type: 'string'}),
           ],
         }),
