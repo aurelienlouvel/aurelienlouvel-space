@@ -49,6 +49,11 @@ export const artifactType = defineType({
       rows: 4,
     }),
     defineField({
+      name: 'link',
+      title: 'Link',
+      type: 'url',
+    }),
+    defineField({
       name: 'gallery',
       title: 'Gallery',
       type: 'array',
