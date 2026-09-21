@@ -1004,7 +1004,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     if (selectedArtifactDetail && isDetailVisible) {
       setProject({
         title: selectedArtifactDetail.title || "Artifact",
-        redirectUrl: null,
+        redirectUrl: selectedArtifactDetail.link ?? null,
         onBack: handleCloseDetail,
       });
     } else {
