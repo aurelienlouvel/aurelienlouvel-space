@@ -44,6 +44,8 @@ const contentBlockFields = `
     caption,
     embedProvider,
     embedUrl,
+    embedScrollable,
+    embedScrollFactor,
     icon,
     value,
     unit,
@@ -111,6 +113,8 @@ export type MediaItem = {
   caption: string | null;
   embedProvider: "figma" | "youtube" | "vimeo" | "lottie" | "codesandbox" | "other" | null;
   embedUrl: string | null;
+  embedScrollable: boolean | null;
+  embedScrollFactor: number | null;
 };
 
 export type BlockMedia = {

@@ -3,6 +3,8 @@
 import { useRef, useState, useEffect } from "react";
 import type { BlockMedia, MediaItem } from "@/sanity/queries";
 import { buildImageUrl, hotspotToObjectPosition } from "@/lib/sanity-image";
+import { Slider } from "@/components/ui/Slider";
+import { cn } from "@/lib/utils";
 
 // ─── Gap (px) ─────────────────────────────────────────────────────────────────
 const GAP = 16;
@@ -173,9 +175,24 @@ function SingleLayout({ item }: { item: MediaItem }) {
 
 // ─── Embed item (Figma, YouTube, Vimeo, etc.) ─────────────────────────────
 function EmbedCell({ item }: { item: MediaItem }) {
+  const isFigma = item.embedProvider === "figma";
+
+  // Slider de défilement : une iframe Figma est cross-origin, impossible de la
+  // scroller depuis la page. On la rend `factor` fois plus large que sa fenêtre
+  // (Figma ajuste donc la maquette à ce viewport, elle s'affiche plus grande) et
+  // le slider la translate en CSS pour en révéler les tranches.
+  const scrollable = isFigma && item.embedScrollable === true;
+  const factor = scrollable
+    ? Math.min(Math.max(item.embedScrollFactor ?? 3, 1.5), 10)
+    : 1;
+
+  const [p, setP] = useState(0); // 0..100, la valeur du slider
+  const boxRef = useRef<HTMLDivElement>(null as unknown as HTMLDivElement);
+  const boxW = useContainerWidth(boxRef);
+  const offset = (p / 100) * (factor - 1) * boxW;
+
   if (!item.embedUrl || !item.embedProvider) return null;
   const provider = item.embedProvider;
-  const isFigma = provider === "figma";
 
   let src: string | null = null;
   switch (provider) {
@@ -210,18 +227,50 @@ function EmbedCell({ item }: { item: MediaItem }) {
   return (
     <figure>
       {src ? (
-        <div className="relative aspect-video overflow-hidden rounded-4xl border border-border">
-          <iframe
-            src={src}
-            className="absolute inset-0 w-full"
-            style={
-              isFigma ? { height: "calc(100% + 48px)" } : { height: "100%" }
-            }
-            allow="fullscreen"
-            allowFullScreen
-            loading="lazy"
-          />
-        </div>
+        <>
+          <div
+            ref={boxRef}
+            className="relative aspect-video overflow-hidden rounded-4xl border border-border"
+          >
+            <iframe
+              src={src}
+              className={cn(
+                "absolute inset-0",
+                // Sans ça la souris pan le canvas Figma et désynchronise le
+                // slider ; bonus : la molette redevient celle de la page.
+                scrollable && "pointer-events-none will-change-transform",
+              )}
+              style={{
+                // Course exacte : offset max = (factor - 1) × boxW, donc à 100 %
+                // on cadre pile le bord droit de la maquette.
+                width: `${factor * 100}%`,
+                // Les +48px masquent la barre du bas de Figma (inchangé).
+                height: isFigma ? "calc(100% + 48px)" : "100%",
+                transform: scrollable
+                  ? `translate3d(${-offset}px, 0, 0)`
+                  : undefined,
+              }}
+              allow="fullscreen"
+              allowFullScreen
+              loading="lazy"
+            />
+          </div>
+          {scrollable && (
+            // data-lenis-prevent : /work/[slug] tourne sous LocomotiveScroll,
+            // qui capterait un drag tactile sur la piste pour scroller la page.
+            <div className="mx-auto mt-6 w-48" data-lenis-prevent>
+              <Slider
+                value={p}
+                onValueChange={setP}
+                min={0}
+                max={100}
+                step={1}
+                largeStep={10}
+                aria-label="Faire défiler la maquette"
+              />
+            </div>
+          )}
+        </>
       ) : (
         <a
           href={item.embedUrl}
