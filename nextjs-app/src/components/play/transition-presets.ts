@@ -117,7 +117,7 @@ export type TransitionConfig = {
   snapEnabled: boolean; // Aimantation du média le plus proche au centre à l'arrêt du scroll
   snapStrength: number; // Vitesse de rappel magnétique
   snapDelay: number; // Délai d'inactivité avant le déclenchement du snap (s)
-  snapThreshold: number; // Seuil de vélocité pour déclencher le snap
+  snapThreshold?: number; // (Optionnel / déprécié)
   desktopMediaWidthRatio: number; // Largeur des médias sur desktop (% écran)
   mobileMediaHeightRatio: number; // Hauteur des médias sur mobile (% écran)
   mediaGap: number; // Espace entre médias consécutifs (px écran)
@@ -128,23 +128,36 @@ export type TransitionConfig = {
   exitSlideOffset: number; // Glissement des secondaires à la sortie (unités monde)
   repulseReturnDelay: number; // Délai avant le retour de la mosaïque (s)
   cameraReturnDelay: number; // Délai avant le recentrage caméra (s)
+
+  // ── 5. Positionnement du texte en paysage ──────────────────────────────────
+  landscapeTextWidthRatio: number; // Largeur du panneau texte en % écran (ex: 0.5)
+  landscapeTextRightOffset: number; // Décalage depuis le bord droit (px, ex: 0)
+  landscapeTextTopOffset: number; // Décalage vertical depuis le centre/haut (px, ex: 0)
+  landscapeTextMaxWidth: number; // Largeur max du bloc de texte en px (ex: 576)
+
+  // ── 6. Wheel en format portrait ───────────────────────────────────────────
+  portraitArcCurvature: number; // Courbure de l'arc en portrait vers le centre de la page (px, ex: 50)
 };
 
 /**
- * La chorégraphie de référence. Les pistes se recouvrent volontairement :
- * `scatter` démarre avant la fin de `lock`, `dezoom` pendant que `scroll`
- * tourne encore. C'est ce recouvrement qui fait tenir la séquence en ~2,1s
- * là où l'enchaînement séquentiel en demandait 3,5 — sans rien accélérer.
+ * La chorégraphie de référence :
+ * 1. 0.0s - 0.6s : Temps de pause immobile (le média et la caméra ne bougent pas).
+ * 2. 0.6s - 1.08s : Micro-animation sur le média (lock squeeze, pause, pop élastique).
+ * 3. 1.0s - 1.75s : Zoom caméra hero + dispersion mosaïque + expansion colonne (reveal).
+ * 4. 1.75s - 2.2s : Temps de pause héroïque au zoom max.
+ * 5. 2.2s - 2.65s : Apparition et glissement des cartes secondaires de la colonne.
+ * 6. 2.65s - 4.45s : Roulement fluide de la roue (wheel spin) + cadrage colonne (dezoom).
+ * 7. 4.8s : Révélation fluide du panneau de texte.
  */
 const BASE_TRACKS = {
-  lock: { start: 0.0, duration: 0.42, easing: "linear" },
-  scatter: { start: 0.18, duration: 0.65, easing: "easeOutCubic" },
-  reveal: { start: 0.35, duration: 0.65, easing: "easeOutCubic" },
-  hero: { start: 0.35, duration: 0.7, easing: "easeOutCubic" },
-  columnFade: { start: 0.38, duration: 0.45, easing: "easeOutQuad" },
-  slide: { start: 0.38, duration: 0.65, easing: "easeOutCubic" },
-  scroll: { start: 0.42, duration: 2.0, easing: "easeInOutCubic" },
-  dezoom: { start: 1.45, duration: 1.25, easing: "easeInOutCubic" },
+  lock: { start: 0.6, duration: 0.48, easing: "linear" },
+  scatter: { start: 1.08, duration: 0.65, easing: "easeOutCubic" },
+  reveal: { start: 1.08, duration: 0.65, easing: "easeOutCubic" },
+  hero: { start: 1.08, duration: 0.75, easing: "easeOutCubic" },
+  columnFade: { start: 2.2, duration: 0.45, easing: "easeOutQuad" },
+  slide: { start: 2.2, duration: 0.5, easing: "easeOutCubic" },
+  scroll: { start: 2.65, duration: 1.8, easing: "easeInOutCubic" },
+  dezoom: { start: 3.0, duration: 1.45, easing: "easeInOutCubic" },
   exit: { start: 0.0, duration: 0.6, easing: "easeInOutCubic" },
 } as const satisfies Record<string, TrackSpec>;
 
@@ -187,18 +200,19 @@ export function timelineEnd(config: TransitionConfig): number {
     const track = config[name];
     end = Math.max(end, track.start + track.duration);
   }
+  end = Math.max(end, config.textRevealAt ?? 0);
   return Math.max(0.05, end);
 }
 
 const BASE_AMPLITUDES = {
-  lockBracketShrink: 12,
-  lockImageShrink: 0.08,
-  lockBracketTighten: 12,
-  lockBracketExpand: 0,
+  lockBracketShrink: 14,
+  lockImageShrink: 0.09,
+  lockBracketTighten: 8,
+  lockBracketExpand: 14,
   lockScalePunch: 0.02,
   overlayExitDuration: 0.35,
   scatterDistance: 2800,
-  heroZoom: 1.05,
+  heroZoom: 1.45,
   detailZoom: 1.8,
   spinMediaCount: 8,
   spinEasing: "easeInOutCubic" as EasingName,
@@ -206,24 +220,29 @@ const BASE_AMPLITUDES = {
   wheelMotionBlurStrength: 1.0,
   wheelMotionBlurMax: 0.08,
   slideOffset: 680,
-  textRevealAt: 2.55,
+  textRevealAt: 4.8,
   detailColumnRatio: 0.6,
   arcCurvature: -16,
   arcRotation: 2,
   snapEnabled: true,
-  snapStrength: 10,
+  snapStrength: 6, // Amortissement magnétique doux et progressif (doux vs ancien clamp à 12)
   snapDelay: 0.15,
   snapThreshold: 0.05,
   desktopMediaWidthRatio: 0.34,
-  mobileMediaHeightRatio: 0.44,
+  mobileMediaHeightRatio: 0.48,
   maxMediaWidthRatio: 0.38,
-  maxMediaHeightRatio: 0.78,
+  maxMediaHeightRatio: 0.74,
   mediaGap: 32,
   detailScrollDamping: 12,
   detailScrollSpeed: 1,
   exitSlideOffset: 350,
   repulseReturnDelay: 0.25,
   cameraReturnDelay: 0.0,
+  landscapeTextWidthRatio: 0.42,
+  landscapeTextRightOffset: 0,
+  landscapeTextTopOffset: 0,
+  landscapeTextMaxWidth: 576,
+  portraitArcCurvature: 50,
 };
 
 export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
@@ -249,7 +268,7 @@ export const TRANSITION_PRESETS: Record<
     selectEasing: "easeInQuad",
     ...BASE_AMPLITUDES,
     heroZoom: 1.5,
-    textRevealAt: 2.7,
+    textRevealAt: 5.4,
     ...scaleTracks(1.1),
   },
   snappy: {
@@ -265,13 +284,13 @@ export const TRANSITION_PRESETS: Record<
     overlayExitDuration: 0.22,
     heroZoom: 1.35,
     spinMediaCount: 20,
-    textRevealAt: 1.9,
+    textRevealAt: 3.8,
     detailScrollDamping: 14,
     detailScrollSpeed: 1.2,
     repulseReturnDelay: 0.1,
     ...scaleTracks(0.78, {
-      scroll: { start: 0.95, duration: 1.4, easing: "easeInOutCubic" },
-      dezoom: { start: 1.4, duration: 1.15, easing: "easeInOutCubic" },
+      scroll: { start: 2.1, duration: 1.4, easing: "easeInOutCubic" },
+      dezoom: { start: 2.4, duration: 1.15, easing: "easeInOutCubic" },
     }),
   },
   dramatic: {
@@ -288,7 +307,7 @@ export const TRANSITION_PRESETS: Record<
     heroZoom: 1.65,
     spinMediaCount: 40,
     slideOffset: 350,
-    textRevealAt: 3.4,
+    textRevealAt: 5.8,
     desktopMediaWidthRatio: 0.36,
     mobileMediaHeightRatio: 0.5,
     mediaGap: 36,

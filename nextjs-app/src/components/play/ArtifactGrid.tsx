@@ -50,7 +50,11 @@ function applyHover(
   isDragging?: boolean,
 ) {
   if (rc.transition.phase !== "idle") {
-    setAppCursor("auto");
+    if (rc.transition.phase === "selecting") {
+      setAppCursor("pointer");
+    } else {
+      setAppCursor("auto");
+    }
     return;
   }
   if (hovering) {
@@ -205,7 +209,17 @@ function stepKinematicMeshes(
 
       const isTarget = i === targetIdx && dist < Math.max(pt.width, pt.height) * 0.5;
 
-      if (isTarget && (rc.transition.phase === "playing" || rc.transition.phase === "isolated")) {
+      // Masquer la tuile de la mosaïque UNIQUEMENT quand M0 commence activement son
+      // expansion dans la colonne (reveal > 0.001).
+      // Pendant la phase de pause (0.6s) et la micro-animation de lock, la tuile reste
+      // rigoureusement visible avec opacité 1, empêchant tout clignotement ou disparition.
+      const shouldHideInMosaic =
+        isTarget &&
+        (rc.transition.phase === "isolated" ||
+          (rc.transition.phase === "playing" && frame.reveal > 0.001) ||
+          (rc.transition.phase === "returning" && frame.reveal > 0.001));
+
+      if (shouldHideInMosaic) {
         mesh.visible = false;
         continue;
       }
@@ -229,8 +243,12 @@ function stepKinematicMeshes(
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
-      if (mat && mat.opacity !== frame.mosaicOpacity) {
-        mat.opacity = frame.mosaicOpacity;
+      if (mat) {
+        // La tuile ciblée reste à opacité 1 (jamais de semi-transparence fantôme)
+        const targetOpacity = isTarget ? 1 : frame.mosaicOpacity;
+        if (mat.opacity !== targetOpacity) {
+          mat.opacity = targetOpacity;
+        }
       }
     }
   }
@@ -300,7 +318,7 @@ export function ArtifactGrid({
       applyPointerUp(runtime.current);
     }
 
-    if (TILE_W > 0 && TILE_H > 0) {
+    if (TILE_W > 0 && TILE_H > 0 && runtime.current.transition.phase === "idle") {
       const tx = Math.round(camera.position.x / TILE_W);
       const ty = Math.round(camera.position.y / TILE_H);
       if (tx !== prevTile.current.x || ty !== prevTile.current.y) {

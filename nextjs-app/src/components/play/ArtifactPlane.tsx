@@ -22,6 +22,10 @@ import {
   GLSL_PIXEL_WIDTH,
   uniformsOf,
 } from "./rounded-frame";
+import {
+  registerSharedImageTexture,
+  registerSharedVideoTexture,
+} from "./SecondaryGalleryPlanes";
 
 type PlaneUniforms = {
   uSize: IUniform<Vector2>;
@@ -153,6 +157,9 @@ function ArtifactPlaneImage(props: ArtifactPlaneMediaProps) {
     texture.colorSpace = SRGBColorSpace;
     texture.needsUpdate = true;
   }
+  if (texture) {
+    registerSharedImageTexture(props.url, texture);
+  }
   return <ArtifactPlaneMesh {...props} texture={texture} />;
 }
 
@@ -172,6 +179,9 @@ function ArtifactPlaneVideo(props: ArtifactPlaneMediaProps) {
   const texture = useVideoTexture(props.url);
   if (texture && texture.colorSpace !== SRGBColorSpace) {
     texture.colorSpace = SRGBColorSpace;
+  }
+  if (texture) {
+    registerSharedVideoTexture(props.url, texture);
   }
   return <ArtifactPlaneMesh {...props} texture={texture} />;
 }
@@ -245,14 +255,6 @@ function ArtifactPlaneMesh({
         onHoverChange(true, worldPosition());
       }}
       onPointerLeave={(e) => {
-        e.stopPropagation();
-        onHoverChange(false, worldPosition());
-      }}
-      onPointerOver={(e) => {
-        e.stopPropagation();
-        onHoverChange(true, worldPosition());
-      }}
-      onPointerOut={(e) => {
         e.stopPropagation();
         onHoverChange(false, worldPosition());
       }}

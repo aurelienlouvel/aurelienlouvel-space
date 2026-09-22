@@ -312,13 +312,14 @@ function runMonteCarloPacking(
   const bestH = new Float64Array(n);
   const bestIdx = new Int32Array(n);
 
-  const xs = new Float64Array(n + 1);
-  const ys = new Float64Array(n + 1);
+  const xs = new Float64Array(2 * n + 1);
+  const ys = new Float64Array(2 * n + 1);
   xs[0] = 0;
   ys[0] = 0;
 
   const eps = 0.001;
   const minSameGap = gap + (antiNeighbor ? repeatGap : 0);
+  let bestViolations = Infinity;
   let bestCorners = -1;
   let bestDensity = -1;
   let bestBbW = 0;
@@ -342,6 +343,7 @@ function runMonteCarloPacking(
 
     let maxX = 0;
     let maxY = 0;
+    let iterViolations = 0;
 
     for (let i = 0; i < n; i++) {
       const item = order[i];
@@ -356,7 +358,7 @@ function runMonteCarloPacking(
       let fbY = 0;
       let fbScore = Infinity;
 
-      const numCoords = i + 1;
+      const numCoords = 2 * i + 1;
 
       for (let j = 0; j < numCoords; j++) {
         const x = xs[j];
@@ -403,23 +405,28 @@ function runMonteCarloPacking(
             const area = newMaxX * newMaxY;
             const cx = (x + iw * 0.5) / targetAspect;
             const cy = y + ih * 0.5;
-            const score = envelope * 100000 + area * 0.01 + (cx + cy);
+            const baseScore = envelope * 100000 + area * 0.01 + (cx + cy);
 
-            // Fallback en cas d'absence de place anti-voisin
-            if (score < fbScore) {
-              fbScore = score;
+            // Fallback en cas d'absence de place anti-voisin (pénalise fortement la proximité avec un jumeau)
+            const fbScoreVal = baseScore + (antiCollide ? 1000000 : 0);
+            if (fbScoreVal < fbScore) {
+              fbScore = fbScoreVal;
               fbX = x;
               fbY = y;
             }
 
-            // Candidat optimal respectant l'anti-voisinage
-            if (!antiCollide && score < curBestScore) {
-              curBestScore = score;
+            // Candidat optimal respectant strictement l'anti-voisinage
+            if (!antiCollide && baseScore < curBestScore) {
+              curBestScore = baseScore;
               curBestX = x;
               curBestY = y;
             }
           }
         }
+      }
+
+      if (curBestScore === Infinity) {
+        iterViolations++;
       }
 
       const finalX = curBestScore < Infinity ? curBestX : fbX;
@@ -434,8 +441,10 @@ function runMonteCarloPacking(
       if (finalX + iw > maxX) maxX = finalX + iw;
       if (finalY + ih > maxY) maxY = finalY + ih;
 
-      xs[i + 1] = finalX + iw + gap;
-      ys[i + 1] = finalY + ih + gap;
+      xs[2 * i + 1] = finalX + iw + gap;
+      ys[2 * i + 1] = finalY + ih + gap;
+      xs[2 * i + 2] = finalX + iw + minSameGap;
+      ys[2 * i + 2] = finalY + ih + minSameGap;
     }
 
     const bbW = maxX;
@@ -457,10 +466,18 @@ function runMonteCarloPacking(
     }
     const corners = (bl > 0 ? 1 : 0) + (br > 0 ? 1 : 0) + (tl > 0 ? 1 : 0) + (tr > 0 ? 1 : 0);
 
-    // Critère de sélection : privilégie les layouts aux 4 angles pleins, puis la densité maximale
-    const isBetter = corners > bestCorners || (corners === bestCorners && density > bestDensity);
+    // Critère de sélection :
+    // 1. Priorité absolue : minimiser les violations anti-voisin (0 violation visé)
+    // 2. À violations égales : 4 coins pleins, puis densité maximale
+    const isBetter =
+      iterViolations < bestViolations ||
+      (iterViolations === bestViolations && (
+        corners > bestCorners ||
+        (corners === bestCorners && density > bestDensity)
+      ));
 
     if (isBetter) {
+      bestViolations = iterViolations;
       bestCorners = corners;
       bestDensity = density;
       bestBbW = bbW;

@@ -101,15 +101,42 @@ function smoothstep(t: number): number {
 }
 
 /**
- * Animation des brackets : rétrécissement vers l'intérieur (retrait progressif du padding)
- * et fondu sortant fluide sans expansion parasite.
+ * Animation des brackets : rétrécissement vers l'intérieur (retrait du padding),
+ * maintien pendant le mini-temps de pause, puis fondu sortant fluide lors du pop.
  */
 function sampleBrackets(config: TransitionConfig, t: number, frame: TransitionFrame) {
   const u = trackRaw(config.lock, t);
-  const shrinkDist = config.lockBracketShrink ?? config.lockBracketTighten ?? 12;
-  const shrinkProgress = Math.sin(Math.min(1, u * 1.2) * Math.PI * 0.5);
-  frame.bracketPad = -shrinkProgress * shrinkDist;
-  frame.bracketAlpha = Math.max(0, 1.0 - Math.pow(u, 1.4));
+  if (u <= 0) {
+    frame.bracketPad = 0;
+    frame.bracketAlpha = 1;
+    return;
+  }
+  if (u >= 1) {
+    frame.bracketPad = 0;
+    frame.bracketAlpha = 0;
+    return;
+  }
+
+  const shrinkDist = config.lockBracketShrink ?? config.lockBracketTighten ?? 14;
+  const uPauseStart = 0.22;
+  const uPauseEnd = 0.72;
+
+  if (u < uPauseStart) {
+    // 1. Attaque : pincement rapide vers l'intérieur
+    const p = u / uPauseStart;
+    const ease = 1 - Math.pow(1 - p, 3);
+    frame.bracketPad = -ease * shrinkDist;
+    frame.bracketAlpha = 1;
+  } else if (u <= uPauseEnd) {
+    // 2. Mini temps de pause : maintien serré contre l'image squeezée
+    frame.bracketPad = -shrinkDist;
+    frame.bracketAlpha = 1;
+  } else {
+    // 3. Relâchement & fondu sortant
+    const p = (u - uPauseEnd) / (1 - uPauseEnd);
+    frame.bracketPad = -(1 - p) * shrinkDist;
+    frame.bracketAlpha = Math.max(0, 1 - Math.pow(p, 1.5));
+  }
 }
 
 function sampleIdle(frame: TransitionFrame) {
@@ -166,15 +193,34 @@ function samplePlaying(
   frame.slide = config.slideOffset * (1 - trackAt(config.slide, t));
   frame.columnOpacity = trackAt(config.columnFade, t);
 
-  // Micro-animation de l'image sélectionnée pendant la confirmation :
-  // L'image rétrécit légèrement (squeeze), puis regrandit/ressort juste après.
+  // Micro-animation de lock :
+  // 1. Squeeze d'attaque vers l'intérieur
+  // 2. Mini temps de pause stationnaire où l'image reste squeezée
+  // 3. Rebond élastique / pop vif de ré-expansion
   const lockU = trackRaw(config.lock, t);
   let tileScale = config.selectScale;
   if (lockU > 0 && lockU < 1) {
-    const shrinkAmp = config.lockImageShrink ?? 0.08;
-    const dip = Math.sin(lockU * Math.PI);
-    const rebound = lockU > 0.6 ? Math.sin(((lockU - 0.6) / 0.4) * Math.PI) * 0.015 : 0;
-    tileScale = config.selectScale - dip * shrinkAmp + rebound;
+    const shrinkAmp = config.lockImageShrink ?? 0.09;
+    const uPauseStart = 0.22;
+    const uPauseEnd = 0.72;
+    let squeezeFactor = 0;
+
+    if (lockU < uPauseStart) {
+      // Phase 1 : Squeeze rapide
+      const p = lockU / uPauseStart;
+      squeezeFactor = 1 - Math.pow(1 - p, 3);
+    } else if (lockU <= uPauseEnd) {
+      // Phase 2 : Mini temps de pause maintenu
+      squeezeFactor = 1.0;
+    } else {
+      // Phase 3 : Sortie élastique avec léger rebond (overshoot)
+      const p = (lockU - uPauseEnd) / (1 - uPauseEnd);
+      const returnEase = Math.cos(p * Math.PI * 0.5);
+      const overshoot = Math.sin(p * Math.PI) * (1 - p) * 0.22;
+      squeezeFactor = returnEase - overshoot;
+    }
+
+    tileScale = config.selectScale * (1.0 - squeezeFactor * shrinkAmp);
   }
   frame.tileScale = tileScale;
   sampleBrackets(config, t, frame);
@@ -190,11 +236,9 @@ function sampleIsolated(config: TransitionConfig, frame: TransitionFrame) {
   frame.mosaicOpacity = 0;
   frame.tileScale = config.selectScale;
   frame.reveal = 1;
-  // Le rouleau a parcouru un nombre entier de cycles : à contenu identique près,
-  // revenir à 0 est exactement la même image. C'est ce qui permet de rendre la
-  // main au défilement libre sans la moindre coupure — et c'est exact, pas
-  // approché, parce que la hauteur de cycle est figée pendant toute la timeline.
-  frame.scroll = 0;
+  // Maintien continu du rouleau à 1 (100% de la distance parcourue).
+  // La transition playing -> isolated ne subit ainsi aucun saut de position.
+  frame.scroll = 1;
   frame.slide = 0;
   frame.columnOpacity = 1;
   frame.bracketPad = 0;
@@ -226,7 +270,7 @@ function sampleReturning(
   frame.mosaicOpacity = repulseT;
   frame.tileScale = 1 + (config.selectScale - 1) * (1 - exitT);
   frame.reveal = 1 - exitT;
-  frame.scroll = 0;
+  frame.scroll = 1;
   frame.slide = config.exitSlideOffset * exitT;
   frame.columnOpacity = 1 - exitT;
   frame.bracketPad = 0;

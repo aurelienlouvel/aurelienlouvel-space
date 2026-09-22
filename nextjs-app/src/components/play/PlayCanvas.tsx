@@ -226,6 +226,7 @@ export type PlayRuntimeState = {
     textRevealed: boolean;
     columnScrollY: number;
     targetColumnScrollY: number;
+    isSnapping: boolean;
     /** Échantillon de la frame courante, partagé par tous les `useFrame`. */
     frame: TransitionFrame;
   };
@@ -271,6 +272,7 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
   rc.transition.textRevealed = false;
   rc.transition.columnScrollY = 0;
   rc.transition.targetColumnScrollY = 0;
+  rc.transition.isSnapping = false;
   rc.camera.mode = "settle";
   rc.repulsor.active = true;
   rc.repulsor.pointIndex = pointIndex;
@@ -295,13 +297,14 @@ export function applyPointerUp(rc: PlayRuntimeState) {
 }
 
 export function applyResetTransition(rc: PlayRuntimeState) {
-  rc.transition.targetColumnScrollY = 0;
+  rc.transition.isSnapping = false;
   setAppCursor("auto");
   rc.hovered = null;
   rc.hoveredPos = null;
 
   // Depuis la vue détail (ou n'importe où dans la timeline d'entrée), on ne
   // coupe pas : on bascule sur la timeline de sortie, qui repart de zéro.
+  // On ne modifie pas targetColumnScrollY ici pour éviter tout spin arrière.
   if (rc.transition.phase === "playing" || rc.transition.phase === "isolated") {
     rc.transition.phase = "returning";
     rc.transition.holding = false;
@@ -311,6 +314,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
     return;
   }
 
+  rc.transition.targetColumnScrollY = 0;
   rc.transition.phase = "idle";
   rc.transition.holding = false;
   rc.transition.trigger = null;
@@ -404,7 +408,7 @@ const INDICATOR_MOVE_SPEED = 6;
 
 // ── Ouverture — caméra ────────────────────────────────────────────────────
 const CAMERA_ZOOM = 0.8;
-const CAMERA_MOTION_BLUR_ENABLED = true;
+const CAMERA_MOTION_BLUR_ENABLED = false;
 const CAMERA_MOTION_BLUR_STRENGTH = 4.0;
 const CAMERA_MOTION_BLUR_MAX = 0.25;
 const CAMERA_SETTLE_SPEED = 8;
@@ -604,15 +608,18 @@ function stepCamera(
 
   // ── Défilement libre de la colonne (vue détail) ─────────────────────────
   if (tr.phase === "isolated") {
+    const damping = tr.isSnapping
+      ? (config.snapStrength ?? 6)
+      : config.detailScrollDamping;
     tr.columnScrollY = dampTowards(
       tr.columnScrollY,
       tr.targetColumnScrollY,
-      config.detailScrollDamping,
+      damping,
       effDelta,
     );
   } else if (tr.phase === "returning") {
-    tr.targetColumnScrollY = 0;
-    tr.columnScrollY = dampTowards(tr.columnScrollY, 0, 16, effDelta);
+    // Ne pas modifier targetColumnScrollY ni columnScrollY pendant le retour :
+    // l'itération la plus proche de M0 est directement ramenée à sa tuile sur la mosaïque, sans faire tourner la colonne.
   }
 
   // La courbe : ce que la caméra devrait valoir à cet instant, sans mémoire.
@@ -666,6 +673,18 @@ function stepCamera(
   }
 
   // ── Transition : la courbe s'applique telle quelle ──────────────────────
+  if (tr.phase === "playing" && tr.t < config.lock.start) {
+    // 0.6s de pause immobile absolue : la caméra et le média ne bougent pas d'un cheveu
+    rc.camera.settleX = 0;
+    rc.camera.settleY = 0;
+    rc.camera.settleZoom = 1;
+    camera.position.x = curveX;
+    camera.position.y = curveY;
+    camera.zoom = curveZoom;
+    camera.updateProjectionMatrix();
+    return;
+  }
+
   rc.camera.settleZoom = dampTowards(rc.camera.settleZoom, 1, SETTLE_DECAY_SPEED, effDelta);
   const appliedZoom = curveZoom * rc.camera.settleZoom;
   if (Math.abs(camera.zoom - appliedZoom) > 0.00001) {
@@ -700,6 +719,7 @@ function stepCamera(
     tr.t = 0;
     tr.targetIndex = -1;
     tr.columnScrollY = 0;
+    tr.targetColumnScrollY = 0;
     rc.camera.settleX = 0;
     rc.camera.settleY = 0;
     rc.camera.settleZoom = 1;
@@ -853,6 +873,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       textRevealed: false,
       columnScrollY: 0,
       targetColumnScrollY: 0,
+      isSnapping: false,
       frame: createTransitionFrame(),
     },
   });
@@ -876,12 +897,16 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     applyResetTransition(runtime.current);
   }, []);
 
+  const [textLayoutRev, setTextLayoutRev] = useState(0);
+  const handleTextLayoutChange = useCallback(() => setTextLayoutRev((r) => r + 1), []);
+
   const [viewport, setViewport] = useState(() => {
     if (typeof window !== "undefined") {
       return { width: window.innerWidth, height: window.innerHeight };
     }
     return { width: 1920, height: 1080 };
   });
+  const isDesktop = viewport.width >= 1024 && viewport.width >= viewport.height;
   useEffect(() => {
     function measure() {
       setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -956,6 +981,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   const [isDetailVisible, setIsDetailVisible] = useState(false);
   const [apiStatus, setApiStatus] = useState<"idle" | "fetching" | "ready" | "error">("idle");
 
+
   const handleStartSelect = useCallback(
     (artifactIndex: number, point?: { x: number; y: number; width: number; height: number }) => {
       if (point) setPrincipalPoint(point);
@@ -998,6 +1024,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     setPrincipalPoint(null);
     setSelectedArtifactIndex(null);
     setApiStatus("idle");
+    runtime.current.transition.columnScrollY = 0;
+    runtime.current.transition.targetColumnScrollY = 0;
   }, []);
 
   useEffect(() => {
@@ -1059,6 +1087,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       }),
     [media, ratios, gravityParams],
   );
+
+  const primaryMedia = useMemo(() => {
+    if (selectedArtifactIndex === null) return null;
+    return {
+      url: textureUrls[selectedArtifactIndex] ?? "",
+      kind: mediaKinds[selectedArtifactIndex] ?? "image",
+      ratio: ratios[selectedArtifactIndex] ?? 1.5,
+    };
+  }, [selectedArtifactIndex, textureUrls, mediaKinds, ratios]);
 
 
   useEffect(() => {
@@ -1204,7 +1241,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       if (runtime.current.transition.phase === "isolated") {
         const zoom = debug.current.camera.zoom * (debug.current.transition.detailZoom || 1.8);
         const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
-        runtime.current.transition.targetColumnScrollY += (e.deltaY / (zoom || 1)) * 0.9 * speed;
+        const isDesktopLayout = window.innerWidth >= 1024 && window.innerWidth >= window.innerHeight;
+        const deltaVal = isDesktopLayout
+          ? e.deltaY
+          : (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
+        runtime.current.transition.targetColumnScrollY += (deltaVal / (zoom || 1)) * 0.9 * speed;
         return;
       }
 
@@ -1248,11 +1289,22 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       if (!dragging) return;
 
       if (curPhase === "isolated") {
+        if (!dragMoved.current) {
+          const threshold = debug.current.pan.dragThreshold;
+          if (Math.abs(e.clientX - startX) >= threshold || Math.abs(e.clientY - startY) >= threshold) {
+            dragMoved.current = true;
+            setAppCursor("grabbing");
+          }
+        }
+        const dx = e.clientX - lastX;
         const dy = e.clientY - lastY;
+        lastX = e.clientX;
         lastY = e.clientY;
         const zoom = debug.current.camera.zoom * (debug.current.transition.detailZoom || 1.8);
         const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
-        runtime.current.transition.targetColumnScrollY -= (dy / (zoom || 1)) * 1.1 * speed;
+        const isDesktopLayout = window.innerWidth >= 1024 && window.innerWidth >= window.innerHeight;
+        const moveDelta = isDesktopLayout ? dy : dx;
+        runtime.current.transition.targetColumnScrollY -= (moveDelta / (zoom || 1)) * 1.1 * speed;
         return;
       }
 
@@ -1309,6 +1361,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         curPhase === "returning"
       ) {
         dragging = false;
+        dragMoved.current = false;
         setAppCursor("auto");
         return;
       }
@@ -1322,6 +1375,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         }
       }
       dragging = false;
+      dragMoved.current = false;
       if (curPhase === "idle") {
         if (runtime.current.hovered !== null) {
           setAppCursor("pointer");
@@ -1511,15 +1565,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               dragMoved={dragMoved}
               onStartSelect={handleStartSelect}
             />
-            {selectedArtifactIndex !== null && principalPoint && (
+            {selectedArtifactIndex !== null && principalPoint && primaryMedia && (
               <SecondaryGalleryPlanes
                 gallery={artifacts[selectedArtifactIndex]?.gallery ?? selectedArtifactDetail?.gallery ?? []}
                 principalPoint={principalPoint}
-                primaryMedia={{
-                  url: textureUrls[selectedArtifactIndex] ?? "",
-                  kind: mediaKinds[selectedArtifactIndex] ?? "image",
-                  ratio: ratios[selectedArtifactIndex] ?? 1.5,
-                }}
+                primaryMedia={primaryMedia}
                 runtime={runtime}
                 debug={debug}
                 gap={32}
@@ -1542,8 +1592,25 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
             exit="exit"
             variants={DETAIL_CONTAINER_VARIANTS}
             className="fixed pointer-events-none z-10 select-none inset-x-0 bottom-0 top-[50%] flex flex-col justify-start px-6 sm:px-10 pb-8 overflow-y-auto lg:inset-y-0 lg:left-auto lg:right-0 lg:top-0 lg:bottom-0 lg:w-[50%] lg:h-full lg:justify-center lg:px-8 lg:sm:px-16 lg:overflow-visible"
+            style={
+              isDesktop
+                ? {
+                    width: `${(debug.current.transition.landscapeTextWidthRatio ?? 0.5) * 100}%`,
+                    right: `${debug.current.transition.landscapeTextRightOffset ?? 0}px`,
+                    transform: `translateY(${debug.current.transition.landscapeTextTopOffset ?? 0}px)`,
+                  }
+                : undefined
+            }
           >
-            <div className="max-w-xl w-full pointer-events-auto flex flex-col my-auto lg:my-0">
+            <div
+              className="max-w-xl w-full pointer-events-auto flex flex-col my-auto lg:my-0"
+              style={{
+                maxWidth:
+                  isDesktop && debug.current.transition.landscapeTextMaxWidth != null
+                    ? `${debug.current.transition.landscapeTextMaxWidth}px`
+                    : undefined,
+              }}
+            >
               <motion.h1
                 variants={DETAIL_ITEM_VARIANTS}
                 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-950 mb-6 text-balance"
@@ -1634,6 +1701,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           selectedArtifact={selectedArtifactDetail}
           apiStatus={apiStatus}
           onCloseDetail={handleCloseDetail}
+          onTextLayoutChange={handleTextLayoutChange}
         />
       )}
     </div>

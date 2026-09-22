@@ -22,7 +22,7 @@ type NumericTransitionField = {
   [K in keyof TransitionConfig]: TransitionConfig[K] extends number ? K : never;
 }[keyof TransitionConfig];
 
-const STORAGE_KEY = "play-debug-v25";
+const STORAGE_KEY = "play-debug-v28";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -727,13 +727,14 @@ function TransitionTab({
 
   function trackRow(
     field: TrackName,
-    maxStart = 4,
-    maxDuration = 4,
+    maxStart = 6,
+    maxDuration = 6,
   ) {
     const track = tr[field];
     return folder(
       {
-        Start: {
+        [`${field}_start`]: {
+          label: "Start",
           value: track.start,
           min: 0,
           max: maxStart,
@@ -742,7 +743,8 @@ function TransitionTab({
             tr[field].start = v;
           },
         },
-        Duration: {
+        [`${field}_duration`]: {
+          label: "Duration",
           value: track.duration,
           min: 0.05,
           max: maxDuration,
@@ -751,7 +753,8 @@ function TransitionTab({
             tr[field].duration = v;
           },
         },
-        Easing: {
+        [`${field}_easing`]: {
+          label: "Easing",
           value: track.easing,
           options: EASING_OPTIONS,
           onChange: (v: string) => {
@@ -798,9 +801,56 @@ function TransitionTab({
         value: state.current.studio.scrubProgress,
         min: 0,
         max: 1,
-        step: 0.005,
+        step: 0.002,
+        render: (get) => Boolean(get("Transition Studio & Timeline.Studio Controls.Scrub mode")),
         onChange: (v: number) => {
           state.current.studio.scrubProgress = v;
+        },
+      },
+    }),
+
+    "Selection & Hold (Pre-Transition)": folder({
+      "Hold duration": {
+        value: tr.selectDuration,
+        min: 0.1,
+        max: 2,
+        step: 0.05,
+        onChange: (v: number) => {
+          tr.selectDuration = v;
+        },
+      },
+      "Camera zoom (hold)": {
+        value: tr.selectZoom,
+        min: 0.8,
+        max: 1.5,
+        step: 0.02,
+        onChange: (v: number) => {
+          tr.selectZoom = v;
+        },
+      },
+      "Tile scale (hold)": {
+        value: tr.selectScale,
+        min: 0.8,
+        max: 1.4,
+        step: 0.02,
+        onChange: (v: number) => {
+          tr.selectScale = v;
+        },
+      },
+      "Repulse distance": {
+        value: tr.selectRepulse,
+        min: 0,
+        max: 600,
+        step: 10,
+        onChange: (v: number) => {
+          tr.selectRepulse = v;
+        },
+      },
+      "Hold easing": {
+        value: tr.selectEasing,
+        options: EASING_OPTIONS,
+        onChange: (v: string) => {
+          tr.selectEasing = v as EasingName;
         },
       },
     }),
@@ -808,7 +858,8 @@ function TransitionTab({
     "Transition IN (Choreography)": folder({
       "1. Lock (Brackets)": folder(
         {
-          Start: {
+          lock_start: {
+            label: "Start",
             value: tr.lock.start,
             min: 0,
             max: 2,
@@ -817,7 +868,8 @@ function TransitionTab({
               tr.lock.start = v;
             },
           },
-          Duration: {
+          lock_duration: {
+            label: "Duration",
             value: tr.lock.duration,
             min: 0.05,
             max: 2,
@@ -827,7 +879,7 @@ function TransitionTab({
             },
           },
           "Bracket shrink (px)": {
-            value: tr.lockBracketShrink ?? tr.lockBracketTighten ?? 12,
+            value: tr.lockBracketShrink ?? tr.lockBracketTighten ?? 14,
             min: 0,
             max: 40,
             step: 1,
@@ -837,7 +889,7 @@ function TransitionTab({
             },
           },
           "Image shrink (squeeze)": {
-            value: tr.lockImageShrink ?? 0.08,
+            value: tr.lockImageShrink ?? 0.09,
             min: 0,
             max: 0.25,
             step: 0.01,
@@ -859,7 +911,8 @@ function TransitionTab({
       ),
       "2. Scatter (Mosaic)": folder(
         {
-          Start: {
+          scatter_start: {
+            label: "Start",
             value: tr.scatter.start,
             min: 0,
             max: 3,
@@ -868,7 +921,8 @@ function TransitionTab({
               tr.scatter.start = v;
             },
           },
-          Duration: {
+          scatter_duration: {
+            label: "Duration",
             value: tr.scatter.duration,
             min: 0.05,
             max: 3,
@@ -877,7 +931,8 @@ function TransitionTab({
               tr.scatter.duration = v;
             },
           },
-          Easing: {
+          scatter_easing: {
+            label: "Easing",
             value: tr.scatter.easing,
             options: EASING_OPTIONS,
             onChange: (v: string) => {
@@ -899,7 +954,8 @@ function TransitionTab({
       "3. Reveal (Hero Morph)": trackRow("reveal", 3, 3),
       "4. Hero (Peak Zoom)": folder(
         {
-          Start: {
+          hero_start: {
+            label: "Start",
             value: tr.hero.start,
             min: 0,
             max: 3,
@@ -908,7 +964,8 @@ function TransitionTab({
               tr.hero.start = v;
             },
           },
-          Duration: {
+          hero_duration: {
+            label: "Duration",
             value: tr.hero.duration,
             min: 0.05,
             max: 3,
@@ -917,7 +974,8 @@ function TransitionTab({
               tr.hero.duration = v;
             },
           },
-          Easing: {
+          hero_easing: {
+            label: "Easing",
             value: tr.hero.easing,
             options: EASING_OPTIONS,
             onChange: (v: string) => {
@@ -938,7 +996,8 @@ function TransitionTab({
       ),
       "5. Slide (Secondary Entry)": folder(
         {
-          Start: {
+          slide_start: {
+            label: "Start",
             value: tr.slide.start,
             min: 0,
             max: 4,
@@ -947,7 +1006,8 @@ function TransitionTab({
               tr.slide.start = v;
             },
           },
-          Duration: {
+          slide_duration: {
+            label: "Duration",
             value: tr.slide.duration,
             min: 0.05,
             max: 4,
@@ -956,7 +1016,8 @@ function TransitionTab({
               tr.slide.duration = v;
             },
           },
-          Easing: {
+          slide_easing: {
+            label: "Easing",
             value: tr.slide.easing,
             options: EASING_OPTIONS,
             onChange: (v: string) => {
@@ -996,16 +1057,18 @@ function TransitionTab({
               tr.spinEasing = v as EasingName;
             },
           },
-          Start: {
+          scroll_start: {
+            label: "Start",
             value: tr.scroll.start,
             min: 0,
-            max: 5,
+            max: 6,
             step: 0.02,
             onChange: (v: number) => {
               tr.scroll.start = v;
             },
           },
-          Duration: {
+          scroll_duration: {
+            label: "Duration",
             value: tr.scroll.duration,
             min: 0.2,
             max: 6,
@@ -1019,16 +1082,18 @@ function TransitionTab({
       ),
       "8. Dezoom (Framing)": folder(
         {
-          Start: {
+          dezoom_start: {
+            label: "Start",
             value: tr.dezoom.start,
             min: 0,
-            max: 5,
+            max: 6,
             step: 0.02,
             onChange: (v: number) => {
               tr.dezoom.start = v;
             },
           },
-          Duration: {
+          dezoom_duration: {
+            label: "Duration",
             value: tr.dezoom.duration,
             min: 0.1,
             max: 5,
@@ -1037,7 +1102,8 @@ function TransitionTab({
               tr.dezoom.duration = v;
             },
           },
-          Easing: {
+          dezoom_easing: {
+            label: "Easing",
             value: tr.dezoom.easing,
             options: EASING_OPTIONS,
             onChange: (v: string) => {
@@ -1075,7 +1141,8 @@ function TransitionTab({
     "Transition OUT (Exit)": folder({
       "Exit (Return to Mosaic)": folder(
         {
-          Duration: {
+          exit_duration: {
+            label: "Duration",
             value: tr.exit.duration,
             min: 0.1,
             max: 3,
@@ -1135,6 +1202,7 @@ function FocusTab({
   selectedArtifact,
   apiStatus = "idle",
   onCloseDetail,
+  onTextLayoutChange,
 }: {
   state: PlayDebugRef;
   onResetTransition: () => void;
@@ -1142,6 +1210,7 @@ function FocusTab({
   selectedArtifact?: ArtifactDetail | null;
   apiStatus?: "idle" | "fetching" | "ready" | "error";
   onCloseDetail?: () => void;
+  onTextLayoutChange?: () => void;
 }) {
   const tr = state.current.transition;
   const [, set] = useControls("Focus View & Wheel Arc", () => ({
@@ -1169,6 +1238,16 @@ function FocusTab({
         label: "Arc curvature (center inset px)",
         onChange: (v: number) => {
           tr.arcCurvature = v;
+        },
+      },
+      "Portrait arc curvature (px)": {
+        value: tr.portraitArcCurvature ?? 50,
+        min: -200,
+        max: 200,
+        step: 5,
+        label: "Portrait arc curvature (px)",
+        onChange: (v: number) => {
+          tr.portraitArcCurvature = v;
         },
       },
       "Arc rotation (deg)": {
@@ -1228,6 +1307,53 @@ function FocusTab({
       },
     }),
 
+    "Landscape Text Position": folder({
+      "Text panel width (%)": {
+        value: Math.round((tr.landscapeTextWidthRatio ?? 0.5) * 100),
+        min: 20,
+        max: 80,
+        step: 1,
+        label: "Width (% screen)",
+        onChange: (v: number) => {
+          tr.landscapeTextWidthRatio = v / 100;
+          onTextLayoutChange?.();
+        },
+      },
+      "Right offset (px)": {
+        value: tr.landscapeTextRightOffset ?? 0,
+        min: -150,
+        max: 300,
+        step: 5,
+        label: "Right margin/offset (px)",
+        onChange: (v: number) => {
+          tr.landscapeTextRightOffset = v;
+          onTextLayoutChange?.();
+        },
+      },
+      "Vertical offset (px)": {
+        value: tr.landscapeTextTopOffset ?? 0,
+        min: -300,
+        max: 300,
+        step: 5,
+        label: "Vertical shift (px)",
+        onChange: (v: number) => {
+          tr.landscapeTextTopOffset = v;
+          onTextLayoutChange?.();
+        },
+      },
+      "Max width (px)": {
+        value: tr.landscapeTextMaxWidth ?? 576,
+        min: 350,
+        max: 1200,
+        step: 10,
+        label: "Max text width (px)",
+        onChange: (v: number) => {
+          tr.landscapeTextMaxWidth = v;
+          onTextLayoutChange?.();
+        },
+      },
+    }),
+
     "Center Magnetic Snap": folder({
       "Snap enabled": {
         value: tr.snapEnabled,
@@ -1236,12 +1362,12 @@ function FocusTab({
           tr.snapEnabled = v;
         },
       },
-      "Snap strength": {
+      "Snap damping (softness)": {
         value: tr.snapStrength,
         min: 1,
-        max: 30,
-        step: 1,
-        label: "Snap magnetic strength",
+        max: 20,
+        step: 0.5,
+        label: "Snap damping (lower = softer)",
         onChange: (v: number) => {
           tr.snapStrength = v;
         },
@@ -1254,16 +1380,6 @@ function FocusTab({
         label: "Snap idle delay (s)",
         onChange: (v: number) => {
           tr.snapDelay = v;
-        },
-      },
-      "Snap velocity threshold": {
-        value: tr.snapThreshold,
-        min: 0.01,
-        max: 0.5,
-        step: 0.01,
-        label: "Snap velocity threshold",
-        onChange: (v: number) => {
-          tr.snapThreshold = v;
         },
       },
     }),
@@ -1373,6 +1489,7 @@ export function PlayDebug({
   selectedArtifact,
   apiStatus = "idle",
   onCloseDetail,
+  onTextLayoutChange,
 }: {
   state: PlayDebugRef;
   stats?: LayoutStats;
@@ -1384,6 +1501,7 @@ export function PlayDebug({
   selectedArtifact?: ArtifactDetail | null;
   apiStatus?: "idle" | "fetching" | "ready" | "error";
   onCloseDetail?: () => void;
+  onTextLayoutChange?: () => void;
 }) {
   const initializedRef = useRef<boolean | null>(null);
   if (initializedRef.current == null) {
@@ -1612,6 +1730,7 @@ export function PlayDebug({
           selectedArtifact={selectedArtifact}
           apiStatus={apiStatus}
           onCloseDetail={onCloseDetail}
+          onTextLayoutChange={onTextLayoutChange}
         />
       )}
     </>
