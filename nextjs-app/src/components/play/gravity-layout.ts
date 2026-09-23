@@ -43,7 +43,7 @@ export const GRAVITY_DEFAULTS: GravityParams = {
   repeat: 3,
   antiNeighbor: true,
   repeatGap: 260,
-  iterations: 6000,
+  iterations: 120,
   seed: 1,
   targetAspect: 1.6,
 };
@@ -312,8 +312,8 @@ function runMonteCarloPacking(
   const bestH = new Float64Array(n);
   const bestIdx = new Int32Array(n);
 
-  const xs = new Float64Array(2 * n + 1);
-  const ys = new Float64Array(2 * n + 1);
+  const xs = new Float64Array(n + 1);
+  const ys = new Float64Array(n + 1);
   xs[0] = 0;
   ys[0] = 0;
 
@@ -327,7 +327,7 @@ function runMonteCarloPacking(
 
   // L'itération 0 commence par un tri décroissant par aire pour un socle robuste
   const order = items.slice().sort((a, b) => b.w * b.h - a.w * a.h);
-  const totalRuns = Math.max(1, Math.round(iterations));
+  const totalRuns = Math.max(1, Math.min(1000, Math.round(iterations)));
   const densities = new Float64Array(totalRuns);
 
   for (let iter = 0; iter < totalRuns; iter++) {
@@ -358,7 +358,7 @@ function runMonteCarloPacking(
       let fbY = 0;
       let fbScore = Infinity;
 
-      const numCoords = 2 * i + 1;
+      const numCoords = i + 1;
 
       for (let j = 0; j < numCoords; j++) {
         const x = xs[j];
@@ -441,10 +441,8 @@ function runMonteCarloPacking(
       if (finalX + iw > maxX) maxX = finalX + iw;
       if (finalY + ih > maxY) maxY = finalY + ih;
 
-      xs[2 * i + 1] = finalX + iw + gap;
-      ys[2 * i + 1] = finalY + ih + gap;
-      xs[2 * i + 2] = finalX + iw + minSameGap;
-      ys[2 * i + 2] = finalY + ih + minSameGap;
+      xs[i + 1] = finalX + iw + gap;
+      ys[i + 1] = finalY + ih + gap;
     }
 
     const bbW = maxX;
@@ -531,20 +529,33 @@ function runMonteCarloPacking(
 }
 
 // ── Construction de la tuile pour le canvas /play ─────────────────────────────
+const tileCache = new Map<string, LayoutTile>();
+
+function getTileCacheKey(ratios: number[], params: GravityParams, targetAspect: number): string {
+  return `${ratios.join(",")}_${targetAspect.toFixed(2)}_${params.maxWidth}_${params.maxHeight}_${params.gap}_${params.scaleVariance}_${params.repeat}_${params.antiNeighbor}_${params.repeatGap}_${params.iterations}_${params.seed}`;
+}
+
 export function buildGravityTile(
   ratios: number[],
   params: GravityParams,
   aspect: number,
 ): LayoutTile {
-  const t0 = performance.now();
   const n = ratios.length;
   if (n === 0) return { points: [], neighbors: [], originIndex: -1, TILE_W: 0, TILE_H: 0 };
 
+  const targetAspect =
+    params.targetAspect && params.targetAspect > 0 ? params.targetAspect : aspect > 0 ? aspect : 1.6;
+
+  const cacheKey = getTileCacheKey(ratios, params, targetAspect);
+  const cached = tileCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const t0 = performance.now();
   const rng = createRng(params.seed);
   const repeat = Math.max(1, Math.round(params.repeat));
   const variance = Math.max(0, Math.min(1, params.scaleVariance ?? 0));
-  const targetAspect =
-    params.targetAspect && params.targetAspect > 0 ? params.targetAspect : aspect > 0 ? aspect : 1.6;
 
   // Pré-dimensionnement : chaque répétition d'un même artifact a obligatoirement
   // une échelle différente grâce à une stratification aléatoire par compartiment
@@ -648,7 +659,7 @@ export function buildGravityTile(
   const TILE_W = bbW + params.gap;
   const TILE_H = bbH + params.gap;
 
-  return {
+  const result: LayoutTile = {
     points,
     neighbors: buildNeighborGraph(points, TILE_W, TILE_H, true),
     originIndex,
@@ -656,6 +667,13 @@ export function buildGravityTile(
     TILE_H,
     stats,
   };
+
+  if (tileCache.size > 20) {
+    tileCache.clear();
+  }
+  tileCache.set(cacheKey, result);
+
+  return result;
 }
 
 // ── Implémentation Three.js InstancedMesh demandée ────────────────────────────

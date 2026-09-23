@@ -26,8 +26,6 @@ import { formatDateRange } from "@/lib/date-utils";
 import { ArtifactGrid, setAppCursor } from "./ArtifactGrid";
 import {
   SecondaryGalleryPlanes,
-  getOrCreateImageTexture,
-  getOrCreateVideoTexture,
 } from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
 import { dampTowards } from "./damp";
@@ -1057,6 +1055,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
   }, [handleStartSelect, tile]);
 
+  const viewportAspect =
+    gravityParams.targetAspect && gravityParams.targetAspect > 0
+      ? gravityParams.targetAspect
+      : (viewport.height > 0 ? viewport.width / viewport.height : 1.6);
+
   useEffect(() => {
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -1064,7 +1067,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       const computedTile = buildGravityTile(
         ratios,
         gravityParams,
-        viewport.width / viewport.height,
+        viewportAspect,
       );
       setTile(computedTile);
       setIsCalculated(true);
@@ -1074,7 +1077,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [ratios, gravityParams, viewport]);
+  }, [ratios, gravityParams, viewportAspect]);
 
   const textureUrls = useMemo(
     () =>
@@ -1120,12 +1123,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   // ── Préchargement DOM & Drei des textures (mosaïque et galeries de détail) ─
   const [loaded, setLoaded] = useState(0);
 
-  // Rassemble tous les médias nécessaires au canvas ET aux galeries de détails
+  // Rassemble les médias visibles de la mosaïque principale pour le loader initial
   const allMediaToPreload = useMemo(() => {
     const list: { url: string; kind: "image" | "video" }[] = [];
     const seen = new Set<string>();
 
-    // 1. Médias de la mosaïque principale
     textureUrls.forEach((url, i) => {
       if (url && !seen.has(url)) {
         seen.add(url);
@@ -1133,26 +1135,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       }
     });
 
-    // 2. Médias secondaires des galeries de détails
-    artifacts.forEach((art) => {
-      if (Array.isArray(art.gallery)) {
-        art.gallery.forEach((g) => {
-          const isVideo = g._type === "galleryVideo";
-          const url = isVideo
-            ? (g.videoUrl || fileRefToUrl(g.videoRef) || "")
-            : (g.imageRef
-                ? buildImageUrl(g.imageRef, g.imageUrl ?? null, null, null, { width: 1400 })
-                : (g.imageUrl ?? ""));
-          if (url && !seen.has(url)) {
-            seen.add(url);
-            list.push({ url, kind: isVideo ? "video" : "image" });
-          }
-        });
-      }
-    });
-
     return list;
-  }, [textureUrls, mediaKinds, artifacts]);
+  }, [textureUrls, mediaKinds]);
 
   const total = allMediaToPreload.length;
 
@@ -1170,12 +1154,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     allMediaToPreload.forEach((m) => {
       if (m.kind === "video") {
-        try {
-          getOrCreateVideoTexture(m.url);
-        } catch {}
         const video = document.createElement("video");
         video.crossOrigin = "anonymous";
         video.preload = "auto";
+        video.muted = true;
+        video.playsInline = true;
         video.src = m.url;
         let fired = false;
         const onDone = () => {
@@ -1185,13 +1168,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         };
         video.onloadeddata = onDone;
         video.onerror = onDone;
-        setTimeout(onDone, 2500);
+        setTimeout(onDone, 1800);
         elements.push(video);
         return;
       }
       try {
         useTexture.preload(m.url);
-        getOrCreateImageTexture(m.url);
       } catch {}
       const img = new Image();
       img.crossOrigin = "anonymous";

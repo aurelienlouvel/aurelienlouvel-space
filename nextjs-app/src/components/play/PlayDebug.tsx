@@ -22,7 +22,7 @@ type NumericTransitionField = {
   [K in keyof TransitionConfig]: TransitionConfig[K] extends number ? K : never;
 }[keyof TransitionConfig];
 
-const STORAGE_KEY = "play-debug-v28";
+const STORAGE_KEY = "play-debug-v29";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -159,6 +159,11 @@ function restore(state: PlayDebugState) {
       if (typeof value === "string" && key === "color" && !HEX_COLOR.test(value))
         continue;
       group[key] = value;
+    }
+  }
+  if (state.gravity && typeof state.gravity.iterations === "number") {
+    if (state.gravity.iterations > 600 || state.gravity.iterations < 20) {
+      state.gravity.iterations = 120;
     }
   }
 }
@@ -374,9 +379,9 @@ function CanvasTab({
       },
       Iterations: {
         value: state.current.gravity.iterations,
-        min: 1000,
-        max: 20000,
-        step: 500,
+        min: 20,
+        max: 600,
+        step: 10,
         onChange: (v: number) => {
           state.current.gravity.iterations = v;
           onLayoutChange();

@@ -352,6 +352,19 @@ export function SecondaryGalleryPlanes({
   const groupRef = useRef<Group>(null);
   const meshRefs = useRef<(Mesh | null)[]>([]);
 
+  // Pause les vidéos partagées au démontage pour libérer les décodeurs matériels
+  useEffect(() => {
+    return () => {
+      sharedVideoTextures.forEach(({ video }) => {
+        try {
+          if (!video.paused) {
+            video.pause();
+          }
+        } catch {}
+      });
+    };
+  }, []);
+
   // Détection responsive : desktop (>= 1024px et paysage) vs mobile
   const isDesktop = size.width >= 1024 && size.width >= size.height;
 
