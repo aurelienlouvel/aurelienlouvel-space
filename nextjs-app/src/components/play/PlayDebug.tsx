@@ -22,7 +22,7 @@ type NumericTransitionField = {
   [K in keyof TransitionConfig]: TransitionConfig[K] extends number ? K : never;
 }[keyof TransitionConfig];
 
-const STORAGE_KEY = "play-debug-v29";
+const STORAGE_KEY = "play-debug-v30";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -341,7 +341,7 @@ function CanvasTab({
       "Repeat gap (px)": {
         value: state.current.gravity.repeatGap,
         min: 50,
-        max: 500,
+        max: 800,
         step: 10,
         onChange: (v: number) => {
           state.current.gravity.repeatGap = v;

@@ -3,6 +3,7 @@ import {
   buildNeighborGraph,
   containFit,
   createRng,
+  wrappedDelta,
   type LayoutPoint,
   type LayoutStats,
   type LayoutTile,
@@ -42,8 +43,8 @@ export const GRAVITY_DEFAULTS: GravityParams = {
   scaleVariance: 0.1,
   repeat: 3,
   antiNeighbor: true,
-  repeatGap: 260,
-  iterations: 120,
+  repeatGap: 400,
+  iterations: 160,
   seed: 1,
   targetAspect: 1.6,
 };
@@ -447,8 +448,32 @@ function runMonteCarloPacking(
 
     const bbW = maxX;
     const bbH = maxY;
+    const tileW = bbW + gap;
+    const tileH = bbH + gap;
     const density = totalArea / (bbW * bbH || 1);
     densities[iter] = density;
+
+    // Détection des violations anti-voisin toriques (sur les coutures périodiques de la tuile)
+    let toroidalViolations = 0;
+    if (antiNeighbor) {
+      const minToroidalDist = Math.max(1250, gap + repeatGap * 2);
+      for (let a = 0; a < n; a++) {
+        const ax = placedX[a] + placedW[a] / 2;
+        const ay = placedY[a] + placedH[a] / 2;
+        const aId = placedIdx[a];
+        for (let b = a + 1; b < n; b++) {
+          if (placedIdx[b] === aId) {
+            const bx = placedX[b] + placedW[b] / 2;
+            const by = placedY[b] + placedH[b] / 2;
+            const tdx = wrappedDelta(bx - ax, tileW);
+            const tdy = wrappedDelta(by - ay, tileH);
+            if (Math.hypot(tdx, tdy) < minToroidalDist) {
+              toroidalViolations++;
+            }
+          }
+        }
+      }
+    }
 
     // Détection de la couverture des 4 coins (BL, BR, TL, TR) pour interdire les angles vides
     let bl = 0, br = 0, tl = 0, tr = 0;
@@ -465,17 +490,18 @@ function runMonteCarloPacking(
     const corners = (bl > 0 ? 1 : 0) + (br > 0 ? 1 : 0) + (tl > 0 ? 1 : 0) + (tr > 0 ? 1 : 0);
 
     // Critère de sélection :
-    // 1. Priorité absolue : minimiser les violations anti-voisin (0 violation visé)
+    // 1. Priorité absolue : minimiser les violations anti-voisin directes ET toriques (0 violation visé)
     // 2. À violations égales : 4 coins pleins, puis densité maximale
+    const totalViolations = iterViolations + toroidalViolations;
     const isBetter =
-      iterViolations < bestViolations ||
-      (iterViolations === bestViolations && (
+      totalViolations < bestViolations ||
+      (totalViolations === bestViolations && (
         corners > bestCorners ||
         (corners === bestCorners && density > bestDensity)
       ));
 
     if (isBetter) {
-      bestViolations = iterViolations;
+      bestViolations = totalViolations;
       bestCorners = corners;
       bestDensity = density;
       bestBbW = bbW;
