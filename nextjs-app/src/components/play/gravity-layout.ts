@@ -43,7 +43,7 @@ export const GRAVITY_DEFAULTS: GravityParams = {
   scaleVariance: 0.1,
   repeat: 3,
   antiNeighbor: true,
-  repeatGap: 400,
+  repeatGap: 260,
   iterations: 160,
   seed: 1,
   targetAspect: 1.6,
@@ -313,10 +313,9 @@ function runMonteCarloPacking(
   const bestH = new Float64Array(n);
   const bestIdx = new Int32Array(n);
 
-  const xs = new Float64Array(n + 1);
-  const ys = new Float64Array(n + 1);
-  xs[0] = 0;
-  ys[0] = 0;
+  const maxCands = 5 * n + 2;
+  const candX = new Float64Array(maxCands);
+  const candY = new Float64Array(maxCands);
 
   const eps = 0.001;
   const minSameGap = gap + (antiNeighbor ? repeatGap : 0);
@@ -346,6 +345,10 @@ function runMonteCarloPacking(
     let maxY = 0;
     let iterViolations = 0;
 
+    let numCands = 1;
+    candX[0] = 0;
+    candY[0] = 0;
+
     for (let i = 0; i < n; i++) {
       const item = order[i];
       const iw = item.w;
@@ -359,69 +362,63 @@ function runMonteCarloPacking(
       let fbY = 0;
       let fbScore = Infinity;
 
-      const numCoords = i + 1;
+      for (let c = 0; c < numCands; c++) {
+        const x = candX[c];
+        const y = candY[c];
 
-      for (let j = 0; j < numCoords; j++) {
-        const x = xs[j];
-        for (let k = 0; k < numCoords; k++) {
-          const y = ys[k];
+        let collide = false;
+        let antiCollide = false;
 
-          let collide = false;
-          let antiCollide = false;
-
-          for (let p = 0; p < i; p++) {
-            // Collision générale avec n'importe quel rectangle déjà placé
-            if (
-              x < placedX[p] + placedW[p] + gap - eps &&
-              x + iw + gap - eps > placedX[p] &&
-              y < placedY[p] + placedH[p] + gap - eps &&
-              y + ih + gap - eps > placedY[p]
-            ) {
-              collide = true;
-              break;
-            }
-
-            // Règle anti-voisin : distance accrue requise entre exemplaires identiques
-            if (antiNeighbor && placedIdx[p] === aIdx) {
-              if (
-                x < placedX[p] + placedW[p] + minSameGap - eps &&
-                x + iw + minSameGap - eps > placedX[p] &&
-                y < placedY[p] + placedH[p] + minSameGap - eps &&
-                y + ih + minSameGap - eps > placedY[p]
-              ) {
-                antiCollide = true;
-              }
-            }
+        for (let p = 0; p < i; p++) {
+          // Collision générale avec n'importe quel rectangle déjà placé
+          if (
+            x < placedX[p] + placedW[p] + gap - eps &&
+            x + iw + gap - eps > placedX[p] &&
+            y < placedY[p] + placedH[p] + gap - eps &&
+            y + ih + gap - eps > placedY[p]
+          ) {
+            collide = true;
+            break;
           }
 
-          if (!collide) {
-            // Score vers un rectangle équilibré :
-            // 1. Éviter d'étirer inutilement la bounding box au-delà du ratio cible
-            // 2. Remplir prioritairement les trous, coins et renfoncements intérieurs
-            const newMaxX = Math.max(maxX, x + iw);
-            const newMaxY = Math.max(maxY, y + ih);
-            const normX = newMaxX / targetAspect;
-            const normY = newMaxY;
-            const envelope = Math.max(normX, normY);
-            const area = newMaxX * newMaxY;
-            const cx = (x + iw * 0.5) / targetAspect;
-            const cy = y + ih * 0.5;
-            const baseScore = envelope * 100000 + area * 0.01 + (cx + cy);
-
-            // Fallback en cas d'absence de place anti-voisin (pénalise fortement la proximité avec un jumeau)
-            const fbScoreVal = baseScore + (antiCollide ? 1000000 : 0);
-            if (fbScoreVal < fbScore) {
-              fbScore = fbScoreVal;
-              fbX = x;
-              fbY = y;
+          // Règle anti-voisin : distance accrue requise entre exemplaires identiques
+          if (antiNeighbor && placedIdx[p] === aIdx) {
+            if (
+              x < placedX[p] + placedW[p] + minSameGap - eps &&
+              x + iw + minSameGap - eps > placedX[p] &&
+              y < placedY[p] + placedH[p] + minSameGap - eps &&
+              y + ih + minSameGap - eps > placedY[p]
+            ) {
+              antiCollide = true;
             }
+          }
+        }
 
-            // Candidat optimal respectant strictement l'anti-voisinage
-            if (!antiCollide && baseScore < curBestScore) {
-              curBestScore = baseScore;
-              curBestX = x;
-              curBestY = y;
-            }
+        if (!collide) {
+          // Score vers un rectangle compact et équilibré
+          const newMaxX = Math.max(maxX, x + iw);
+          const newMaxY = Math.max(maxY, y + ih);
+          const normX = newMaxX / targetAspect;
+          const normY = newMaxY;
+          const envelope = Math.max(normX, normY);
+          const area = newMaxX * newMaxY;
+          const cx = (x + iw * 0.5) / targetAspect;
+          const cy = y + ih * 0.5;
+          const baseScore = envelope * 100000 + area * 0.01 + (cx + cy);
+
+          // Fallback en cas d'absence de place anti-voisin
+          const fbScoreVal = baseScore + (antiCollide ? 1000000 : 0);
+          if (fbScoreVal < fbScore) {
+            fbScore = fbScoreVal;
+            fbX = x;
+            fbY = y;
+          }
+
+          // Candidat optimal respectant strictement l'anti-voisinage
+          if (!antiCollide && baseScore < curBestScore) {
+            curBestScore = baseScore;
+            curBestX = x;
+            curBestY = y;
           }
         }
       }
@@ -442,8 +439,12 @@ function runMonteCarloPacking(
       if (finalX + iw > maxX) maxX = finalX + iw;
       if (finalY + ih > maxY) maxY = finalY + ih;
 
-      xs[i + 1] = finalX + iw + gap;
-      ys[i + 1] = finalY + ih + gap;
+      // Candidats d'insertion au contact direct des bords existants (alignements nets sans trous)
+      candX[numCands] = finalX + iw + gap; candY[numCands] = finalY; numCands++;
+      candX[numCands] = finalX; candY[numCands] = finalY + ih + gap; numCands++;
+      candX[numCands] = finalX + iw + gap; candY[numCands] = 0; numCands++;
+      candX[numCands] = 0; candY[numCands] = finalY + ih + gap; numCands++;
+      candX[numCands] = finalX + iw + gap; candY[numCands] = finalY + ih + gap; numCands++;
     }
 
     const bbW = maxX;
@@ -456,7 +457,7 @@ function runMonteCarloPacking(
     // Détection des violations anti-voisin toriques (sur les coutures périodiques de la tuile)
     let toroidalViolations = 0;
     if (antiNeighbor) {
-      const minToroidalDist = Math.max(1250, gap + repeatGap * 2);
+      const minToroidalDist = Math.max(1000, gap + repeatGap * 1.5);
       for (let a = 0; a < n; a++) {
         const ax = placedX[a] + placedW[a] / 2;
         const ay = placedY[a] + placedH[a] / 2;
