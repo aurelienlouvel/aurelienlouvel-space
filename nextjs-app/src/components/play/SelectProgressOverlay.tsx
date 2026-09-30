@@ -8,7 +8,7 @@ import {
   Vector2,
   type Mesh,
 } from "three";
-import { clampRadius } from "./rounded-frame";
+import { CARD_TILT_GLSL, clampRadius } from "./rounded-frame";
 import type {
   PlayDebugRef,
   PlayRuntimeRef,
@@ -38,11 +38,17 @@ function getDirectionCode(dir: WaveDirection): number {
 }
 
 const PROGRESS_VERTEX_SHADER = /* glsl */ `
+${CARD_TILT_GLSL}
+
 varying vec2 vUv;
 
 void main() {
   vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  // Même bascule locale que le média (cf. rounded-frame.ts) : l'overlay doit
+  // rester collé dessus comme une seule carte physique, pas un calque qui
+  // reste à plat pendant que la photo bascule sous lui.
+  vec3 tilted = applyCardTilt(position, uCardTilt);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(tilted, 1.0);
 }
 `;
 
@@ -198,10 +204,13 @@ function applyOverlayFrame(
   exitProgress: number,
   time: number,
   overlay: SelectOverlayParams,
+  tilt: { x: number; y: number },
+  roll: number,
 ) {
   mesh.visible = true;
   mesh.position.set(pos.x, pos.y, OVERLAY_Z);
   mesh.scale.set(w, h, 1);
+  mesh.rotation.z = roll;
 
   const u = material.uniforms;
   u.uSize.value.set(w, h);
@@ -217,6 +226,7 @@ function applyOverlayFrame(
   u.uBaseOpacity.value = overlay.baseOpacity;
   u.uGlowIntensity.value = overlay.glowIntensity;
   u.uDirection.value = getDirectionCode(overlay.direction);
+  u.uCardTilt.value.set(tilt.x, tilt.y);
 }
 
 /**
@@ -258,6 +268,7 @@ export function SelectProgressOverlay({
           uBaseOpacity: { value: 0.28 },
           uGlowIntensity: { value: 0.45 },
           uDirection: { value: 0 },
+          uCardTilt: { value: new Vector2(0, 0) },
         },
         transparent: true,
         depthWrite: false,
@@ -315,6 +326,8 @@ export function SelectProgressOverlay({
       exitProgress,
       state.clock.getElapsedTime(),
       debug.current.overlay,
+      { x: rc.transition.frame.tileTiltX, y: rc.transition.frame.tileTiltY },
+      rc.transition.frame.tileRoll,
     );
   });
 

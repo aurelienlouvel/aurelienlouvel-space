@@ -14,7 +14,8 @@ import {
   type PlayRuntimeState,
 } from "./PlayCanvas";
 import type { LayoutPoint, LayoutTile } from "./layout-types";
-import { ArtifactPlane } from "./ArtifactPlane";
+import { ArtifactPlane, type PlaneUniforms } from "./ArtifactPlane";
+import { uniformsOf } from "./rounded-frame";
 
 /**
  * 3×3 copies de la tuile virtualisée, repositionnées à la volée autour de la caméra
@@ -239,8 +240,11 @@ function stepKinematicMeshes(
       }
 
       mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
-      mesh.rotation.z = 0;
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
+      // Contrairement à la bascule X/Y (aplatie par la caméra orthographique,
+      // cf. ArtifactPlane.tsx), une rotation Z reste un pur tourni dans le
+      // plan de l'écran : parfaitement visible telle quelle, sans warp shader.
+      mesh.rotation.z = isTarget ? frame.tileRoll : 0;
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
@@ -248,6 +252,17 @@ function stepKinematicMeshes(
         const targetOpacity = isTarget ? 1 : frame.mosaicOpacity;
         if (mat.opacity !== targetOpacity) {
           mat.opacity = targetOpacity;
+        }
+        // Bascule 3D : un warp de perspective locale dans le shader (cf.
+        // ArtifactPlane.tsx), pas une rotation Object3D — sous la caméra
+        // orthographique de la scène, une rotation ne produirait qu'un
+        // aplatissement symétrique, invisible et indifférent au sens du tilt.
+        const uniforms = uniformsOf<PlaneUniforms>(mat);
+        if (uniforms) {
+          uniforms.uCardTilt.value.set(
+            isTarget ? frame.tileTiltX : 0,
+            isTarget ? frame.tileTiltY : 0,
+          );
         }
       }
     }
@@ -372,13 +387,16 @@ export function ArtifactGrid({
     world: { x: number; y: number },
     width: number,
     height: number,
+    offset: { x: number; y: number },
   ) {
     if (runtime.current.transition.phase !== "idle") return;
     applySelect(runtime.current, pointIndex, world, width, height);
-    applyPointerDown(runtime.current, pointIndex, {
-      x: world.x,
-      y: world.y,
-    });
+    applyPointerDown(
+      runtime.current,
+      pointIndex,
+      { x: world.x, y: world.y },
+      offset,
+    );
     if (points[pointIndex]) {
       onStartSelect?.(points[pointIndex].artifactIndex, {
         ...points[pointIndex],
@@ -430,7 +448,9 @@ export function ArtifactGrid({
                   onHoverChange={(hovering, world) =>
                     handleHover(i, world, point.width, point.height, hovering)
                   }
-                  onPointerDown={(world) => handlePointerDown(i, world, point.width, point.height)}
+                  onPointerDown={(world, offset) =>
+                    handlePointerDown(i, world, point.width, point.height, offset)
+                  }
                   onSelect={(world) => handleSelect(i, world, point.width, point.height)}
                 />
               </Suspense>

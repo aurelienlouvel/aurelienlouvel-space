@@ -17,6 +17,7 @@ import type { MediaKind } from "./artifact-media";
 import type { PlayDebugRef, PlayRuntimeRef } from "./PlayCanvas";
 import {
   attachUniforms,
+  CARD_TILT_GLSL,
   clampRadius,
   FRAME_DEFINES,
   GLSL_PIXEL_WIDTH,
@@ -27,10 +28,11 @@ import {
   registerSharedVideoTexture,
 } from "./SecondaryGalleryPlanes";
 
-type PlaneUniforms = {
+export type PlaneUniforms = {
   uSize: IUniform<Vector2>;
   uRadius: IUniform<number>;
   uMotionBlur: IUniform<Vector2>;
+  uCardTilt: IUniform<Vector2>;
 };
 
 /**
@@ -59,6 +61,10 @@ float sdRoundedRect(vec2 p, vec2 halfSize, float radius) {
   vec2 q = abs(p) - halfSize + radius;
   return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
 }
+`;
+
+const CARD_TILT_APPLY = /* glsl */ `
+transformed = applyCardTilt(transformed, uCardTilt);
 `;
 
 const MOTION_BLUR_MAP = /* glsl */ `
@@ -98,6 +104,7 @@ function roundCorners(
     uSize: { value: new Vector2(1, 1) },
     uRadius: { value: 0 },
     uMotionBlur: { value: new Vector2(0, 0) },
+    uCardTilt: { value: new Vector2(0, 0) },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
     .replace("#include <common>", `#include <common>\n${ROUNDING_PARS}`)
@@ -105,6 +112,9 @@ function roundCorners(
       "#include <map_fragment>",
       MOTION_BLUR_MAP,
     );
+  parameters.vertexShader = parameters.vertexShader
+    .replace("#include <common>", `#include <common>\n${CARD_TILT_GLSL}`)
+    .replace("#include <begin_vertex>", `#include <begin_vertex>\n${CARD_TILT_APPLY}`);
 }
 
 /**
@@ -128,7 +138,11 @@ type ArtifactPlaneProps = {
   runtime?: PlayRuntimeRef;
   meshRef?: (mesh: Mesh | null) => void;
   onHoverChange: (hovering: boolean, world: { x: number; y: number }) => void;
-  onPointerDown?: (world: { x: number; y: number }) => void;
+  /** `offset` : point pressé sur la tuile, normalisé -1..1 depuis son centre. */
+  onPointerDown?: (
+    world: { x: number; y: number },
+    offset: { x: number; y: number },
+  ) => void;
   onSelect: (world: { x: number; y: number }) => void;
 };
 
@@ -262,7 +276,12 @@ function ArtifactPlaneMesh({
         const btn = e.button ?? e.nativeEvent?.button;
         if (btn === 0) {
           e.stopPropagation();
-          onPointerDown?.(worldPosition());
+          // uv : 0..1 sur le plan (u gauche→droite, v bas→haut) → -1..1 depuis le centre.
+          const uv = e.uv;
+          const offset = uv
+            ? { x: (uv.x - 0.5) * 2, y: (uv.y - 0.5) * 2 }
+            : { x: 0, y: 0 };
+          onPointerDown?.(worldPosition(), offset);
         }
       }}
       onClick={() => onSelect(worldPosition())}

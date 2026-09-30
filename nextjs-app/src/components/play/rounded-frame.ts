@@ -36,6 +36,39 @@ float pixelWidth(vec2 p) {
 `;
 
 /**
+ * Bascule 3D façon CSS `perspective() rotateX() rotateY()`, appliquée en
+ * espace local (plan unitaire -0.5..0.5) avant les matrices de la scène.
+ *
+ * La caméra du canvas est orthographique : lui faire subir une rotation
+ * d'Object3D ne produirait qu'un aplatissement symétrique en cosinus,
+ * invisible en pratique et identique quel que soit le sens du tilt (cos est
+ * pair). Ce warp calcule sa propre perspective *locale*, indépendante de la
+ * caméra de scène, pour obtenir un vrai trapèze asymétrique.
+ *
+ * Partagé entre le média (`ArtifactPlane`, injecté via `onBeforeCompile` sur
+ * `#include <begin_vertex>`) et l'overlay de sélection (`SelectProgressOverlay`,
+ * shader autonome) : les deux doivent bouger comme un seul objet physique.
+ */
+export const CARD_TILT_GLSL = /* glsl */ `
+uniform vec2 uCardTilt;
+
+vec3 applyCardTilt(vec3 p, vec2 tilt) {
+  float cx = cos(tilt.x), sx = sin(tilt.x);
+  float cy = cos(tilt.y), sy = sin(tilt.y);
+
+  float y1 = p.y * cx - p.z * sx;
+  float z1 = p.y * sx + p.z * cx;
+
+  float x2 = p.x * cy + z1 * sy;
+  float z2 = -p.x * sy + z1 * cy;
+
+  const float perspective = 1.35;
+  float persp = perspective / max(0.2, perspective - z2);
+  return vec3(x2 * persp, y1 * persp, z2);
+}
+`;
+
+/**
  * Déclare des uniforms sur un programme en cours de compilation, et en garde la
  * trace sur le matériau.
  *

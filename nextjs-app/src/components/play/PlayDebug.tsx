@@ -22,7 +22,7 @@ type NumericTransitionField = {
   [K in keyof TransitionConfig]: TransitionConfig[K] extends number ? K : never;
 }[keyof TransitionConfig];
 
-const STORAGE_KEY = "play-debug-v31";
+const STORAGE_KEY = "play-debug-v33";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -340,8 +340,8 @@ function CanvasTab({
       },
       "Repeat gap (px)": {
         value: state.current.gravity.repeatGap,
-        min: 50,
-        max: 800,
+        min: 0,
+        max: 500,
         step: 10,
         onChange: (v: number) => {
           state.current.gravity.repeatGap = v;
@@ -479,6 +479,15 @@ function SelectionTab({ state }: { state: PlayDebugRef }) {
         step: 10,
         onChange: (v: number) => {
           state.current.transition.selectRepulse = v;
+        },
+      },
+      "Hold tilt (3D)": {
+        value: state.current.transition.selectTiltMax,
+        min: 0,
+        max: 0.3,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.transition.selectTiltMax = v;
         },
       },
       "Hold easing": {
@@ -851,6 +860,33 @@ function TransitionTab({
           tr.selectRepulse = v;
         },
       },
+      "Burst lead": {
+        value: tr.burstLead,
+        min: 0,
+        max: 0.6,
+        step: 0.01,
+        onChange: (v: number) => {
+          tr.burstLead = v;
+        },
+      },
+      "Burst lead depth": {
+        value: tr.burstLeadDepth,
+        min: 0,
+        max: 0.25,
+        step: 0.005,
+        onChange: (v: number) => {
+          tr.burstLeadDepth = v;
+        },
+      },
+      "Tilt (hold)": {
+        value: tr.selectTiltMax,
+        min: 0,
+        max: 0.3,
+        step: 0.01,
+        onChange: (v: number) => {
+          tr.selectTiltMax = v;
+        },
+      },
       "Hold easing": {
         value: tr.selectEasing,
         options: EASING_OPTIONS,
@@ -893,19 +929,28 @@ function TransitionTab({
               tr.lockBracketTighten = v;
             },
           },
-          "Image shrink (squeeze)": {
-            value: tr.lockImageShrink ?? 0.09,
+          "Pop tilt (lock)": {
+            value: tr.lockPopTilt ?? 0.085,
             min: 0,
-            max: 0.25,
-            step: 0.01,
+            max: 0.5,
+            step: 0.005,
             onChange: (v: number) => {
-              tr.lockImageShrink = v;
+              tr.lockPopTilt = v;
             },
           },
-          "Scale punch": {
+          "Pop roll (lock)": {
+            value: tr.lockPopRoll ?? 0.012,
+            min: 0,
+            max: 0.3,
+            step: 0.002,
+            onChange: (v: number) => {
+              tr.lockPopRoll = v;
+            },
+          },
+          "Detach lift (lock)": {
             value: tr.lockScalePunch,
             min: 0,
-            max: 0.2,
+            max: 0.4,
             step: 0.005,
             onChange: (v: number) => {
               tr.lockScalePunch = v;

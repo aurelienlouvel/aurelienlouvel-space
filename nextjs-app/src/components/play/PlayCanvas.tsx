@@ -36,9 +36,15 @@ import {
   GRAVITY_DEFAULTS,
   type GravityParams,
 } from "./gravity-layout";
+import { KeyframeEditorHud } from "./KeyframeEditorHud";
 import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types";
 import { PlayLoader } from "./PlayLoader";
 import { SelectProgressOverlay } from "./SelectProgressOverlay";
+import {
+  resetTheatrePlayhead,
+  snapshotFrame,
+  syncTheatrePlayhead,
+} from "./theatre-timeline";
 import {
   type TransitionConfig,
   DEFAULT_TRANSITION_CONFIG,
@@ -217,6 +223,8 @@ export type PlayRuntimeState = {
     t: number;
     /** 0..1 — avancement du hold, réversible tant que la timeline n'a pas démarré. */
     selectProgress: number;
+    /** Point cliqué sur la tuile au déclenchement, normalisé -1..1 depuis son centre. */
+    clickOffset: { x: number; y: number };
     holding: boolean;
     trigger: "pointer" | "key" | null;
     targetIndex: number;
@@ -244,6 +252,7 @@ function beginSelect(
   pointIndex: number,
   canonicalPos: { x: number; y: number },
   trigger: "pointer" | "key",
+  clickOffset: { x: number; y: number },
 ) {
   rc.repulsor.active = true;
   rc.repulsor.pointIndex = pointIndex;
@@ -253,6 +262,7 @@ function beginSelect(
   rc.transition.targetIndex = pointIndex;
   rc.transition.holding = true;
   rc.transition.trigger = trigger;
+  rc.transition.clickOffset = clickOffset;
   rewindTransition(rc);
 }
 
@@ -282,9 +292,10 @@ export function applyPointerDown(
   rc: PlayRuntimeState,
   pointIndex: number,
   canonicalPos: { x: number; y: number },
+  clickOffset: { x: number; y: number },
 ) {
   if (rc.transition.phase !== "idle") return;
-  beginSelect(rc, pointIndex, canonicalPos, "pointer");
+  beginSelect(rc, pointIndex, canonicalPos, "pointer", clickOffset);
 }
 
 export function applyPointerUp(rc: PlayRuntimeState) {
@@ -336,7 +347,7 @@ function applyKeyDownEnter(
   const selPt = points[rc.selected];
   if (!selPt) return;
 
-  beginSelect(rc, rc.selected, selPt, "key");
+  beginSelect(rc, rc.selected, selPt, "key", { x: 0, y: 0 });
   rc.camera.mode = "settle";
   rc.camera.targetX = rc.selectedPos.x;
   rc.camera.targetY = rc.selectedPos.y;
@@ -479,6 +490,15 @@ const PlayDebug = dynamic(() => import("./PlayDebug").then((m) => m.PlayDebug), 
 });
 
 /**
+ * L'éditeur de keyframes Theatre.js, jamais rendu côté serveur ni en
+ * production (cf. `TheatreStudio`).
+ */
+const TheatreStudio = dynamic(
+  () => import("./TheatreStudio").then((m) => m.TheatreStudio),
+  { ssr: false },
+);
+
+/**
  * Décalage horizontal de la caméra pour amener la colonne à `detailColumnRatio`.
  *
  * La largeur visible est évaluée au **zoom final**, pas au zoom courant : sinon
@@ -557,7 +577,10 @@ function advanceClock(
   if (tr.phase === "playing") {
     const end = timelineEnd(config);
     if (studio?.scrubMode) {
-      tr.t = Math.max(0, Math.min(1, studio.scrubProgress)) * end;
+      // En scrub, la tête de lecture de l'éditeur de keyframes fait loi si
+      // celui-ci est monté ; sinon on retombe sur le curseur du panneau.
+      const fromSlider = Math.max(0, Math.min(1, studio.scrubProgress)) * end;
+      tr.t = syncTheatrePlayhead(fromSlider, true);
       return;
     }
     tr.t += effDelta;
@@ -565,11 +588,14 @@ function advanceClock(
       if (studio?.loopLock) {
         tr.t = 0;
         tr.textRevealed = false;
+        syncTheatrePlayhead(tr.t, false);
         return;
       }
       tr.t = end;
       tr.phase = "isolated";
     }
+    // Hors scrub c'est l'appli qui mène : la tête de l'éditeur suit la lecture.
+    syncTheatrePlayhead(tr.t, false);
     return;
   }
 
@@ -672,7 +698,9 @@ function stepCamera(
 
   // ── Transition : la courbe s'applique telle quelle ──────────────────────
   if (tr.phase === "playing" && tr.t < config.lock.start) {
-    // 0.6s de pause immobile absolue : la caméra et le média ne bougent pas d'un cheveu
+    // Avant le lock : immobilité absolue, la caméra ne bouge pas d'un cheveu.
+    // Fenêtre nulle dans la chorégraphie actuelle (le lock démarre à 0) — elle
+    // réapparaît dès qu'on repousse son départ depuis le panneau de debug.
     rc.camera.settleX = 0;
     rc.camera.settleY = 0;
     rc.camera.settleZoom = 1;
@@ -865,6 +893,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       phase: "idle",
       t: 0,
       selectProgress: 0,
+      clickOffset: { x: 0, y: 0 },
       holding: false,
       trigger: null,
       targetIndex: -1,
@@ -895,6 +924,14 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     applyResetTransition(runtime.current);
   }, []);
 
+  // En scrub forcé (mode keyframes), `startPlayback` seul ne suffit pas : sa
+  // remise à zéro de `tr.t` serait aussitôt écrasée par la position — non
+  // nulle — de la tête de lecture de Theatre au tick suivant.
+  const handleKeyframesRestart = useCallback(() => {
+    handleReplayLock();
+    resetTheatrePlayhead();
+  }, [handleReplayLock]);
+
   const [textLayoutRev, setTextLayoutRev] = useState(0);
   const handleTextLayoutChange = useCallback(() => setTextLayoutRev((r) => r + 1), []);
 
@@ -922,10 +959,17 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     };
   }, []);
 
+  // `#debug` ouvre le panneau de réglages (Tweakpane). `#keyframes` est une
+  // page à part, dédiée à l'édition Theatre : le panneau de debug reste
+  // masqué, remplacé par `KeyframeEditorHud` (cf. les effets plus bas, qui
+  // pilotent la tête de lecture et lancent la transition à sa place).
   const [showDebug, setShowDebug] = useState(false);
+  const [showKeyframes, setShowKeyframes] = useState(false);
   useEffect(() => {
     function checkHash() {
-      setShowDebug(window.location.hash === "#debug");
+      const hash = window.location.hash;
+      setShowKeyframes(hash === "#keyframes");
+      setShowDebug(hash === "#debug");
     }
     checkHash();
     window.addEventListener("hashchange", checkHash);
@@ -1054,6 +1098,43 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       });
     }
   }, [handleStartSelect, tile]);
+
+  // Mode keyframes : la tête de lecture de Theatre fait loi tant que la page
+  // y reste — sinon l'horloge de l'appli écrase sa position à chaque frame et
+  // son propre transport (lecture, scrub) paraît ne rien faire.
+  const keyframesLaunchedRef = useRef(false);
+  useEffect(() => {
+    if (showKeyframes) return;
+    keyframesLaunchedRef.current = false;
+  }, [showKeyframes]);
+
+  useEffect(() => {
+    if (!showKeyframes) return;
+    const state = debug.current;
+    state.studio.scrubMode = true;
+    return () => {
+      state.studio.scrubMode = false;
+    };
+  }, [showKeyframes]);
+
+  // Lance la transition dès que la page est prête, puis grave une première
+  // graine (cf. `snapshotFrame`) pour que le rendu de départ dans Theatre
+  // corresponde à l'existant. Le studio se monte de façon asynchrone : on
+  // retente la graine jusqu'à ce qu'il soit prêt (~4 s max).
+  useEffect(() => {
+    if (!showKeyframes || !tile || keyframesLaunchedRef.current) return;
+    keyframesLaunchedRef.current = true;
+
+    handleSimulateSelect();
+
+    let attempts = 0;
+    const trySeed = () => {
+      attempts += 1;
+      const seeded = snapshotFrame(runtime.current.transition.frame);
+      if (!seeded && attempts < 20) setTimeout(trySeed, 200);
+    };
+    setTimeout(trySeed, 200);
+  }, [showKeyframes, tile, handleSimulateSelect]);
 
   const viewportAspect =
     gravityParams.targetAspect && gravityParams.targetAspect > 0
@@ -1685,6 +1766,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           onCloseDetail={handleCloseDetail}
           onTextLayoutChange={handleTextLayoutChange}
         />
+      )}
+
+      {showKeyframes && (
+        <>
+          <TheatreStudio />
+          <KeyframeEditorHud runtime={runtime} onRestart={handleKeyframesRestart} />
+        </>
       )}
     </div>
   );
