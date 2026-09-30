@@ -35,6 +35,12 @@ importers:
       '@tailwindcss/typography':
         specifier: ^0.5.19
         version: 0.5.19(tailwindcss@4.2.4)
+      '@theatre/core':
+        specifier: ^0.7.2
+        version: 0.7.2
+      '@theatre/studio':
+        specifier: ^0.7.2
+        version: 0.7.2(@theatre/core@0.7.2)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -2838,6 +2844,17 @@ packages:
 
   '@tanstack/virtual-core@3.14.0':
     resolution: {integrity: sha512-JLANqGy/D6k4Ujmh8Tr25lGimuOXNiaVyXaCAZS0W+1390sADdGnyUdSWNIfd49gebtIxGMij4IktRVzrdr12Q==}
+
+  '@theatre/core@0.7.2':
+    resolution: {integrity: sha512-IDQa/6WY7mIJAtsSd4EgNcM0IUZkl+FrqZ8DdYiCVTFap9ARDNmrngJOeFjJOsnnaHlc5GdEB/jj7fsjbIrAzQ==}
+
+  '@theatre/dataverse@0.7.2':
+    resolution: {integrity: sha512-YyfoyX7EyhFUY2OM5fsM0LPrs1SdgLwpiTMkkvTIoZLdOwvQhstjYq4Yz/8ZncJlRoTWvakfmgvCaBN+QuBYxg==}
+
+  '@theatre/studio@0.7.2':
+    resolution: {integrity: sha512-p6LTKzJWVlcHkpGzIlNHh9AkGbB3E+0q9Pjxv+OJoTDe1IK+CMKW695Wp+1//lB4vfC9qShe4z/p+Zaj1q8KtA==}
+    peerDependencies:
+      '@theatre/core': '*'
 
   '@ts-morph/common@0.27.0':
     resolution: {integrity: sha512-Wf29UqxWDpc+i61k3oIOzcUfQt79PIT9y/MWfAGlrkjg6lBC1hwDECLXPVJAhWjiGbfBCxZd65F/LIZF3+jeJQ==}
@@ -10156,6 +10173,19 @@ snapshots:
   '@tanstack/table-core@8.21.3': {}
 
   '@tanstack/virtual-core@3.14.0': {}
+
+  '@theatre/core@0.7.2':
+    dependencies:
+      '@theatre/dataverse': 0.7.2
+
+  '@theatre/dataverse@0.7.2':
+    dependencies:
+      lodash-es: 4.18.1
+
+  '@theatre/studio@0.7.2(@theatre/core@0.7.2)':
+    dependencies:
+      '@theatre/core': 0.7.2
+      '@theatre/dataverse': 0.7.2
 
   '@ts-morph/common@0.27.0':
     dependencies:

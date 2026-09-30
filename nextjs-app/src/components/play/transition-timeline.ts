@@ -11,6 +11,7 @@
  * Le frame est pré-alloué et muté sur place : rien n'est alloué par frame.
  */
 
+import { applyTheatreFrame } from "./theatre-timeline";
 import {
   evaluateEasing,
   timelineEnd,
@@ -47,6 +48,12 @@ export type TransitionFrame = {
   mosaicOpacity: number;
   /** Facteur d'échelle de la tuile visée (hold + rebond de confirmation). */
   tileScale: number;
+  /** Bascule 3D (rad) de la tuile visée autour de X — clic pendant le hold, pop automatique au lock. */
+  tileTiltX: number;
+  /** Bascule 3D (rad) de la tuile visée autour de Y — vers le point cliqué. */
+  tileTiltY: number;
+  /** Torsion 3D (rad) autour de Z — micro-roll de finition du pop de lock. */
+  tileRoll: number;
   /** 0..1 — M0 : taille de tuile → taille de colonne. */
   reveal: number;
   /** 0..1 — avancement du rouleau, à multiplier par la distance à parcourir. */
@@ -72,6 +79,9 @@ export function createTransitionFrame(): TransitionFrame {
     scatter: 0,
     mosaicOpacity: 1,
     tileScale: 1,
+    tileTiltX: 0,
+    tileTiltY: 0,
+    tileRoll: 0,
     reveal: 0,
     scroll: 0,
     slide: 0,
@@ -90,6 +100,8 @@ export type TransitionClock = {
   t: number;
   /** 0..1 — avancement du hold, piloté par l'utilisateur. */
   selectProgress: number;
+  /** Point cliqué sur la tuile au déclenchement, normalisé -1..1 depuis son centre. */
+  clickOffset: { x: number; y: number };
 };
 
 /** Part de la piste `lock` consacrée au pincement, le reste au fondu sortant. */
@@ -139,12 +151,64 @@ function sampleBrackets(config: TransitionConfig, t: number, frame: TransitionFr
   }
 }
 
+/** Part de la piste `lock` consacrée à l'attaque du pop 3D automatique. */
+const LOCK_POP_ATTACK_END = 0.3;
+/** Fin du mini temps de pause tenu, début du relâchement. */
+const LOCK_POP_HOLD_END = 0.62;
+
+/**
+ * Poids 0→1→1→0 du pop 3D automatique pendant le lock : la carte se décolle,
+ * tient la pose, puis se repose à plat. Les deux flancs sont en smoothstep,
+ * donc départ et arrivée à vitesse nulle : c'est ce qui donne du poids au
+ * décollement au lieu de le faire claquer, seule différence de fond entre un
+ * mouvement filmique et un rebond cartoon.
+ */
+function lockPopEnvelope(u: number): number {
+  if (u <= 0 || u >= 1) return 0;
+  if (u < LOCK_POP_ATTACK_END) return smoothstep(u / LOCK_POP_ATTACK_END);
+  if (u <= LOCK_POP_HOLD_END) return 1;
+  return 1 - smoothstep((u - LOCK_POP_HOLD_END) / (1 - LOCK_POP_HOLD_END));
+}
+
+/**
+ * Avancement 0..1 de l'amorce du burst dans la queue du hold. La mosaïque
+ * commence à céder *avant* que la sélection ne soit validée : sans cette
+ * anticipation le burst démarre pile sur la validation et se lit comme une
+ * réaction mécanique au clic, pas comme un geste déjà en cours.
+ */
+function burstLeadProgress(
+  config: TransitionConfig,
+  selectProgress: number,
+): number {
+  const span = Math.min(1, Math.max(0, config.burstLead ?? 0));
+  if (span <= 0) return 0;
+  const u = (selectProgress - (1 - span)) / span;
+  if (u <= 0) return 0;
+  if (u >= 1) return 1;
+  return u * u;
+}
+
+/**
+ * Micro-torsion (rad, normalisée 0..1) qui n'apparaît que pendant le
+ * relâchement : un petit coup de poignet au moment où la carte se repose
+ * bien à plat, comme la touche finale d'un geste plutôt qu'un mouvement
+ * continu depuis l'attaque.
+ */
+function lockPopRollShape(u: number): number {
+  if (u <= LOCK_POP_HOLD_END || u >= 1) return 0;
+  const p = (u - LOCK_POP_HOLD_END) / (1 - LOCK_POP_HOLD_END);
+  return Math.sin(p * Math.PI);
+}
+
 function sampleIdle(frame: TransitionFrame) {
   frame.zoom = 1;
   frame.framing = 0;
   frame.scatter = 0;
   frame.mosaicOpacity = 1;
   frame.tileScale = 1;
+  frame.tileTiltX = 0;
+  frame.tileTiltY = 0;
+  frame.tileRoll = 0;
   frame.reveal = 0;
   frame.scroll = 0;
   frame.slide = 0;
@@ -164,15 +228,32 @@ function sampleSelecting(
   sampleIdle(frame);
   frame.zoom = 1 + (config.selectZoom - 1) * p;
   frame.tileScale = 1 + (config.selectScale - 1) * p;
-  frame.scatter = config.selectRepulse * p;
+
+  // Écartement à peine perceptible pendant tout le hold, puis amorce du burst
+  // sur la fin. La valeur atteinte ici est exactement celle d'où `samplePlaying`
+  // repart, donc le passage de phase ne saute ni en position ni en vitesse.
+  const base = config.selectRepulse * p;
+  const lead =
+    (config.burstLeadDepth ?? 0) * burstLeadProgress(config, clock.selectProgress);
+  frame.scatter = base + (config.scatterDistance - base) * lead;
+  frame.mosaicOpacity = 1 - lead;
+
+  // La tuile bascule vers le point cliqué (coin pressé qui s'enfonce, coin
+  // opposé qui remonte) — cf. ArtifactPlaneMesh pour l'origine de l'offset.
+  frame.tileTiltX = -clock.clickOffset.y * config.selectTiltMax * p;
+  frame.tileTiltY = clock.clickOffset.x * config.selectTiltMax * p;
 }
 
 function samplePlaying(
   config: TransitionConfig,
   t: number,
+  clickOffset: { x: number; y: number },
   frame: TransitionFrame,
 ) {
-  const scatterT = trackAt(config.scatter, t);
+  // Le burst reprend là où la queue du hold l'a laissé au lieu de repartir de
+  // zéro : une seule courbe qui traverse la validation sans rupture.
+  const leadDepth = config.burstLeadDepth ?? 0;
+  const burstT = leadDepth + (1 - leadDepth) * trackAt(config.scatter, t);
   const heroT = trackAt(config.hero, t);
   const dezoomT = trackAt(config.dezoom, t);
 
@@ -185,48 +266,40 @@ function samplePlaying(
   frame.framing = dezoomT;
 
   frame.scatter =
-    config.selectRepulse + (config.scatterDistance - config.selectRepulse) * scatterT;
-  frame.mosaicOpacity = 1 - scatterT;
+    config.selectRepulse + (config.scatterDistance - config.selectRepulse) * burstT;
+  frame.mosaicOpacity = 1 - burstT;
 
   frame.reveal = trackAt(config.reveal, t);
   frame.scroll = evaluateEasing(config.spinEasing || config.scroll.easing, trackRaw(config.scroll, t));
   frame.slide = config.slideOffset * (1 - trackAt(config.slide, t));
   frame.columnOpacity = trackAt(config.columnFade, t);
 
-  // Micro-animation de lock :
-  // 1. Squeeze d'attaque vers l'intérieur
-  // 2. Mini temps de pause stationnaire où l'image reste squeezée
-  // 3. Rebond élastique / pop vif de ré-expansion
+  // Micro-animation de lock : la bascule au clic cède la place, en un geste
+  // continu (attaque 0..LOCK_POP_ATTACK_END), à un pop 3D automatique de
+  // direction fixe — la carte se soulève vers le spectateur, tient la pose,
+  // puis se repose bien à plat avec une micro-torsion de finition. Se résout
+  // strictement à plat avant que `reveal` ne démarre (même instant que la fin
+  // de cette piste).
   const lockU = trackRaw(config.lock, t);
-  let tileScale = config.selectScale;
-  if (lockU > 0 && lockU < 1) {
-    const shrinkAmp = config.lockImageShrink ?? 0.09;
-    const uPauseStart = 0.22;
-    const uPauseEnd = 0.72;
-    let squeezeFactor = 0;
+  const popWeight = lockPopEnvelope(lockU);
+  const clickWeight = lockU >= LOCK_POP_ATTACK_END ? 0 : 1 - popWeight;
 
-    if (lockU < uPauseStart) {
-      // Phase 1 : Squeeze rapide
-      const p = lockU / uPauseStart;
-      squeezeFactor = 1 - Math.pow(1 - p, 3);
-    } else if (lockU <= uPauseEnd) {
-      // Phase 2 : Mini temps de pause maintenu
-      squeezeFactor = 1.0;
-    } else {
-      // Phase 3 : Sortie élastique avec léger rebond (overshoot)
-      const p = (lockU - uPauseEnd) / (1 - uPauseEnd);
-      const returnEase = Math.cos(p * Math.PI * 0.5);
-      const overshoot = Math.sin(p * Math.PI) * (1 - p) * 0.22;
-      squeezeFactor = returnEase - overshoot;
-    }
+  frame.tileTiltX =
+    -clickOffset.y * config.selectTiltMax * clickWeight -
+    config.lockPopTilt * popWeight;
+  frame.tileTiltY = clickOffset.x * config.selectTiltMax * clickWeight;
+  frame.tileScale =
+    config.selectScale * (1 + (config.lockScalePunch ?? 0.02) * popWeight);
+  frame.tileRoll = config.lockPopRoll * lockPopRollShape(lockU);
 
-    tileScale = config.selectScale * (1.0 - squeezeFactor * shrinkAmp);
-  }
-  frame.tileScale = tileScale;
   sampleBrackets(config, t, frame);
 
   frame.overlayExit = smoothstep(t / Math.max(0.01, config.overlayExitDuration));
   frame.textRevealed = t >= config.textRevealAt;
+
+  // Dernier mot à l'éditeur de keyframes, piste par piste : tout ce qui n'a pas
+  // été séquencé dans Theatre garde la chorégraphie calculée ci-dessus.
+  applyTheatreFrame(frame);
 }
 
 function sampleIsolated(config: TransitionConfig, frame: TransitionFrame) {
@@ -235,6 +308,9 @@ function sampleIsolated(config: TransitionConfig, frame: TransitionFrame) {
   frame.scatter = config.scatterDistance;
   frame.mosaicOpacity = 0;
   frame.tileScale = config.selectScale;
+  frame.tileTiltX = 0;
+  frame.tileTiltY = 0;
+  frame.tileRoll = 0;
   frame.reveal = 1;
   // Maintien continu du rouleau à 1 (100% de la distance parcourue).
   // La transition playing -> isolated ne subit ainsi aucun saut de position.
@@ -269,6 +345,9 @@ function sampleReturning(
   frame.scatter = config.scatterDistance * (1 - repulseT);
   frame.mosaicOpacity = repulseT;
   frame.tileScale = 1 + (config.selectScale - 1) * (1 - exitT);
+  frame.tileTiltX = 0;
+  frame.tileTiltY = 0;
+  frame.tileRoll = 0;
   frame.reveal = 1 - exitT;
   frame.scroll = 1;
   frame.slide = config.exitSlideOffset * exitT;
@@ -290,7 +369,7 @@ export function sampleTransition(
       sampleSelecting(config, clock, frame);
       return;
     case "playing":
-      samplePlaying(config, clock.t, frame);
+      samplePlaying(config, clock.t, clock.clickOffset, frame);
       return;
     case "isolated":
       sampleIsolated(config, frame);

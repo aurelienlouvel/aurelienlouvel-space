@@ -43,7 +43,7 @@ export const GRAVITY_DEFAULTS: GravityParams = {
   scaleVariance: 0.1,
   repeat: 3,
   antiNeighbor: true,
-  repeatGap: 260,
+  repeatGap: 24,
   iterations: 160,
   seed: 1,
   targetAspect: 1.6,
@@ -457,7 +457,7 @@ function runMonteCarloPacking(
     // Détection des violations anti-voisin toriques (sur les coutures périodiques de la tuile)
     let toroidalViolations = 0;
     if (antiNeighbor) {
-      const minToroidalDist = Math.max(1000, gap + repeatGap * 1.5);
+      const minToroidalDist = Math.max(550, gap + repeatGap * 2);
       for (let a = 0; a < n; a++) {
         const ax = placedX[a] + placedW[a] / 2;
         const ay = placedY[a] + placedH[a] / 2;

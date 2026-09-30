@@ -76,7 +76,10 @@ export type TransitionConfig = {
   selectDuration: number; // Durée du maintien avant déclenchement (ex: 0.6s)
   selectZoom: number; // Zoom caméra atteint en fin de hold (× zoom de base)
   selectScale: number; // Grossissement de la tuile visée (ex: 1.0)
-  selectRepulse: number; // Écartement doux des voisins pendant le hold (ex: 200)
+  selectRepulse: number; // Écartement très discret des voisins pendant le hold (ex: 25)
+  selectTiltMax: number; // Bascule 3D max de la tuile visée vers le point cliqué (rad, ex: 0.09)
+  burstLead: number; // Part finale du hold (0..1) pendant laquelle le burst s'amorce déjà (ex: 0.2)
+  burstLeadDepth: number; // Fraction du burst déjà parcourue quand le hold se valide (ex: 0.04)
   selectEasing: EasingName;
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
@@ -92,10 +95,11 @@ export type TransitionConfig = {
 
   // ── 2. Amplitudes ────────────────────────────────────────────────────────
   lockBracketShrink: number; // Rétractation des brackets vers l'intérieur (px, ex: 12)
-  lockImageShrink: number; // Rétractation de l'image (0..0.3, ex: 0.08 = scale 0.92)
+  lockPopTilt: number; // Bascule 3D automatique du pop de lock, direction fixe (rad, ex: 0.085)
+  lockPopRoll: number; // Micro-torsion de finition en fin de pop (rad, ex: 0.012)
   lockBracketTighten: number; // Pincement des brackets vers l'intérieur (px)
   lockBracketExpand: number; // Expansion vers l'extérieur pendant le fondu (px)
-  lockScalePunch: number; // Micro-rebond de confirmation sur la tuile
+  lockScalePunch: number; // Détachement (scale) de la carte au lock — lift discret, sans rebond (ex: 0.08)
   overlayExitDuration: number; // Durée d'évacuation de la vague de sélection (s)
   scatterDistance: number; // Écartement radial final de la mosaïque (unités monde)
   heroZoom: number; // Sommet de l'arc, en multiple du zoom de détail (ex: 1.05×)
@@ -140,24 +144,29 @@ export type TransitionConfig = {
 };
 
 /**
- * La chorégraphie de référence :
- * 1. 0.0s - 0.6s : Temps de pause immobile (le média et la caméra ne bougent pas).
- * 2. 0.6s - 1.08s : Micro-animation sur le média (lock squeeze, pause, pop élastique).
- * 3. 1.0s - 1.75s : Zoom caméra hero + dispersion mosaïque + expansion colonne (reveal).
- * 4. 1.75s - 2.2s : Temps de pause héroïque au zoom max.
- * 5. 2.2s - 2.65s : Apparition et glissement des cartes secondaires de la colonne.
- * 6. 2.65s - 4.45s : Roulement fluide de la roue (wheel spin) + cadrage colonne (dezoom).
- * 7. 4.8s : Révélation fluide du panneau de texte.
+ * La chorégraphie de référence. Le burst n'est pas un temps séparé : il s'amorce
+ * dans la queue du hold (cf. `burstLead`) et culmine sur la validation, de sorte
+ * que la sélection et l'explosion de la mosaïque sont un seul geste continu.
+ *
+ * 1. Fin du hold : le monde commence à céder — les voisins dérivent, la mosaïque
+ *    s'assombrit à peine, avant même que la sélection ne soit validée.
+ * 2. 0.0s - 1.05s : Le burst culmine (dispersion + fondu de la mosaïque), les
+ *    brackets se resserrent puis s'effacent, la carte se détache d'un lift 3D
+ *    discret, la caméra pousse (hero) et la carte prend sa taille (reveal).
+ * 3. 1.3s - 2.0s : Temps de pause contemplatif, carte seule au zoom max.
+ * 4. 2.0s - 2.6s : Apparition et glissement des cartes secondaires en dessous.
+ * 5. 2.4s - 4.3s : Roulement fluide de la roue (wheel spin) + cadrage colonne.
+ * 6. 4.6s : Révélation fluide du panneau de texte.
  */
 const BASE_TRACKS = {
-  lock: { start: 0.6, duration: 0.48, easing: "linear" },
-  scatter: { start: 1.08, duration: 0.65, easing: "easeOutCubic" },
-  reveal: { start: 1.08, duration: 0.65, easing: "easeOutCubic" },
-  hero: { start: 1.08, duration: 0.75, easing: "easeOutCubic" },
-  columnFade: { start: 2.2, duration: 0.45, easing: "easeOutQuad" },
-  slide: { start: 2.2, duration: 0.5, easing: "easeOutCubic" },
-  scroll: { start: 2.65, duration: 1.8, easing: "easeInOutCubic" },
-  dezoom: { start: 3.0, duration: 1.45, easing: "easeInOutCubic" },
+  lock: { start: 0.0, duration: 0.5, easing: "linear" },
+  scatter: { start: 0.0, duration: 1.05, easing: "easeOutCubic" },
+  reveal: { start: 0.5, duration: 0.8, easing: "easeInOutCubic" },
+  hero: { start: 0.1, duration: 1.2, easing: "easeInOutCubic" },
+  columnFade: { start: 2.0, duration: 0.5, easing: "easeOutQuad" },
+  slide: { start: 2.0, duration: 0.6, easing: "easeOutCubic" },
+  scroll: { start: 2.4, duration: 1.9, easing: "easeInOutCubic" },
+  dezoom: { start: 2.65, duration: 1.65, easing: "easeInOutCubic" },
   exit: { start: 0.0, duration: 0.6, easing: "easeInOutCubic" },
 } as const satisfies Record<string, TrackSpec>;
 
@@ -205,11 +214,14 @@ export function timelineEnd(config: TransitionConfig): number {
 }
 
 const BASE_AMPLITUDES = {
-  lockBracketShrink: 14,
-  lockImageShrink: 0.09,
+  burstLead: 0.2,
+  burstLeadDepth: 0.04,
+  lockBracketShrink: 10,
+  lockPopTilt: 0.085,
+  lockPopRoll: 0.012,
   lockBracketTighten: 8,
   lockBracketExpand: 14,
-  lockScalePunch: 0.02,
+  lockScalePunch: 0.08,
   overlayExitDuration: 0.35,
   scatterDistance: 2800,
   heroZoom: 1.45,
@@ -220,7 +232,7 @@ const BASE_AMPLITUDES = {
   wheelMotionBlurStrength: 1.0,
   wheelMotionBlurMax: 0.08,
   slideOffset: 680,
-  textRevealAt: 4.8,
+  textRevealAt: 4.6,
   detailColumnRatio: 0.6,
   arcCurvature: -16,
   arcRotation: 2,
@@ -250,7 +262,8 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   selectDuration: 0.6,
   selectZoom: 1.06,
   selectScale: 1,
-  selectRepulse: 200,
+  selectRepulse: 25,
+  selectTiltMax: 0.09,
   selectEasing: "easeOutQuint",
   ...BASE_AMPLITUDES,
   ...scaleTracks(1),
@@ -264,7 +277,8 @@ export const TRANSITION_PRESETS: Record<
     selectDuration: 0.8,
     selectZoom: 1.15,
     selectScale: 1.06,
-    selectRepulse: 600,
+    selectRepulse: 80,
+    selectTiltMax: 0.11,
     selectEasing: "easeInQuad",
     ...BASE_AMPLITUDES,
     heroZoom: 1.5,
@@ -275,12 +289,13 @@ export const TRANSITION_PRESETS: Record<
     selectDuration: 0.5,
     selectZoom: 1.18,
     selectScale: 1.08,
-    selectRepulse: 800,
+    selectRepulse: 100,
+    selectTiltMax: 0.08,
     selectEasing: "easeOutQuad",
     ...BASE_AMPLITUDES,
     lockBracketTighten: 8,
     lockBracketExpand: 12,
-    lockScalePunch: 0.03,
+    lockScalePunch: 0.11,
     overlayExitDuration: 0.22,
     heroZoom: 1.35,
     spinMediaCount: 20,
@@ -297,11 +312,12 @@ export const TRANSITION_PRESETS: Record<
     selectDuration: 0.9,
     selectZoom: 1.12,
     selectScale: 1.04,
-    selectRepulse: 350,
+    selectRepulse: 45,
+    selectTiltMax: 0.13,
     selectEasing: "easeInCubic",
     ...BASE_AMPLITUDES,
     lockBracketExpand: 16,
-    lockScalePunch: 0.025,
+    lockScalePunch: 0.1,
     overlayExitDuration: 0.4,
     scatterDistance: 3400,
     heroZoom: 1.65,
