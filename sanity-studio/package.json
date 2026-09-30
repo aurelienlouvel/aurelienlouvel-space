@@ -17,11 +17,11 @@
   "dependencies": {
     "@hugeicons/core-free-icons": "^4.1.1",
     "@hugeicons/react": "^1.1.6",
-    "@sanity/orderable-document-list": "^1.5.1",
-    "@sanity/vision": "^5.31.1",
+    "@sanity/orderable-document-list": "^2.0.25",
+    "@sanity/vision": "^6.17.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "sanity": "^5.31.1",
+    "sanity": "^6.17.0",
     "styled-components": "^6.1.18"
   },
   "devDependencies": {
@@ -36,10 +36,5 @@
     "printWidth": 100,
     "semi": false,
     "singleQuote": true
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
