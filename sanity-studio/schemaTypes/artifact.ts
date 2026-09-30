@@ -49,9 +49,10 @@ export const artifactType = defineType({
       rows: 4,
     }),
     defineField({
-      name: 'link',
-      title: 'Link',
-      type: 'url',
+      name: 'organisation',
+      title: 'Organisation',
+      type: 'reference',
+      to: [{type: 'organisation'}],
     }),
     defineField({
       name: 'gallery',
@@ -180,6 +181,11 @@ export const artifactType = defineType({
       title: 'Roles',
       type: 'array',
       of: [{type: 'reference', to: [{type: 'role'}]}],
+    }),
+    defineField({
+      name: 'link',
+      title: 'Link',
+      type: 'url',
     }),
   ],
 })
