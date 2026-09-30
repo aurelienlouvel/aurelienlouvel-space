@@ -287,6 +287,7 @@ export const artifactDetailQuery = defineQuery(`
     "slug": slug.current,
     description,
     link,
+    "organisation": organisation->{ name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
     startDate,
     endDate,
     "tags": tags[]-> {
@@ -348,6 +349,7 @@ export type ArtifactDetail = {
   slug: string;
   description?: string | null;
   link?: string | null;
+  organisation?: { name: string; websiteUrl: string | null; logoUrl: string | null } | null;
   startDate?: string | null;
   endDate?: string | null;
   tags?: Array<{
