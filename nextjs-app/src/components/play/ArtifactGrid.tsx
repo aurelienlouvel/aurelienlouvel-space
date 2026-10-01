@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, type RefObject } from "react";
+import { Component, Suspense, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Group, Mesh, type MeshBasicMaterial } from "three";
 import type { MediaKind } from "./artifact-media";
@@ -16,6 +16,36 @@ import {
 import type { LayoutPoint, LayoutTile } from "./layout-types";
 import { ArtifactPlane, type PlaneUniforms } from "./ArtifactPlane";
 import { uniformsOf } from "./rounded-frame";
+
+/**
+ * Isole un plane : si son média ne charge pas (404, CORS, réseau…), seul ce
+ * plane disparaît au lieu de faire tomber toute la scène — sans ça, une seule
+ * texture en erreur faisait planter /play en entier (« Could not load … »).
+ */
+class PlaneBoundary extends Component<
+  { url?: string; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.warn(`[play] média ignoré (${this.props.url ?? "?"})`, error);
+  }
+
+  componentDidUpdate(prev: { url?: string }) {
+    if (prev.url !== this.props.url && this.state.failed) {
+      this.setState({ failed: false });
+    }
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 /**
  * 3×3 copies de la tuile virtualisée, repositionnées à la volée autour de la caméra
@@ -431,7 +461,8 @@ export function ArtifactGrid({
             position={[dx * TILE_W, dy * TILE_H, 0]}
           >
             {points.map((point, i) => (
-              <Suspense key={i} fallback={null}>
+              <PlaneBoundary key={i} url={textureUrls[point.artifactIndex]}>
+              <Suspense fallback={null}>
                 <ArtifactPlane
                   url={textureUrls[point.artifactIndex]}
                   kind={mediaKinds[point.artifactIndex]}
@@ -454,6 +485,7 @@ export function ArtifactGrid({
                   onSelect={(world) => handleSelect(i, world, point.width, point.height)}
                 />
               </Suspense>
+              </PlaneBoundary>
             ))}
           </group>
         );

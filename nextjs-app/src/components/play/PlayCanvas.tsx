@@ -18,7 +18,7 @@ import type { OrthographicCamera } from "three";
 import { useActionBar } from "@/contexts/ActionBarContext";
 import { preloadArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
-import { fileRefToUrl } from "@/lib/sanity-utils";
+import { fileRefToUrl, playMediaUrl } from "@/lib/sanity-utils";
 import type { PlayArtifact, ArtifactDetail, Mate } from "@/sanity/queries";
 import { Tag } from "@/components/primitives/Tag";
 import { MatesBlock } from "@/components/blocks/MatesBlock";
@@ -36,15 +36,9 @@ import {
   GRAVITY_DEFAULTS,
   type GravityParams,
 } from "./gravity-layout";
-import { KeyframeEditorHud } from "./KeyframeEditorHud";
 import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types";
 import { PlayLoader } from "./PlayLoader";
 import { SelectProgressOverlay } from "./SelectProgressOverlay";
-import {
-  resetTheatrePlayhead,
-  snapshotFrame,
-  syncTheatrePlayhead,
-} from "./theatre-timeline";
 import {
   type TransitionConfig,
   DEFAULT_TRANSITION_CONFIG,
@@ -490,15 +484,6 @@ const PlayDebug = dynamic(() => import("./PlayDebug").then((m) => m.PlayDebug), 
 });
 
 /**
- * L'éditeur de keyframes Theatre.js, jamais rendu côté serveur ni en
- * production (cf. `TheatreStudio`).
- */
-const TheatreStudio = dynamic(
-  () => import("./TheatreStudio").then((m) => m.TheatreStudio),
-  { ssr: false },
-);
-
-/**
  * Décalage horizontal de la caméra pour amener la colonne à `detailColumnRatio`.
  *
  * La largeur visible est évaluée au **zoom final**, pas au zoom courant : sinon
@@ -577,10 +562,7 @@ function advanceClock(
   if (tr.phase === "playing") {
     const end = timelineEnd(config);
     if (studio?.scrubMode) {
-      // En scrub, la tête de lecture de l'éditeur de keyframes fait loi si
-      // celui-ci est monté ; sinon on retombe sur le curseur du panneau.
-      const fromSlider = Math.max(0, Math.min(1, studio.scrubProgress)) * end;
-      tr.t = syncTheatrePlayhead(fromSlider, true);
+      tr.t = Math.max(0, Math.min(1, studio.scrubProgress)) * end;
       return;
     }
     tr.t += effDelta;
@@ -588,14 +570,11 @@ function advanceClock(
       if (studio?.loopLock) {
         tr.t = 0;
         tr.textRevealed = false;
-        syncTheatrePlayhead(tr.t, false);
         return;
       }
       tr.t = end;
       tr.phase = "isolated";
     }
-    // Hors scrub c'est l'appli qui mène : la tête de l'éditeur suit la lecture.
-    syncTheatrePlayhead(tr.t, false);
     return;
   }
 
@@ -924,14 +903,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     applyResetTransition(runtime.current);
   }, []);
 
-  // En scrub forcé (mode keyframes), `startPlayback` seul ne suffit pas : sa
-  // remise à zéro de `tr.t` serait aussitôt écrasée par la position — non
-  // nulle — de la tête de lecture de Theatre au tick suivant.
-  const handleKeyframesRestart = useCallback(() => {
-    handleReplayLock();
-    resetTheatrePlayhead();
-  }, [handleReplayLock]);
-
   const [textLayoutRev, setTextLayoutRev] = useState(0);
   const handleTextLayoutChange = useCallback(() => setTextLayoutRev((r) => r + 1), []);
 
@@ -959,17 +930,10 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     };
   }, []);
 
-  // `#debug` ouvre le panneau de réglages (Tweakpane). `#keyframes` est une
-  // page à part, dédiée à l'édition Theatre : le panneau de debug reste
-  // masqué, remplacé par `KeyframeEditorHud` (cf. les effets plus bas, qui
-  // pilotent la tête de lecture et lancent la transition à sa place).
   const [showDebug, setShowDebug] = useState(false);
-  const [showKeyframes, setShowKeyframes] = useState(false);
   useEffect(() => {
     function checkHash() {
-      const hash = window.location.hash;
-      setShowKeyframes(hash === "#keyframes");
-      setShowDebug(hash === "#debug");
+      setShowDebug(window.location.hash === "#debug");
     }
     checkHash();
     window.addEventListener("hashchange", checkHash);
@@ -1099,43 +1063,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
   }, [handleStartSelect, tile]);
 
-  // Mode keyframes : la tête de lecture de Theatre fait loi tant que la page
-  // y reste — sinon l'horloge de l'appli écrase sa position à chaque frame et
-  // son propre transport (lecture, scrub) paraît ne rien faire.
-  const keyframesLaunchedRef = useRef(false);
-  useEffect(() => {
-    if (showKeyframes) return;
-    keyframesLaunchedRef.current = false;
-  }, [showKeyframes]);
-
-  useEffect(() => {
-    if (!showKeyframes) return;
-    const state = debug.current;
-    state.studio.scrubMode = true;
-    return () => {
-      state.studio.scrubMode = false;
-    };
-  }, [showKeyframes]);
-
-  // Lance la transition dès que la page est prête, puis grave une première
-  // graine (cf. `snapshotFrame`) pour que le rendu de départ dans Theatre
-  // corresponde à l'existant. Le studio se monte de façon asynchrone : on
-  // retente la graine jusqu'à ce qu'il soit prêt (~4 s max).
-  useEffect(() => {
-    if (!showKeyframes || !tile || keyframesLaunchedRef.current) return;
-    keyframesLaunchedRef.current = true;
-
-    handleSimulateSelect();
-
-    let attempts = 0;
-    const trySeed = () => {
-      attempts += 1;
-      const seeded = snapshotFrame(runtime.current.transition.frame);
-      if (!seeded && attempts < 20) setTimeout(trySeed, 200);
-    };
-    setTimeout(trySeed, 200);
-  }, [showKeyframes, tile, handleSimulateSelect]);
-
   const viewportAspect =
     gravityParams.targetAspect && gravityParams.targetAspect > 0
       ? gravityParams.targetAspect
@@ -1163,11 +1090,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   const textureUrls = useMemo(
     () =>
       media.map((m, i) => {
-        if (m.kind === "video") return m.url;
+        if (m.kind === "video") return playMediaUrl(m.url);
         const { width } = containFit(ratios[i], gravityParams.maxWidth, gravityParams.maxHeight);
-        return buildImageUrl(m.ref, null, null, null, {
-          width: Math.round(width * RETINA_MULTIPLIER),
-        });
+        return playMediaUrl(
+          buildImageUrl(m.ref, null, null, null, {
+            width: Math.round(width * RETINA_MULTIPLIER),
+          }),
+        );
       }),
     [media, ratios, gravityParams],
   );
@@ -1766,13 +1695,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           onCloseDetail={handleCloseDetail}
           onTextLayoutChange={handleTextLayoutChange}
         />
-      )}
-
-      {showKeyframes && (
-        <>
-          <TheatreStudio />
-          <KeyframeEditorHud runtime={runtime} onRestart={handleKeyframesRestart} />
-        </>
       )}
     </div>
   );
