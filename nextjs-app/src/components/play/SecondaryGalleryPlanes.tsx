@@ -17,7 +17,7 @@ import {
 import type { ArtifactGalleryItem } from "@/sanity/queries";
 import type { PlayDebugRef, PlayRuntimeRef } from "./PlayCanvas";
 import { buildImageUrl } from "@/lib/sanity-image";
-import { fileRefToUrl } from "@/lib/sanity-utils";
+import { fileRefToUrl, playMediaUrl } from "@/lib/sanity-utils";
 import { thumbnailRatio } from "@/lib/thumbnail-ratios";
 import {
   attachUniforms,
@@ -398,11 +398,13 @@ export function SecondaryGalleryPlanes({
     for (let k = 0; k < secondaryItems.length; k++) {
       const item = secondaryItems[k];
       const isVideo = item._type === "galleryVideo";
-      const url = isVideo
-        ? (item.videoUrl || fileRefToUrl(item.videoRef) || "")
-        : (item.imageRef
-            ? buildImageUrl(item.imageRef, item.imageUrl ?? null, null, null, { width: 1400 })
-            : (item.imageUrl ?? ""));
+      const url = playMediaUrl(
+        isVideo
+          ? (item.videoUrl || fileRefToUrl(item.videoRef) || "")
+          : (item.imageRef
+              ? buildImageUrl(item.imageRef, item.imageUrl ?? null, null, null, { width: 1400 })
+              : (item.imageUrl ?? "")),
+      );
 
       let ratio = 1.5;
       if (item.imageWidth && item.imageHeight) {

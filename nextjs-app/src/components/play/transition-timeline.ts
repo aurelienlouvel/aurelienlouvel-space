@@ -11,7 +11,6 @@
  * Le frame est pré-alloué et muté sur place : rien n'est alloué par frame.
  */
 
-import { applyTheatreFrame } from "./theatre-timeline";
 import {
   evaluateEasing,
   timelineEnd,
@@ -296,10 +295,6 @@ function samplePlaying(
 
   frame.overlayExit = smoothstep(t / Math.max(0.01, config.overlayExitDuration));
   frame.textRevealed = t >= config.textRevealAt;
-
-  // Dernier mot à l'éditeur de keyframes, piste par piste : tout ce qui n'a pas
-  // été séquencé dans Theatre garde la chorégraphie calculée ci-dessus.
-  applyTheatreFrame(frame);
 }
 
 function sampleIsolated(config: TransitionConfig, frame: TransitionFrame) {

@@ -2,7 +2,7 @@
 
 import type { ArtifactDetail } from "@/sanity/queries";
 import { buildImageUrl } from "./sanity-image";
-import { fileRefToUrl } from "./sanity-utils";
+import { fileRefToUrl, playMediaUrl } from "./sanity-utils";
 
 const artifactPromiseCache = new Map<string, Promise<ArtifactDetail | null>>();
 const artifactDataCache = new Map<string, ArtifactDetail>();
@@ -34,15 +34,18 @@ export function preloadArtifact(
       if (Array.isArray(data.gallery)) {
         for (const item of data.gallery) {
           if (item._type === "galleryImage" && item.imageRef) {
-            const url = buildImageUrl(item.imageRef, item.imageUrl ?? null, null, null, {
-              width: 1400,
-            });
+            const url = playMediaUrl(
+              buildImageUrl(item.imageRef, item.imageUrl ?? null, null, null, {
+                width: 1400,
+              }),
+            );
             const img = new Image();
             img.crossOrigin = "anonymous";
             img.src = url;
             preloadedElements.add(img);
           } else if (item._type === "galleryVideo") {
-            const videoUrl = item.videoUrl || fileRefToUrl(item.videoRef);
+            const rawVideoUrl = item.videoUrl || fileRefToUrl(item.videoRef);
+            const videoUrl = rawVideoUrl ? playMediaUrl(rawVideoUrl) : rawVideoUrl;
             if (videoUrl) {
               const video = document.createElement("video");
               video.crossOrigin = "anonymous";
