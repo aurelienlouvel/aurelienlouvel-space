@@ -4,7 +4,6 @@ import { useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { fileRefToUrl, isVideoRef } from "@/lib/sanity-utils";
-import { thumbnailRatio } from "@/lib/thumbnail-ratios";
 import type { ProjectListItem } from "@/sanity/queries";
 import { getScrollY, WORK_SCROLL_KEY } from "@/lib/scroll";
 
@@ -15,7 +14,6 @@ interface ProjectCardProps {
 export function ProjectCard({ project }: ProjectCardProps) {
   const mediaUrl = fileRefToUrl(project.thumbnailRef);
   const isVideo = isVideoRef(project.thumbnailRef);
-  const ratio = thumbnailRatio(project.thumbnailRef);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // Prefetch à l'intention (survol / focus clavier / début de touch) : tant que
@@ -56,30 +54,28 @@ export function ProjectCard({ project }: ProjectCardProps) {
       onTouchStart={onIntent}
       onClick={() => sessionStorage.setItem(WORK_SCROLL_KEY, String(getScrollY()))}
     >
-      {/* Ratio réservé (bg-muted gris) avant chargement → zéro layout shift,
-          scroll/animations robustes. Le média remplit la boîte (object-cover ;
-          ratio = ratio natif mesuré, donc aucun crop). */}
-      <div
-        className="relative overflow-hidden rounded-xl bg-muted"
-        style={{ aspectRatio: ratio }}
-      >
+      {/* Le média garde son ratio natif (les thumbnails sont déjà cadrés à
+          l'export, contours transparents inclus) : largeur de la colonne,
+          hauteur auto, aucun crop ni table de ratios. */}
+      <div className="relative overflow-hidden rounded-xl bg-muted">
         {mediaUrl && isVideo ? (
           <video
             ref={videoRef}
             src={mediaUrl}
-            className="absolute inset-0 h-full w-full object-cover"
+            className="block h-auto w-full"
             muted
             loop
             playsInline
-            preload="none"
+            preload="metadata"
           />
         ) : mediaUrl ? (
           <Image
             src={mediaUrl}
             alt={project.title}
-            fill
+            width={0}
+            height={0}
             sizes="(min-width: 1024px) 33vw, (min-width: 768px) 50vw, 100vw"
-            className="object-cover"
+            className="block h-auto w-full"
             priority
           />
         ) : null}
