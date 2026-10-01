@@ -86,7 +86,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
             <span className="truncate">{project.title}</span>
           </span>
           {project.organisation && (
-            <span className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-zinc-100 bg-white px-2.5 py-2 text-sm text-zinc-800">
+            <span className="min-w-0 inline-flex items-center gap-1.5 overflow-hidden rounded-lg border border-zinc-100 bg-white px-2.5 py-2 text-sm text-zinc-800">
               {project.organisation.logoUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -95,7 +95,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
                   className="h-3.5 w-3.5 shrink-0 rounded-sm object-contain"
                 />
               )}
-              <span className="max-w-[100px] truncate">{project.organisation.name}</span>
+              <span className="min-w-0 truncate">{project.organisation.name}</span>
             </span>
           )}
         </div>
