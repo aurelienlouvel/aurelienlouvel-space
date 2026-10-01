@@ -5,6 +5,7 @@ import { ActionBar } from "@/components/nav/ActionBar";
 import { ActionBarProvider } from "@/contexts/ActionBarContext";
 import { ScrollInit } from "@/components/ScrollInit";
 import { BodyTheme } from "@/components/BodyTheme";
+import { AnimatedTitle } from "@/components/AnimatedTitle";
 
 const neueMontreal = localFont({
   src: "./fonts/PPNeueMontreal-Variable.ttf",
@@ -38,6 +39,7 @@ export default async function RootLayout({
     <html lang="en" className={`${neueMontreal.variable} antialiased`}>
       <body className="min-h-dvh bg-white text-foreground">
         <BodyTheme />
+        <AnimatedTitle />
         <ActionBarProvider>
           <ScrollInit />
           {children}
