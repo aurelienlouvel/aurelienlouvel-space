@@ -133,6 +133,11 @@ export type TransitionConfig = {
   deckRelease: number; // Vitesse de retour de la carte quand on lâche avant le seuil (par seconde)
   deckHold: number; // Délai sans geste avant que la carte ne redescende (s)
   deckShimmer: number; // Éclats qui se décollent pendant la traction (0 = aucun)
+  deckDissolveAmount: number; // 0..1 — part de la carte désagrégée quand elle est tirée au maximum
+  deckCellCols: number; // Nombre de zones (rectangles) de désagrégation sur la largeur de la carte
+  deckCellPixel: number; // 0..1 — pixellisation des zones qui se détachent
+  deckCellIrid: number; // 0..1 — reflet irisé des zones en train de partir
+  deckCellBias: number; // 0..1 — la désagrégation part du bord qui mène (1) plutôt qu'au hasard (0)
   deckAimMix: number; // 0..1 — part de la visée (curseur / geste) dans la direction de la carte, le reste étant tout droit
   deckThrow: number; // Distance dont la carte part dans sa direction en se désagrégeant (px écran)
   deckSpin: number; // Rotation maximale de la carte lancée (degrés), selon sa direction
@@ -291,7 +296,12 @@ const BASE_AMPLITUDES = {
   deckLift: 135,
   deckRelease: 9,
   deckHold: 0.14,
-  deckShimmer: 0.5,
+  deckShimmer: 1,
+  deckDissolveAmount: 0.9,
+  deckCellCols: 5,
+  deckCellPixel: 0.8,
+  deckCellIrid: 0.5,
+  deckCellBias: 0.45,
   deckAimMix: 0.8,
   deckThrow: 180,
   deckSpin: 12,

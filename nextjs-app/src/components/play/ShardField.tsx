@@ -17,6 +17,8 @@ const PLANE_Z = [-0.15, 0.55, 0.7] as const;
 export type ShardSource = {
   /** 0..1+ — intensité courante : pilote le nombre d'éclats visibles et leur opacité. */
   intensity: number;
+  /** 0..1 — part de la distance d'éjection utilisée (défaut 1) : les éclats partent plus loin à mesure que la carte se désagrège. */
+  spread?: number;
   /** Centre et taille de la carte, en unités monde. */
   cx: number;
   cy: number;
@@ -257,7 +259,7 @@ export function ShardField({
       [dx, dy] = [dx * c - dy * s, dx * s + dy * c];
       dy += p.upBias;
       const dl = Math.hypot(dx, dy) || 1;
-      const travel = p.travel * plane.travel * (0.5 + hash01(k + 10.7)) * out;
+      const travel = p.travel * plane.travel * (0.5 + hash01(k + 10.7)) * out * (src.spread ?? 1);
 
       mesh.visible = true;
       mesh.position.set(src.cx + ox + (dx / dl) * travel, src.cy + oy + (dy / dl) * travel, plane.z);

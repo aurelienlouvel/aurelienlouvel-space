@@ -210,7 +210,6 @@ export function AnimationTab({
         deckLift: num(tr, "deckLift", { label: "Course de la carte (px)", min: 0, max: 300, step: 1 }),
         deckRelease: num(tr, "deckRelease", { label: "Retour si on lache (vitesse)", min: 1, max: 30, step: 0.5 }),
         deckHold: num(tr, "deckHold", { label: "Delai avant retour (s)", min: 0, max: 1, step: 0.01 }),
-        deckShimmer: num(tr, "deckShimmer", { label: "Eclats pendant la traction", min: 0, max: 1.5, step: 0.05 }),
         deckAimMix: num(tr, "deckAimMix", { label: "Direction : visee curseur/geste (0 = tout droit)", min: 0, max: 1, step: 0.01 }),
         deckThrow: num(tr, "deckThrow", { label: "Distance de lancer (px)", min: 0, max: 600, step: 5 }),
         deckSpin: num(tr, "deckSpin", { label: "Rotation de la carte lancee (deg)", min: 0, max: 45, step: 0.5 }),

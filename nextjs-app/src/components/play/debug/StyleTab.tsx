@@ -73,6 +73,18 @@ export function StyleTab({
           { collapsed: true },
         ),
 
+        "Desagregation (carte suivante)": folder(
+          {
+            deckDissolveAmount: num(tr, "deckDissolveAmount", { label: "Part desagregee a la traction max", min: 0, max: 1, step: 0.01 }),
+            deckCellCols: num(tr, "deckCellCols", { label: "Zones (colonnes grossieres)", min: 2, max: 14, step: 1 }),
+            deckCellPixel: num(tr, "deckCellPixel", { label: "Pixellisation des zones", min: 0, max: 1, step: 0.01 }),
+            deckCellIrid: num(tr, "deckCellIrid", { label: "Irisation des zones", min: 0, max: 1, step: 0.01 }),
+            deckCellBias: num(tr, "deckCellBias", { label: "Part du bord qui mene (1) / hasard (0)", min: 0, max: 1, step: 0.01 }),
+            deckShimmer: num(tr, "deckShimmer", { label: "Eclats arraches pendant la traction", min: 0, max: 2, step: 0.05 }),
+          },
+          { collapsed: true },
+        ),
+
         Eclats: folder(
           {
             fxBurstBoost: num(tr, "fxBurstBoost", { label: "Surintensite au burst", min: 0, max: 3, step: 0.05 }),
