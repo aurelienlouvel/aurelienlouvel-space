@@ -67,4 +67,7 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
 - La scène 3D vit dans le layout (`components/play/PlayHost.tsx`) : montée à la première visite de
   `/play`, puis gardée en vie (invisible, `frameloop="never"`) ; la page `/play` ne fait que lui passer
   les artifacts via `<PlayMount>`. `html[data-play]` active les curseurs 56px de `/public/cursors/lg`.
-- Réglages visuels : `/play#debug` (onglets camera, transition, focus) ; `window.__play` expose l'état.
+- Réglages visuels : `/play#debug`, 5 onglets (global : caméra + curseur ; media ; canvas : layout + fond de points ;
+  style : select « prism » ; animation : survol / ouverture / carte suivante, avec inspecteur et rejeu).
+  Le code vit dans `components/play/debug/`. `window.__play` expose l'état.
+- Le curseur de /play est dessiné par `PlayCursor` (incliné selon le mouvement, grossit au survol, rétrécit au clic).

@@ -29,7 +29,7 @@ import { DateAgo } from "@/components/blocks/DateAgo";
 import { paletteFromImageUrl, paletteFromVideo, type RGB } from "@/lib/dominant-color";
 import { usePanelGradient, type DeckWeight } from "./panel-gradient";
 import { getSharedVideoElement } from "./SecondaryGalleryPlanes";
-import { ArtifactGrid, setAppCursor } from "./ArtifactGrid";
+import { ArtifactGrid } from "./ArtifactGrid";
 import {
   SecondaryGalleryPlanes,
 } from "./SecondaryGalleryPlanes";
@@ -44,6 +44,7 @@ import {
 import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types";
 import { PlayLoader } from "./PlayLoader";
 import { CursorTrail } from "./CursorTrail";
+import { PlayCursor } from "./PlayCursor";
 import { ShardField, SHARD_DEFAULTS, type ShardParams, type ShardSource } from "./ShardField";
 import { CORNER_SMOOTHING } from "./rounded-frame";
 import { PanelPixels } from "./PanelPixels";
@@ -54,6 +55,7 @@ import {
   cloneTransitionConfig,
   timelineEnd,
   holdTime,
+  evaluateEasing,
 } from "./transition-presets";
 import {
   createTransitionFrame,
@@ -178,6 +180,67 @@ export type CameraDebugParams = {
   cursorTrail: number;
   /** Durée de vie d'un pixel de la traînée (ms) — plus court = traînée plus courte. */
   cursorTrailLife: number;
+  /** Raideur du suivi du pan (par seconde) : plus haut = la caméra colle au geste. */
+  followSpeed: number;
+  /** Vitesse de recentrage de la caméra (flèches, sélection). */
+  settleSpeed: number;
+  /** Multiplicateur de la molette en pan. */
+  wheelSpeed: number;
+};
+
+/** Le curseur de /play est dessiné (CursorTrail/PlayCursor) : taille, rotation, échelle. */
+export type CursorParams = {
+  /** Curseur personnalisé actif (sinon le curseur natif du navigateur). */
+  enabled: boolean;
+  /** Taille de la flèche (px). */
+  size: number;
+  /** Inclinaison maximale selon la direction du mouvement (degrés). */
+  rotate: number;
+  /** Vitesse (px/s) à partir de laquelle l'inclinaison est maximale. */
+  rotateSpeedRef: number;
+  /** Raideur de l'inclinaison (par seconde). */
+  rotateSmooth: number;
+  /** Échelle au survol d'un artifact. */
+  hoverScale: number;
+  /** Échelle pendant le clic. */
+  pressScale: number;
+  /** Vitesse des changements d'échelle (par seconde). */
+  scaleSpeed: number;
+};
+
+export const CURSOR_DEFAULTS: CursorParams = {
+  enabled: true,
+  size: 56,
+  rotate: 28,
+  rotateSpeedRef: 1400,
+  rotateSmooth: 14,
+  hoverScale: 1.35,
+  pressScale: 0.78,
+  scaleSpeed: 16,
+};
+
+/** Fond du canvas : de petits points qui donnent l'impression d'un plan de travail. */
+export type BackgroundParams = {
+  dots: boolean;
+  /** Diamètre d'un point (px). */
+  dotSize: number;
+  /** Écart entre deux points (unités monde). */
+  dotSpacing: number;
+  /** Opacité des points (0..1). */
+  dotOpacity: number;
+  /** Couleur des points. */
+  dotColor: string;
+  /** Suivi de la caméra : 1 = collés au plan, < 1 = plus profonds (parallaxe). */
+  parallax: number;
+};
+
+export const BACKGROUND_DEFAULTS: BackgroundParams = {
+  dots: true,
+  dotSize: 1.6,
+  dotSpacing: 44,
+  dotOpacity: 0.16,
+  dotColor: "#1b2a4a",
+  parallax: 1,
 };
 
 /** Animation de survol d'une carte de la mosaïque. */
@@ -209,20 +272,42 @@ export const HOVER_DEFAULTS: HoverParams = {
 export type DaParams = {
   /** Opacité des pixels de la pastille « play » dans la navigation (0 = coupés). */
   navPixels: number;
+  /** Durée d'un passage du champ de pixels de la pastille « play » active (s) : plus grand = plus chill. */
+  navDriftPeriod: number;
+  /** Durée de la vague de survol de la pastille « play » (s). */
+  navHoverDuration: number;
+  /** Étalement de la vague de survol de gauche à droite (s). */
+  navHoverSpread: number;
   /** Taille des rectangles du coin bas droit du side panel (×). */
   panelPixelScale: number;
   /** Étendue du dégradé du side panel (×). */
   panelGradientSpread: number;
 };
 
-export const DA_DEFAULTS: DaParams = { navPixels: 1, panelPixelScale: 1, panelGradientSpread: 1 };
+export const DA_DEFAULTS: DaParams = {
+  navPixels: 2,
+  navDriftPeriod: 14,
+  navHoverDuration: 1.1,
+  navHoverSpread: 0.55,
+  panelPixelScale: 2.5,
+  panelGradientSpread: 1.8,
+};
 
 export type PlayDebugState = {
-  plane: { radius: number; cornerSmoothing: number };
+  plane: {
+    radius: number;
+    cornerSmoothing: number;
+    /** Rotation aléatoire maximale (±degrés) de chaque artifact au repos. */
+    rotationRange: number;
+  };
   indicator: { fadeSpeed: number; moveSpeed: number };
   hover: HoverParams;
   shards: ShardParams;
   da: DaParams;
+  cursor: CursorParams;
+  background: BackgroundParams;
+  /** Style visuel actif (une DA complète : « prism » pour l'instant). */
+  style: { name: string };
   camera: CameraDebugParams;
   gravity: GravityParams;
   pan: { dragThreshold: number; velocityWindowMs: number; friction: number };
@@ -264,10 +349,16 @@ export type PlayRuntimeState = {
     /** Phase de la frame précédente, pour détecter les sauts. */
     lastPhase: TransitionPhase;
   };
+  /** Dernière position connue du pointeur (px écran). */
+  pointer: { x: number; y: number };
   /** Vitesse de la caméra à l'écran (px/s), lissée — alimente le dézoom en mouvement rapide. */
   cameraSpeed: number;
   /** Zoom réellement appliqué à la caméra (dézoom compris) : sert à convertir les gestes en monde. */
   liveZoom: number;
+  /** Survol le plus avancé de la frame (0..1) et progression de sa vague — pour l'inspecteur du debug. */
+  hoverInfo: { hov: number; wave: number };
+  /** Debug : survol forcé de la carte sélectionnée jusqu'à cet instant (ms, performance.now). */
+  debugHoverUntil: number;
   /** Vecteur de flou de mouvement induit par la caméra (unités proportionnelles écran). */
   cameraBlur: { x: number; y: number };
   indicatorTarget: { x: number; y: number; width: number; height: number };
@@ -318,6 +409,18 @@ export type PlayRuntimeState = {
     deckInputAt: number;
     /** Gestes ignorés jusqu'à cet instant (ms) : verrou après un changement de carte. */
     deckLockUntil: number;
+    /** Direction (monde, unitaire) dans laquelle la carte du dessus part : curseur / geste + tout droit. */
+    deckAim: { x: number; y: number };
+    /** `deckAim` figé au moment du changement de carte : la carte qui part garde ce cap. */
+    deckAimCommit: { x: number; y: number };
+    /** Vecteur de drag cumulé depuis le début du geste (px écran). */
+    deckDrag: { x: number; y: number };
+    /** Rewind : avancement 0..1 (avant courbe), état d'où il part (t de la timeline, position du deck). */
+    rewindU: number;
+    rewindFromT: number;
+    rewindFromDeck: number;
+    /** Debug : traction du deck maintenue à cette valeur (null = libre). */
+    deckFreeze: number | null;
     /** Carte du deck qui se décompose en éclats à cet instant (une seule à la fois). */
     deckFx: {
       intensity: number;
@@ -364,6 +467,7 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
   rc.transition.loop = 0;
   rc.transition.holding = false;
   rc.transition.rewinding = false;
+  rc.transition.rewindU = 0;
   rc.transition.deckPullRaw = 0;
   rc.transition.deckPullShown = 0;
   rc.transition.deckLockUntil = 0;
@@ -379,30 +483,32 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
 
 export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.isSnapping = false;
-  setAppCursor("auto");
   rc.hovered = null;
   rc.hoveredPos = null;
 
-  // Depuis la vue détail (ou n'importe où dans la timeline d'entrée), on ne
-  // coupe pas : on bascule sur la timeline de sortie, qui repart de zéro.
-  // On ne modifie pas targetColumnScrollY ici pour éviter tout spin arrière.
-  if (rc.transition.phase === "playing") {
-    // Annulée en cours d'entrée : on rejoue le film à l'envers. Le sampler est
-    // une fonction pure de `t`, donc faire reculer `t` suffit — chaque grandeur
-    // repasse exactement par où elle est venue, sans interpolation de secours.
-    rc.transition.holding = false;
-    rc.transition.releaseAt = null;
-    rc.transition.rewinding = true;
+  // Depuis la vue détail ou n'importe où dans la timeline d'entrée : un vrai
+  // rewind. Le temps recule en courbe cinématique (lent, rapide, lent) ; si des
+  // cartes ont été passées, elles sont d'abord défaites (une à une, en sens
+  // inverse), puis l'ouverture se rejoue à l'envers.
+  if (rc.transition.phase === "playing" || rc.transition.phase === "isolated") {
+    const tr = rc.transition;
+    tr.holding = false;
+    tr.releaseAt = null;
+    tr.rewinding = true;
+    tr.rewindU = 0;
+    tr.rewindFromT = tr.t;
+    tr.rewindFromDeck = tr.phase === "isolated" ? tr.columnScrollY : 0;
+    tr.targetColumnScrollY = tr.columnScrollY;
+    tr.deckPullRaw = 0;
+    tr.deckPullShown = 0;
+    tr.deckFreeze = null;
+    // Pas de carte à défaire : on entre directement dans le rewind de l'ouverture.
+    if (tr.phase === "isolated" && Math.abs(tr.rewindFromDeck) <= 0.02) {
+      tr.phase = "playing";
+      tr.columnScrollY = 0;
+      tr.targetColumnScrollY = 0;
+    }
     rc.camera.mode = "settle";
-    return;
-  }
-
-  if (rc.transition.phase === "isolated") {
-    rc.transition.returnFrom = null;
-    rc.transition.holding = false;
-    rc.transition.phase = "returning";
-    rc.camera.mode = "settle";
-    rewindTransition(rc);
     return;
   }
 
@@ -472,9 +578,9 @@ function applyArrowNavigation(
 }
 
 // ── Ouverture — image ────────────────────────────────────────────────────
-const PLANE_RADIUS = 16;
+const PLANE_RADIUS = 45;
 /** Lissage des coins façon Apple (0..1) : 32 % par défaut. */
-const CORNER_SMOOTHING_DEFAULT = 0.32;
+const CORNER_SMOOTHING_DEFAULT = 0.2;
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
 const INDICATOR_FADE_SPEED = 26;
@@ -496,7 +602,7 @@ const DEFAULT_NEIGHBOR_K = 6;
 // ── Ouverture — pan ───────────────────────────────────────────────────────
 const DRAG_THRESHOLD = 6;
 const VELOCITY_WINDOW_MS = 80;
-const INERTIA_FRICTION = -5.5;
+const INERTIA_FRICTION = -6;
 const VELOCITY_EPSILON = 0.0001;
 
 /** Texture tirée au double de la largeur affichée, pour les écrans retina. */
@@ -595,6 +701,40 @@ function framingOffsetY(
  * Avance l'horloge et gère les seuls changements de phase qui subsistent.
  * Aucun mouvement ici : le mouvement est entièrement décrit par la timeline.
  */
+/**
+ * Un pas de rewind. Une seule courbe (`rewindEasing`, par défaut easeInOutQuint :
+ * départ lent, milieu rapide, arrivée lente) conduit tout le retour : d'abord le
+ * deck revient à la première carte, puis la timeline d'ouverture recule jusqu'à 0.
+ * Le deck repasse par chaque position entière, donc chaque passage de carte est
+ * rejoué à l'envers, avec ses éclats.
+ */
+function advanceRewind(
+  tr: PlayRuntimeState["transition"],
+  config: TransitionConfig,
+  dt: number,
+) {
+  tr.wall += dt;
+  const hasDeck = Math.abs(tr.rewindFromDeck) > 0.02;
+  const cards = Math.min(4, Math.abs(Math.round(tr.rewindFromDeck)));
+  const total = Math.max(0.2, config.rewindDuration + cards * config.rewindDeckPerCard);
+  tr.rewindU = Math.min(1, tr.rewindU + dt / total);
+  const eased = evaluateEasing(config.rewindEasing, tr.rewindU);
+  const share = hasDeck ? Math.min(0.8, Math.max(0.05, config.rewindDeckShare)) : 0;
+  const deckP = share > 0 ? Math.min(1, eased / share) : 1;
+  const openP = Math.min(1, Math.max(0, (eased - share) / (1 - share)));
+
+  if (hasDeck) {
+    tr.columnScrollY = tr.rewindFromDeck * (1 - deckP);
+    tr.targetColumnScrollY = tr.columnScrollY;
+  }
+  if (tr.phase === "isolated" && deckP >= 1) {
+    tr.phase = "playing";
+    tr.columnScrollY = 0;
+    tr.targetColumnScrollY = 0;
+  }
+  if (tr.phase === "playing") tr.t = tr.rewindFromT * (1 - openP);
+}
+
 function advanceClock(
   rc: PlayRuntimeState,
   config: TransitionConfig,
@@ -603,12 +743,12 @@ function advanceClock(
 ) {
   const tr = rc.transition;
 
+  if (tr.rewinding && (tr.phase === "playing" || tr.phase === "isolated")) {
+    advanceRewind(tr, config, effDelta);
+    return;
+  }
+
   if (tr.phase === "playing") {
-    if (tr.rewinding) {
-      tr.wall += effDelta;
-      tr.t = Math.max(0, tr.t - effDelta * Math.max(0.1, config.rewindSpeed ?? 1));
-      return;
-    }
     const end = timelineEnd(config);
     if (studio?.scrubMode) {
       tr.t = Math.max(0, Math.min(1, studio.scrubProgress)) * end;
@@ -674,12 +814,19 @@ function resistCurve(x: number, power: number): number {
 function stepDeckPull(tr: PlayRuntimeState["transition"], config: TransitionConfig, dt: number): number {
   const now = performance.now();
   let committed = 0;
+  if (tr.deckFreeze !== null) tr.deckPullRaw = tr.deckFreeze;
   if (Math.abs(tr.deckPullRaw) >= 1) {
     committed = Math.sign(tr.deckPullRaw);
+    tr.deckAimCommit.x = tr.deckAim.x;
+    tr.deckAimCommit.y = tr.deckAim.y;
     tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + committed;
     tr.deckPullRaw = 0;
     tr.deckLockUntil = now + config.stepCooldown * 1000;
-  } else if (Math.abs(tr.deckPullRaw) > 0.0005 && now - tr.deckInputAt > config.deckHold * 1000) {
+  } else if (
+    tr.deckFreeze === null &&
+    Math.abs(tr.deckPullRaw) > 0.0005 &&
+    now - tr.deckInputAt > config.deckHold * 1000
+  ) {
     // Geste relâché avant le seuil : la carte redescend.
     tr.deckPullRaw = dampTowards(tr.deckPullRaw, 0, config.deckRelease, dt);
   }
@@ -723,7 +870,7 @@ function stepCamera(
   }
 
   // ── Défilement libre de la colonne (vue détail) ─────────────────────────
-  if (tr.phase === "isolated") {
+  if (tr.phase === "isolated" && !tr.rewinding) {
     stepDeckPull(tr, config, effDelta);
     tr.columnScrollY = dampTowards(
       tr.columnScrollY,
@@ -787,12 +934,14 @@ function stepCamera(
         }
       }
       // Lissage léger : les deltas discrets de la molette ne sautent plus d'une frame à l'autre.
-      camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, 22, effDelta);
-      camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, 22, effDelta);
+      const follow = camCfg?.followSpeed ?? 22;
+      camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, follow, effDelta);
+      camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, follow, effDelta);
       return;
     }
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
+    const settle = camCfg?.settleSpeed ?? CAMERA_SETTLE_SPEED;
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, settle, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, settle, effDelta);
     return;
   }
 
@@ -812,9 +961,10 @@ function stepCamera(
   const exitEnd = config.exit.start + config.exit.duration + config.cameraReturnDelay;
   const returned =
     (tr.phase === "returning" && tr.t >= exitEnd) ||
-    (tr.phase === "playing" && tr.rewinding && tr.t <= 0);
+    (tr.phase === "playing" && tr.rewinding && tr.rewindU >= 1);
   if (returned) {
     tr.rewinding = false;
+    tr.rewindU = 0;
     // La courbe a déjà ramené la caméra au repos : on se contente de recaler
     // la cible du pan sur ce que la courbe vient de produire.
     camera.zoom = baseZoom;
@@ -839,6 +989,61 @@ function stepCamera(
   }
 }
 
+const positiveMod = (n: number, m: number) => ((n % m) + m) % m;
+
+/** `#rrggbb` → [r, g, b] (repli : encre bleutée). */
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return [27, 42, 74];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * Fond de points : une trame CSS ancrée dans le monde, qui suit la caméra
+ * (position et zoom), comme un plan de travail sur lequel les artifacts sont
+ * posés. Elle s'estompe avec la mosaïque quand un artifact s'ouvre.
+ */
+function updateBackgroundDots(
+  surface: HTMLElement | null,
+  bg: BackgroundParams,
+  camera: OrthographicCamera,
+  size: { width: number; height: number },
+  fade: number,
+  cache: { current: { image: string; size: string; position: string } },
+) {
+  if (!surface) return;
+  const opacity = bg.dotOpacity * fade;
+  if (!bg.dots || opacity < 0.003) {
+    if (cache.current.image !== "none") {
+      surface.style.backgroundImage = "none";
+      cache.current.image = "none";
+    }
+    return;
+  }
+  const spacing = Math.max(8, bg.dotSpacing * camera.zoom);
+  const ox = positiveMod(size.width / 2 - camera.position.x * camera.zoom * bg.parallax, spacing) - spacing / 2;
+  const oy = positiveMod(size.height / 2 + camera.position.y * camera.zoom * bg.parallax, spacing) - spacing / 2;
+  const [r, g, b] = hexToRgb(bg.dotColor);
+  const radius = Math.max(0.3, bg.dotSize / 2);
+  const solid = `rgb(${r} ${g} ${b} / ${opacity.toFixed(3)})`;
+  const image = `radial-gradient(circle at 50% 50%, ${solid} 0, ${solid} ${radius}px, rgb(${r} ${g} ${b} / 0) ${radius + 0.8}px)`;
+  const sizeCss = `${spacing.toFixed(2)}px ${spacing.toFixed(2)}px`;
+  const positionCss = `${ox.toFixed(2)}px ${oy.toFixed(2)}px`;
+  if (cache.current.image !== image) {
+    surface.style.backgroundImage = image;
+    cache.current.image = image;
+  }
+  if (cache.current.size !== sizeCss) {
+    surface.style.backgroundSize = sizeCss;
+    cache.current.size = sizeCss;
+  }
+  if (cache.current.position !== positionCss) {
+    surface.style.backgroundPosition = positionCss;
+    cache.current.position = positionCss;
+  }
+}
+
 function CameraRig({
   debug,
   runtime,
@@ -856,6 +1061,7 @@ function CameraRig({
 }) {
   const prevCamPosRef = useRef({ x: 0, y: 0, initialized: false });
   const blurSmoothedRef = useRef({ x: 0, y: 0 });
+  const bgCacheRef = useRef({ image: "", size: "", position: "" });
 
   // Priorité -1 : l'échantillonnage de la timeline doit précéder tous les autres
   // `useFrame`, qui lisent le frame qu'il vient de remplir. Une priorité négative
@@ -881,6 +1087,14 @@ function CameraRig({
     if (rootStyle.getPropertyValue("--pg-scale") !== String(da.panelPixelScale)) {
       rootStyle.setProperty("--pg-scale", String(da.panelPixelScale));
     }
+    const navVars: [string, string][] = [
+      ["--da-period", `${da.navDriftPeriod}s`],
+      ["--da-hover-dur", `${da.navHoverDuration}s`],
+      ["--da-hover-spread", `${da.navHoverSpread}s`],
+    ];
+    for (const [name, value] of navVars) {
+      if (rootStyle.getPropertyValue(name) !== value) rootStyle.setProperty(name, value);
+    }
 
     const cam = state.camera as OrthographicCamera;
     stepCamera(
@@ -897,6 +1111,15 @@ function CameraRig({
       onReturnComplete,
       onNavbarReveal,
       debug.current.camera,
+    );
+
+    updateBackgroundDots(
+      document.getElementById("play-surface"),
+      debug.current.background,
+      cam,
+      state.size,
+      runtime.current.transition.frame.mosaicOpacity,
+      bgCacheRef,
     );
 
     // Vélocité instantanée de la caméra pour le flou de mouvement global
@@ -969,7 +1192,11 @@ export function PlayCanvas({
 }) {
   const activeRef = useRef(active);
   const debug = useRef<PlayDebugState>({
-    plane: { radius: PLANE_RADIUS, cornerSmoothing: CORNER_SMOOTHING_DEFAULT },
+    plane: {
+      radius: PLANE_RADIUS,
+      cornerSmoothing: CORNER_SMOOTHING_DEFAULT,
+      rotationRange: 3,
+    },
     indicator: { fadeSpeed: INDICATOR_FADE_SPEED, moveSpeed: INDICATOR_MOVE_SPEED },
     camera: {
       zoom: CAMERA_ZOOM,
@@ -979,9 +1206,15 @@ export function PlayCanvas({
       speedDezoom: 0.2,
       speedDezoomRef: 1800,
       speedDezoomResponse: 16,
-      cursorTrail: 0.6,
-      cursorTrailLife: 320,
+      cursorTrail: 0.2,
+      cursorTrailLife: 160,
+      followSpeed: 22,
+      settleSpeed: 8,
+      wheelSpeed: 1,
     },
+    cursor: { ...CURSOR_DEFAULTS },
+    background: { ...BACKGROUND_DEFAULTS },
+    style: { name: "prism" },
     hover: { ...HOVER_DEFAULTS },
     shards: { ...SHARD_DEFAULTS },
     da: { ...DA_DEFAULTS },
@@ -1004,8 +1237,11 @@ export function PlayCanvas({
     hovered: null,
     hoveredPos: null,
     camera: { targetX: 0, targetY: 0, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle" },
+    pointer: { x: 0, y: 0 },
     cameraSpeed: 0,
     liveZoom: CAMERA_ZOOM,
+    hoverInfo: { hov: 0, wave: 0 },
+    debugHoverUntil: 0,
     cameraBlur: { x: 0, y: 0 },
     indicatorTarget: {
       x: 0,
@@ -1038,6 +1274,13 @@ export function PlayCanvas({
       deckPullShown: 0,
       deckInputAt: 0,
       deckLockUntil: 0,
+      deckAim: { x: 0, y: 1 },
+      deckAimCommit: { x: 0, y: 1 },
+      deckDrag: { x: 0, y: 0 },
+      rewindU: 0,
+      rewindFromT: 0,
+      rewindFromDeck: 0,
+      deckFreeze: null,
       deckFx: { intensity: 0, cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
       passed: false,
       releaseAt: null,
@@ -1239,8 +1482,7 @@ export function PlayCanvas({
     setSelectedArtifactIndex(null);
     setApiStatus("idle");
     clearProject();
-    setAppCursor("auto");
-  }, [active, clearProject]);
+    }, [active, clearProject]);
 
   const handleCloseDetail = useCallback(() => {
     selectionToken.current++;
@@ -1517,6 +1759,13 @@ export function PlayCanvas({
     let lastY = 0;
     const recent: { x: number; y: number; t: number }[] = [];
 
+    // Position du pointeur, pour viser la carte et l'incliner (même hors drag).
+    function trackPointer(e: PointerEvent) {
+      if (!activeRef.current) return;
+      runtime.current.pointer.x = e.clientX;
+      runtime.current.pointer.y = e.clientY;
+    }
+
     function onWheel(e: WheelEvent) {
       // Hors /play, la molette appartient aux autres pages.
       if (!activeRef.current) return;
@@ -1534,6 +1783,8 @@ export function PlayCanvas({
           : (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
         const now = performance.now();
         const tr = runtime.current.transition;
+        // Pendant un rewind, les gestes ne conduisent plus rien.
+        if (tr.rewinding) return;
         // Après un changement de carte, les gestes (et l'inertie du trackpad) sont ignorés un instant.
         if (now < tr.deckLockUntil) return;
         // Chaque cran fait monter la carte : le seuil s'atteint en cumulant `deckPullDistance` px.
@@ -1545,7 +1796,12 @@ export function PlayCanvas({
       // ── Pan : défilement standard au trackpad / molette ─────────────────────
       velocity.current.x = 0;
       velocity.current.y = 0;
-      applyPanWheel(runtime.current, e.deltaX, e.deltaY, runtime.current.liveZoom);
+      applyPanWheel(
+        runtime.current,
+        e.deltaX * debug.current.camera.wheelSpeed,
+        e.deltaY * debug.current.camera.wheelSpeed,
+        runtime.current.liveZoom,
+      );
     }
 
     function onPointerDown(e: PointerEvent) {
@@ -1588,7 +1844,6 @@ export function PlayCanvas({
           const threshold = debug.current.pan.dragThreshold;
           if (Math.abs(e.clientX - startX) >= threshold || Math.abs(e.clientY - startY) >= threshold) {
             dragMoved.current = true;
-            setAppCursor("grabbing");
           }
         }
         const dx = e.clientX - lastX;
@@ -1599,10 +1854,13 @@ export function PlayCanvas({
         const moveDelta = isDesktopLayout ? dy : dx;
         const pxPerCard = debug.current.transition.dragPxPerCard ?? 320;
         const trd = runtime.current.transition;
-        if (dragMoved.current && performance.now() >= trd.deckLockUntil) {
+        if (dragMoved.current && !trd.rewinding && performance.now() >= trd.deckLockUntil) {
           // Glisser vers le haut = carte suivante, avec la même résistance que la molette.
           trd.deckPullRaw -= moveDelta / pxPerCard;
           trd.deckInputAt = performance.now();
+          // Le geste donne aussi sa direction à la carte (elle suit le doigt).
+          trd.deckDrag.x += dx;
+          trd.deckDrag.y += dy;
         }
         return;
       }
@@ -1622,7 +1880,6 @@ export function PlayCanvas({
           return;
         }
         dragMoved.current = true;
-        setAppCursor("grabbing");
         if (runtime.current.hovered !== null) {
           runtime.current.hovered = null;
           runtime.current.hoveredPos = null;
@@ -1637,7 +1894,6 @@ export function PlayCanvas({
       if (!e.relatedTarget && runtime.current.hovered !== null) {
         runtime.current.hovered = null;
         runtime.current.hoveredPos = null;
-        setAppCursor("auto");
       }
     }
 
@@ -1645,7 +1901,6 @@ export function PlayCanvas({
       if (runtime.current.hovered !== null) {
         runtime.current.hovered = null;
         runtime.current.hoveredPos = null;
-        setAppCursor("auto");
       }
     }
 
@@ -1659,7 +1914,8 @@ export function PlayCanvas({
       ) {
         dragging = false;
         dragMoved.current = false;
-        setAppCursor("auto");
+        runtime.current.transition.deckDrag.x = 0;
+        runtime.current.transition.deckDrag.y = 0;
         return;
       }
       if (dragging && dragMoved.current && recent.length >= 2) {
@@ -1673,19 +1929,11 @@ export function PlayCanvas({
       }
       dragging = false;
       dragMoved.current = false;
-      if (curPhase === "idle") {
-        if (runtime.current.hovered !== null) {
-          setAppCursor("pointer");
-        } else {
-          setAppCursor("auto");
-        }
-      } else {
-        setAppCursor("auto");
-      }
     }
 
     window.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", trackPointer);
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
@@ -1694,6 +1942,7 @@ export function PlayCanvas({
     return () => {
       window.removeEventListener("wheel", onWheel);
       window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", trackPointer);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
@@ -1813,6 +2062,7 @@ export function PlayCanvas({
 
   return (
     <div
+      id="play-surface"
       data-lenis-prevent
       aria-hidden={!active}
       className={`fixed inset-0 bg-white ${active ? "" : "invisible pointer-events-none"}`}
@@ -1899,6 +2149,7 @@ export function PlayCanvas({
           grand arrondi en haut à gauche. Fond dégradé teinté par le média au
           centre de la wheel ; les textes en mix-blend-mode multiply en
           héritent. Sur mobile il devient une feuille basse. */}
+      {active && <PlayCursor debug={debug} runtime={runtime} />}
       {active && <CursorTrail debug={debug} />}
 
       {selectedArtifactDetail && isDetailVisible && (
@@ -2026,9 +2277,6 @@ export function PlayCanvas({
           onSimulateSelect={handleSimulateSelect}
           onResetTransition={handleResetTransition}
           runtime={runtime}
-          selectedArtifact={selectedArtifactDetail}
-          apiStatus={apiStatus}
-          onCloseDetail={handleCloseDetail}
           onTextLayoutChange={handleTextLayoutChange}
         />
       )}
