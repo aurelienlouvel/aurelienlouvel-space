@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, type RefObject } from "react";
-import { useControls, folder, buttonGroup, Leva } from "leva";
+import { useControls, folder, button, buttonGroup, Leva } from "leva";
 import { toast } from "sonner";
 import {
   type PlayDebugRef,
@@ -16,13 +16,9 @@ import {
   type TrackName,
   type TransitionConfig,
 } from "./transition-presets";
+import { currentStage, stageBounds, STAGE_LABELS, type StageId } from "./transition-timeline";
 
-/** Champs numériques de la config — ceux qu'un slider peut piloter. */
-type NumericTransitionField = {
-  [K in keyof TransitionConfig]: TransitionConfig[K] extends number ? K : never;
-}[keyof TransitionConfig];
-
-const STORAGE_KEY = "play-debug-v33";
+const STORAGE_KEY = "play-debug-v34";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -41,7 +37,6 @@ export type DebugTab =
   | "camera"
   | "media"
   | "canvas"
-  | "selection"
   | "transition"
   | "focus";
 
@@ -49,7 +44,6 @@ const TABS: { id: DebugTab; label: string }[] = [
   { id: "camera", label: "camera" },
   { id: "media", label: "media" },
   { id: "canvas", label: "canvas" },
-  { id: "selection", label: "selection" },
   { id: "transition", label: "transition" },
   { id: "focus", label: "focus" },
 ];
@@ -72,40 +66,27 @@ const TAB_KEYWORDS: Record<DebugTab, string[]> = {
     "threshold",
     "velocity",
   ],
-  selection: [
-    "selection",
-    "brackets",
-    "padding",
-    "radius",
-    "angle",
-    "arm",
-    "thickness",
-    "color",
-    "repulsion",
-    "physics",
-    "spring",
-    "damping",
-    "mass",
-    "wave",
-    "iridescence",
-    "glow",
-    "hold",
-    "duration",
-  ],
   transition: [
     "transition",
+    "approche",
+    "zoom",
+    "burst",
+    "puissance",
+    "seed",
+    "attente",
+    "tortillement",
+    "chargement",
+    "vague",
+    "wave",
+    "irisation",
+    "cascade",
+    "cadrage",
+    "panneau",
+    "navbar",
+    "retour",
+    "rewind",
     "duration",
-    "entrance",
-    "scale",
-    "overshoot",
-    "slide",
-    "spin",
-    "distance",
     "easing",
-    "magnetic",
-    "snap",
-    "dezoom",
-    "cards",
   ],
   focus: [
     "focus",
@@ -441,631 +422,393 @@ function CanvasTab({
   return null;
 }
 
-// ── 4. Tab Selection ────────────────────────────────────────────
-function SelectionTab({ state }: { state: PlayDebugRef }) {
-  useControls("Selection, Brackets & Repulsion", () => ({
-    "Mosaic Repulsion Physics": folder({
-      "Physics enabled": {
-        value: state.current.physics.enabled,
-        onChange: (v: boolean) => {
-          state.current.physics.enabled = v;
-        },
-      },
-      Strength: {
-        value: state.current.physics.strength,
-        min: 200,
-        max: 8000,
-        step: 50,
-        onChange: (v: number) => {
-          state.current.physics.strength = v;
-        },
-      },
-      Radius: {
-        value: state.current.physics.radius,
-        min: 500,
-        max: 6000,
-        step: 50,
-        onChange: (v: number) => {
-          state.current.physics.radius = v;
-        },
-      },
-      Damping: {
-        value: state.current.physics.damping,
-        min: 2,
-        max: 30,
-        step: 0.5,
-        onChange: (v: number) => {
-          state.current.physics.damping = v;
-        },
-      },
-      Spring: {
-        value: state.current.physics.spring,
-        min: 0.1,
-        max: 2.0,
-        step: 0.05,
-        onChange: (v: number) => {
-          state.current.physics.spring = v;
-        },
-      },
-      Restitution: {
-        value: state.current.physics.restitution,
-        min: 0,
-        max: 1,
-        step: 0.05,
-        onChange: (v: number) => {
-          state.current.physics.restitution = v;
-        },
-      },
-      Friction: {
-        value: state.current.physics.friction,
-        min: 0,
-        max: 1,
-        step: 0.02,
-        onChange: (v: number) => {
-          state.current.physics.friction = v;
-        },
-      },
-      Mass: {
-        value: state.current.physics.mass,
-        min: 0.1,
-        max: 5,
-        step: 0.1,
-        onChange: (v: number) => {
-          state.current.physics.mass = v;
-        },
-      },
-    }),
-    "Selection Overlay Wave": folder({
-      Direction: {
-        value: state.current.overlay.direction,
-        options: {
-          "Top-left to bottom-right": "tl-to-br",
-          "Bottom-left to top-right": "bl-to-tr",
-          "Left to right": "left-to-right",
-          "Right to left": "right-to-left",
-          "Bottom to top": "bottom-to-top",
-          "Top to bottom": "top-to-bottom",
-        },
-        onChange: (v: WaveDirection) => {
-          state.current.overlay.direction = v;
-        },
-      },
-      "Wave speed": {
-        value: state.current.overlay.waveSpeed,
-        min: 0.0,
-        max: 8.0,
-        step: 0.2,
-        onChange: (v: number) => {
-          state.current.overlay.waveSpeed = v;
-        },
-      },
-      "Wave frequency": {
-        value: state.current.overlay.waveFrequency,
-        min: 1.0,
-        max: 20.0,
-        step: 0.5,
-        onChange: (v: number) => {
-          state.current.overlay.waveFrequency = v;
-        },
-      },
-      "Wave amplitude": {
-        value: state.current.overlay.waveAmplitude,
-        min: 0.01,
-        max: 0.3,
-        step: 0.01,
-        onChange: (v: number) => {
-          state.current.overlay.waveAmplitude = v;
-        },
-      },
-      "Crest softness": {
-        value: state.current.overlay.crestSoftness,
-        min: 0.05,
-        max: 0.8,
-        step: 0.01,
-        onChange: (v: number) => {
-          state.current.overlay.crestSoftness = v;
-        },
-      },
-      Iridescence: {
-        value: state.current.overlay.iridescence,
-        min: 0.0,
-        max: 1.0,
-        step: 0.02,
-        onChange: (v: number) => {
-          state.current.overlay.iridescence = v;
-        },
-      },
-      "Base opacity": {
-        value: state.current.overlay.baseOpacity,
-        min: 0.0,
-        max: 1.0,
-        step: 0.02,
-        onChange: (v: number) => {
-          state.current.overlay.baseOpacity = v;
-        },
-      },
-      "Glow intensity": {
-        value: state.current.overlay.glowIntensity,
-        min: 0.0,
-        max: 3.0,
-        step: 0.05,
-        onChange: (v: number) => {
-          state.current.overlay.glowIntensity = v;
-        },
-      },
-      "Lens: zoom blur": {
-        value: state.current.overlay.zoomBlur,
-        min: 0,
-        max: 1.2,
-        step: 0.01,
-        onChange: (v: number) => {
-          state.current.overlay.zoomBlur = v;
-        },
-      },
-      "Lens: zoom punch": {
-        value: state.current.overlay.zoomPunch,
-        min: 0,
-        max: 0.8,
-        step: 0.01,
-        onChange: (v: number) => {
-          state.current.overlay.zoomPunch = v;
-        },
-      },
-      "Lens: bulge": {
-        value: state.current.overlay.bulge,
-        min: 0,
-        max: 2,
-        step: 0.02,
-        onChange: (v: number) => {
-          state.current.overlay.bulge = v;
-        },
-      },
-      "Lens: width": {
-        value: state.current.overlay.lensWidth,
-        min: 0.05,
-        max: 0.8,
-        step: 0.01,
-        onChange: (v: number) => {
-          state.current.overlay.lensWidth = v;
-        },
-      },
-      "Lens: trail": {
-        value: state.current.overlay.lensTrail,
-        min: 0,
-        max: 1,
-        step: 0.02,
-        onChange: (v: number) => {
-          state.current.overlay.lensTrail = v;
-        },
-      },
-    }),
-  }));
-  return null;
+// ── Helpers de contrôles ────────────────────────────────────────
+
+type NumberOptions = { label?: string; min: number; max: number; step: number };
+
+/** Slider numérique branché directement sur un champ d'un objet de config. */
+function num<T extends object>(target: T, key: keyof T & string, o: NumberOptions) {
+  return {
+    label: o.label,
+    value: target[key] as unknown as number,
+    min: o.min,
+    max: o.max,
+    step: o.step,
+    onChange: (v: number) => {
+      (target as Record<string, unknown>)[key] = v;
+    },
+  };
 }
 
-// ── 5. Tab Transition ───────────────────────────────────────────
+/** Sélecteur d'easing branché sur un champ d'un objet de config. */
+function easingControl<T extends object>(
+  target: T,
+  key: keyof T & string,
+  label = "Easing",
+) {
+  return {
+    label,
+    value: target[key] as unknown as string,
+    options: EASING_OPTIONS,
+    onChange: (v: string) => {
+      (target as Record<string, unknown>)[key] = v as EasingName;
+    },
+  };
+}
+
+/** Start / Duration / Easing d'une piste de la timeline. */
+function trackControls(
+  tr: TransitionConfig,
+  name: TrackName,
+  maxStart: number,
+  maxDuration: number,
+  prefix = name,
+) {
+  const track = tr[name];
+  return {
+    [`${prefix}_start`]: num(track, "start", { label: "Start (s)", min: 0, max: maxStart, step: 0.02 }),
+    [`${prefix}_duration`]: num(track, "duration", { label: "Duration (s)", min: 0.05, max: maxDuration, step: 0.02 }),
+    [`${prefix}_easing`]: easingControl(track, "easing"),
+  };
+}
+
+const WAVE_DIRECTIONS = {
+  "Top-left → bottom-right": "tl-to-br",
+  "Bottom-left → top-right": "bl-to-tr",
+  "Left → right": "left-to-right",
+  "Right → left": "right-to-left",
+  "Bottom → top": "bottom-to-top",
+  "Top → bottom": "top-to-bottom",
+};
+
+// ── Barre de timeline ───────────────────────────────────────────
+
+const SEGMENT_COLORS: Record<string, string> = {
+  approach: "bg-sky-500/70",
+  burst: "bg-orange-500/70",
+  wave: "bg-violet-500/70",
+  cascade: "bg-teal-500/70",
+  panel: "bg-emerald-500/70",
+};
+
+type TimelineSnapshot = {
+  stage: StageId;
+  t: number;
+  holding: boolean;
+  rewinding: boolean;
+  scrubbing: boolean;
+  burstStart: number;
+  hold: number;
+  passEnd: number;
+  panelStart: number;
+  end: number;
+};
+
+const EMPTY_SNAPSHOT: TimelineSnapshot = {
+  stage: "idle",
+  t: 0,
+  holding: false,
+  rewinding: false,
+  scrubbing: false,
+  burstStart: 0,
+  hold: 0,
+  passEnd: 0,
+  panelStart: 0,
+  end: 1,
+};
+
+/** Le debug écrit dans le ref partagé que lisent les `useFrame` : mutation voulue. */
+function setScrub(state: PlayDebugRef, progress: number) {
+  state.current.studio.scrubMode = true;
+  state.current.studio.scrubProgress = Math.min(1, Math.max(0, progress));
+}
+
+function releaseScrub(state: PlayDebugRef) {
+  state.current.studio.scrubMode = false;
+}
+
+/**
+ * Étape courante et tête de lecture de la timeline d'entrée. Un clic ou un
+ * glissé sur la barre fige la timeline à cet instant (scrub) ; « Release »
+ * rend la main à l'horloge.
+ */
+function TimelineBar({
+  state,
+  runtime,
+}: {
+  state: PlayDebugRef;
+  runtime?: RefObject<PlayRuntimeState>;
+}) {
+  const [snap, setSnap] = useState<TimelineSnapshot>(EMPTY_SNAPSHOT);
+  const barRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let handle = 0;
+    let last = 0;
+    function tick(now: number) {
+      if (now - last > 50) {
+        last = now;
+        const rc = runtime?.current;
+        if (rc) {
+          const cfg = state.current.transition;
+          const tr = rc.transition;
+          const bounds = stageBounds(cfg);
+          const next: TimelineSnapshot = {
+            stage: currentStage(cfg, tr),
+            t: Math.round(tr.t * 50) / 50,
+            holding: tr.holding,
+            rewinding: tr.rewinding,
+            scrubbing: state.current.studio.scrubMode,
+            ...bounds,
+          };
+          setSnap((prev) =>
+            (Object.keys(next) as (keyof TimelineSnapshot)[]).every((k) => prev[k] === next[k])
+              ? prev
+              : next,
+          );
+        }
+      }
+      handle = requestAnimationFrame(tick);
+    }
+    handle = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(handle);
+  }, [state, runtime]);
+
+  const end = Math.max(0.05, snap.end);
+  const pct = (v: number) => `${Math.min(100, Math.max(0, (v / end) * 100))}%`;
+  const segments: { id: string; from: number; to: number }[] = [
+    { id: "approach", from: 0, to: snap.burstStart },
+    { id: "burst", from: snap.burstStart, to: snap.hold },
+    { id: "wave", from: snap.hold, to: snap.passEnd },
+    { id: "cascade", from: snap.passEnd, to: snap.panelStart },
+    { id: "panel", from: snap.panelStart, to: snap.end },
+  ];
+  const active = snap.stage !== "idle" && snap.stage !== "returning" && snap.stage !== "detail";
+
+  function scrubTo(clientX: number) {
+    const el = barRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setScrub(state, (clientX - rect.left) / Math.max(1, rect.width));
+  }
+
+  return (
+    <div className="px-2 py-2 border-b border-white/10 bg-[#161616] font-mono text-[11px] text-white/80">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="font-semibold text-white">
+          {snap.rewinding ? "◀ Rewind · " : ""}
+          {STAGE_LABELS[snap.stage]}
+        </span>
+        <span className="text-white/40">
+          {active ? `t=${snap.t.toFixed(2)}s / ${snap.end.toFixed(2)}s` : "—"}
+        </span>
+      </div>
+      <div
+        ref={barRef}
+        className="relative h-5 rounded bg-white/5 overflow-hidden cursor-ew-resize touch-none"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          scrubTo(e.clientX);
+        }}
+        onPointerMove={(e) => {
+          if (e.buttons) scrubTo(e.clientX);
+        }}
+      >
+        {segments.map((s) => (
+          <div
+            key={s.id}
+            className={`absolute inset-y-0 border-r border-black/40 ${SEGMENT_COLORS[s.id]}`}
+            style={{ left: pct(s.from), width: `calc(${pct(s.to)} - ${pct(s.from)})` }}
+            title={s.id}
+          />
+        ))}
+        {/* Point d'attente : la timeline s'y fige tant que le pack n'est pas prêt. */}
+        <div
+          className={`absolute inset-y-0 w-0.5 bg-amber-300 ${snap.holding ? "animate-pulse" : "opacity-60"}`}
+          style={{ left: pct(snap.hold) }}
+          title="Point d'attente (chargement)"
+        />
+        {active && (
+          <div
+            className="absolute inset-y-0 w-0.5 bg-white shadow-[0_0_6px_white]"
+            style={{ left: pct(snap.t) }}
+          />
+        )}
+      </div>
+      <div className="flex items-center justify-between mt-1.5 text-white/40">
+        <span>
+          <span className="text-amber-300">▎</span> attente chargement
+        </span>
+        {snap.scrubbing ? (
+          <button
+            className="px-2 py-0.5 rounded border border-white/20 text-white/80 hover:bg-white/10"
+            onClick={() => releaseScrub(state)}
+          >
+            Release scrub
+          </button>
+        ) : (
+          <span>cliquer la barre = scrub</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tab Transition — organisé dans l'ordre de la chorégraphie ───
+
 function TransitionTab({
   state,
-  onReplayLock,
   onSimulateSelect,
   onResetTransition,
 }: {
   state: PlayDebugRef;
-  onReplayLock: () => void;
   onSimulateSelect: () => void;
   onResetTransition: () => void;
 }) {
   const tr = state.current.transition;
+  const overlay = state.current.overlay;
+  const studio = state.current.studio;
 
-  function trackRow(
-    field: TrackName,
-    maxStart = 6,
-    maxDuration = 6,
-  ) {
-    const track = tr[field];
-    return folder(
-      {
-        [`${field}_start`]: {
-          label: "Start",
-          value: track.start,
-          min: 0,
-          max: maxStart,
-          step: 0.02,
-          onChange: (v: number) => {
-            tr[field].start = v;
-          },
-        },
-        [`${field}_duration`]: {
-          label: "Duration",
-          value: track.duration,
-          min: 0.05,
-          max: maxDuration,
-          step: 0.02,
-          onChange: (v: number) => {
-            tr[field].duration = v;
-          },
-        },
-        [`${field}_easing`]: {
-          label: "Easing",
-          value: track.easing,
-          options: EASING_OPTIONS,
-          onChange: (v: string) => {
-            tr[field].easing = v as EasingName;
-          },
-        },
-      },
-      { collapsed: true },
-    );
-  }
-
-  useControls("Transition Studio & Timeline", () => ({
-    "Studio Controls": folder({
+  const setRef = useRef<((values: Record<string, unknown>) => void) | null>(null);
+  const [, set] = useControls("Transition", () => ({
+    Studio: folder({
       Actions: buttonGroup({
-        "Replay (R)": onReplayLock,
-        "Simulate Select": onSimulateSelect,
-        Reset: onResetTransition,
+        "Play (R)": onSimulateSelect,
+        "Reverse (Esc)": onResetTransition,
       }),
       "Playback speed": {
-        value: state.current.studio.speed,
+        value: studio.speed,
         options: {
-          "0.1x (Ultra slow)": 0.1,
-          "0.25x (Slow motion)": 0.25,
-          "0.5x (Half speed)": 0.5,
-          "1.0x (Normal speed)": 1.0,
+          "0.1x": 0.1,
+          "0.25x": 0.25,
+          "0.5x": 0.5,
+          "1x": 1.0,
+          "2x": 2.0,
         },
         onChange: (v: number) => {
-          state.current.studio.speed = v;
+          studio.speed = v;
         },
       },
-      "Infinite loop (L)": {
-        value: state.current.studio.loopLock,
+      "Loop (L)": {
+        value: studio.loopLock,
         onChange: (v: boolean) => {
-          state.current.studio.loopLock = v;
-        },
-      },
-      "Scrub mode": {
-        value: state.current.studio.scrubMode,
-        onChange: (v: boolean) => {
-          state.current.studio.scrubMode = v;
-        },
-      },
-      "Scrub timeline": {
-        value: state.current.studio.scrubProgress,
-        min: 0,
-        max: 1,
-        step: 0.002,
-        render: (get) => Boolean(get("Transition Studio & Timeline.Studio Controls.Scrub mode")),
-        onChange: (v: number) => {
-          state.current.studio.scrubProgress = v;
+          studio.loopLock = v;
         },
       },
     }),
 
-    "Burst & Loading Wiggle": folder({
-      "Burst randomness (power)": {
-        value: tr.burstRandomness ?? 0.6,
-        min: 0,
-        max: 1,
-        step: 0.05,
-        onChange: (v: number) => {
-          tr.burstRandomness = v;
-        },
+    "1 · Approche": folder(
+      {
+        ...trackControls(tr, "hero", 3, 3),
+        approachZoom: num(tr, "approachZoom", { label: "Zoom approche (x base)", min: 0.5, max: 5, step: 0.05 }),
+        silenceDrift: num(tr, "silenceDrift", { label: "Dérive du zoom (attente)", min: 0, max: 0.3, step: 0.005 }),
       },
-      "Burst direction jitter (rad)": {
-        value: tr.burstAngleJitter ?? 0.5,
-        min: 0,
-        max: 1.5,
-        step: 0.05,
-        onChange: (v: number) => {
-          tr.burstAngleJitter = v;
-        },
-      },
-      "Wiggle amount (rad)": {
-        value: tr.packShake ?? 0.05,
-        min: 0,
-        max: 0.3,
-        step: 0.005,
-        onChange: (v: number) => {
-          tr.packShake = v;
-        },
-      },
-      "Wiggle speed": {
-        value: tr.wiggleSpeed ?? 7,
-        min: 0,
-        max: 20,
-        step: 0.5,
-        onChange: (v: number) => {
-          tr.wiggleSpeed = v;
-        },
-      },
-      "Breathe (scale)": {
-        value: tr.breathe ?? 0.025,
-        min: 0,
-        max: 0.1,
-        step: 0.005,
-        onChange: (v: number) => {
-          tr.breathe = v;
-        },
-      },
-      "Grow while loading (max)": {
-        value: tr.loadGrow ?? 0.1,
-        min: 0,
-        max: 0.4,
-        step: 0.01,
-        onChange: (v: number) => {
-          tr.loadGrow = v;
-        },
-      },
-      "Loading wave cycles/s": {
-        value: tr.loadWaveSpeed ?? 0.9,
-        min: 0.2,
-        max: 3,
-        step: 0.05,
-        onChange: (v: number) => {
-          tr.loadWaveSpeed = v;
-        },
-      },
-    }),
+      { collapsed: true },
+    ),
 
-    "Wave Charge (Pre-Boom)": folder({
-      "Wave duration (s)": {
-        value: tr.waveDuration,
-        min: 0.2,
-        max: 3,
-        step: 0.05,
-        onChange: (v: number) => {
-          tr.waveDuration = v;
+    "2 · Burst": folder(
+      {
+        ...trackControls(tr, "scatter", 3, 3),
+        scatterDistance: num(tr, "scatterDistance", { label: "Distance de base", min: 500, max: 6000, step: 50 }),
+        burstPowerMin: num(tr, "burstPowerMin", { label: "Puissance min (x)", min: 0, max: 2, step: 0.05 }),
+        burstPowerMax: num(tr, "burstPowerMax", { label: "Puissance max (x)", min: 0, max: 3, step: 0.05 }),
+        burstAngleJitter: num(tr, "burstAngleJitter", { label: "Jitter de direction (rad)", min: 0, max: 1.5, step: 0.05 }),
+        Seed: {
+          value: tr.burstSeed,
+          min: 0,
+          max: 9999,
+          step: 1,
+          onChange: (v: number) => {
+            tr.burstSeed = v;
+          },
         },
+        Reseed: button(() => {
+          setRef.current?.({ Seed: Math.floor(Math.random() * 10000) });
+        }),
       },
-      "Wave easing": {
-        value: tr.waveEasing,
-        options: EASING_OPTIONS,
-        onChange: (v: string) => {
-          tr.waveEasing = v as EasingName;
-        },
-      },
-      "Approach drift": {
-        value: tr.silenceDrift,
-        min: 0,
-        max: 0.3,
-        step: 0.005,
-        onChange: (v: number) => {
-          tr.silenceDrift = v;
-        },
-      },
-    }),
+      { collapsed: true },
+    ),
 
-    "Transition IN (Choreography)": folder({
-      "1. Boom (tile detach)": folder(
-        {
-          lock_start: {
-            label: "Start",
-            value: tr.lock.start,
-            min: 0,
-            max: 2,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.lock.start = v;
-            },
-          },
-          lock_duration: {
-            label: "Duration",
-            value: tr.lock.duration,
-            min: 0.05,
-            max: 2,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.lock.duration = v;
-            },
-          },
-          "Detach lift (lock)": {
-            value: tr.lockScalePunch,
-            min: 0,
-            max: 0.4,
-            step: 0.005,
-            onChange: (v: number) => {
-              tr.lockScalePunch = v;
-            },
-          },
-        },
-        { collapsed: true },
-      ),
-      "2. Scatter (Mosaic)": folder(
-        {
-          scatter_start: {
-            label: "Start",
-            value: tr.scatter.start,
-            min: 0,
-            max: 3,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.scatter.start = v;
-            },
-          },
-          scatter_duration: {
-            label: "Duration",
-            value: tr.scatter.duration,
-            min: 0.05,
-            max: 3,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.scatter.duration = v;
-            },
-          },
-          scatter_easing: {
-            label: "Easing",
-            value: tr.scatter.easing,
-            options: EASING_OPTIONS,
-            onChange: (v: string) => {
-              tr.scatter.easing = v as EasingName;
-            },
-          },
-          "Scatter distance": {
-            value: tr.scatterDistance,
-            min: 500,
-            max: 6000,
-            step: 50,
-            onChange: (v: number) => {
-              tr.scatterDistance = v;
-            },
-          },
-        },
-        { collapsed: true },
-      ),
-      "3. Reveal (Hero Morph)": trackRow("reveal", 3, 3),
-      "4. Hero (Peak Zoom)": folder(
-        {
-          hero_start: {
-            label: "Start",
-            value: tr.hero.start,
-            min: 0,
-            max: 3,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.hero.start = v;
-            },
-          },
-          hero_duration: {
-            label: "Duration",
-            value: tr.hero.duration,
-            min: 0.05,
-            max: 3,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.hero.duration = v;
-            },
-          },
-          hero_easing: {
-            label: "Easing",
-            value: tr.hero.easing,
-            options: EASING_OPTIONS,
-            onChange: (v: string) => {
-              tr.hero.easing = v as EasingName;
-            },
-          },
-          "Hero zoom (x detail)": {
-            value: tr.heroZoom,
-            min: 1,
-            max: 2.5,
-            step: 0.05,
-            onChange: (v: number) => {
-              tr.heroZoom = v;
-            },
-          },
-        },
-        { collapsed: true },
-      ),
-      "6. Column Fade (Opacity)": trackRow("columnFade", 4, 3),
-      "8. Dezoom (Framing)": folder(
-        {
-          dezoom_start: {
-            label: "Start",
-            value: tr.dezoom.start,
-            min: 0,
-            max: 6,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.dezoom.start = v;
-            },
-          },
-          dezoom_duration: {
-            label: "Duration",
-            value: tr.dezoom.duration,
-            min: 0.1,
-            max: 5,
-            step: 0.05,
-            onChange: (v: number) => {
-              tr.dezoom.duration = v;
-            },
-          },
-          dezoom_easing: {
-            label: "Easing",
-            value: tr.dezoom.easing,
-            options: EASING_OPTIONS,
-            onChange: (v: string) => {
-              tr.dezoom.easing = v as EasingName;
-            },
-          },
-          "Detail zoom (x base)": {
-            value: tr.detailZoom,
-            min: 0.5,
-            max: 4,
-            step: 0.05,
-            onChange: (v: number) => {
-              tr.detailZoom = v;
-            },
-          },
-        },
-        { collapsed: true },
-      ),
-      "9. Text Reveal": folder(
-        {
-          "Navbar lead (s)": {
-            value: tr.navbarLead,
-            min: 0,
-            max: 2,
-            step: 0.05,
-            onChange: (v: number) => {
-              tr.navbarLead = v;
-            },
-          },
-          "Side panel lead (s)": {
-            value: tr.textLead,
-            min: 0,
-            max: 2,
-            step: 0.05,
-            onChange: (v: number) => {
-              tr.textLead = v;
-            },
-          },
-        },
-        { collapsed: true },
-      ),
-    }),
+    "3 · Attente": folder(
+      {
+        simulatedLoadMs: num(tr, "simulatedLoadMs", { label: "Chargement simule (ms)", min: 0, max: 10000, step: 100 }),
+        packShake: num(tr, "packShake", { label: "Tortillement (rad)", min: 0, max: 0.3, step: 0.005 }),
+        wiggleSpeed: num(tr, "wiggleSpeed", { label: "Vitesse du tortillement", min: 0, max: 20, step: 0.5 }),
+        breathe: num(tr, "breathe", { label: "Respiration (scale)", min: 0, max: 0.1, step: 0.005 }),
+        loadGrow: num(tr, "loadGrow", { label: "Grossissement max", min: 0, max: 0.4, step: 0.01 }),
+        loadWaveSpeed: num(tr, "loadWaveSpeed", { label: "Vague en boucle (cycles par s)", min: 0.2, max: 3, step: 0.05 }),
+      },
+      { collapsed: true },
+    ),
 
-    "Transition OUT (Exit)": folder({
-      "Exit (Return to Mosaic)": folder(
-        {
-          exit_duration: {
-            label: "Duration",
-            value: tr.exit.duration,
-            min: 0.1,
-            max: 3,
-            step: 0.05,
-            onChange: (v: number) => {
-              tr.exit.duration = v;
-            },
-          },
-          Easing: {
-            value: tr.exit.easing,
-            options: EASING_OPTIONS,
-            onChange: (v: string) => {
-              tr.exit.easing = v as EasingName;
-            },
+    "4 · Vague": folder(
+      {
+        waveDuration: num(tr, "waveDuration", { label: "Durée (s)", min: 0.2, max: 3, step: 0.05 }),
+        waveEasing: easingControl(tr, "waveEasing"),
+        Direction: {
+          value: overlay.direction,
+          options: WAVE_DIRECTIONS,
+          onChange: (v: WaveDirection) => {
+            overlay.direction = v;
           },
         },
-        { collapsed: true },
-      ),
-      "Mosaic return delay (s)": {
-        value: tr.repulseReturnDelay,
-        min: 0,
-        max: 1.5,
-        step: 0.05,
-        onChange: (v: number) => {
-          tr.repulseReturnDelay = v;
-        },
+        crestSoftness: num(overlay, "crestSoftness", { label: "Douceur de la crête", min: 0.05, max: 0.8, step: 0.01 }),
+        waveAmplitude: num(overlay, "waveAmplitude", { label: "Amplitude de l onde", min: 0.01, max: 0.3, step: 0.01 }),
+        waveFrequency: num(overlay, "waveFrequency", { label: "Fréquence de l onde", min: 1, max: 20, step: 0.5 }),
+        waveSpeed: num(overlay, "waveSpeed", { label: "Vitesse de l onde", min: 0, max: 8, step: 0.2 }),
+        iridescence: num(overlay, "iridescence", { label: "Irisation", min: 0, max: 1, step: 0.02 }),
+        baseOpacity: num(overlay, "baseOpacity", { label: "Opacité", min: 0, max: 1, step: 0.02 }),
+        glowIntensity: num(overlay, "glowIntensity", { label: "Lueur", min: 0, max: 3, step: 0.05 }),
+        Lens: folder(
+          {
+            zoomBlur: num(overlay, "zoomBlur", { label: "Flou de zoom", min: 0, max: 1.2, step: 0.01 }),
+            zoomPunch: num(overlay, "zoomPunch", { label: "Punch de zoom", min: 0, max: 0.8, step: 0.01 }),
+            bulge: num(overlay, "bulge", { label: "Bombé", min: 0, max: 2, step: 0.02 }),
+            lensWidth: num(overlay, "lensWidth", { label: "Largeur", min: 0.05, max: 0.8, step: 0.01 }),
+            lensTrail: num(overlay, "lensTrail", { label: "Traîne", min: 0, max: 1, step: 0.02 }),
+          },
+          { collapsed: true },
+        ),
       },
-      "Camera return delay (s)": {
-        value: tr.cameraReturnDelay,
-        min: 0,
-        max: 1,
-        step: 0.02,
-        onChange: (v: number) => {
-          tr.cameraReturnDelay = v;
-        },
+      { collapsed: true },
+    ),
+
+    "5 · Cascade et cadrage": folder(
+      {
+        lockScalePunch: num(tr, "lockScalePunch", { label: "Detachement artifact", min: 0, max: 0.4, step: 0.005 }),
+        ...trackControls(tr, "lock", 2, 2),
+        ...trackControls(tr, "reveal", 3, 3),
+        ...trackControls(tr, "columnFade", 4, 3),
+        ...trackControls(tr, "dezoom", 6, 5),
+        detailZoom: num(tr, "detailZoom", { label: "Zoom final (x base)", min: 0.5, max: 4, step: 0.05 }),
       },
-    }),
+      { collapsed: true },
+    ),
+
+    "6 · Panneau et navbar": folder(
+      {
+        navbarLead: num(tr, "navbarLead", { label: "Avance navbar (s)", min: 0, max: 2, step: 0.05 }),
+        textLead: num(tr, "textLead", { label: "Avance side panel (s)", min: 0, max: 2, step: 0.05 }),
+      },
+      { collapsed: true },
+    ),
+
+    "7 · Retour": folder(
+      {
+        rewindSpeed: num(tr, "rewindSpeed", { label: "Vitesse du rewind (annulation)", min: 0.25, max: 6, step: 0.05 }),
+        exit_duration: num(tr.exit, "duration", { label: "Sortie vue detail (s)", min: 0.1, max: 3, step: 0.05 }),
+        exit_easing: easingControl(tr.exit, "easing", "Easing de sortie"),
+        repulseReturnDelay: num(tr, "repulseReturnDelay", { label: "Retard de la mosaïque (s)", min: 0, max: 1.5, step: 0.05 }),
+        cameraReturnDelay: num(tr, "cameraReturnDelay", { label: "Retard de la caméra (s)", min: 0, max: 1, step: 0.02 }),
+      },
+      { collapsed: true },
+    ),
   }));
+
+  useEffect(() => {
+    // `set` est typé sur les clés racine ; Leva résout aussi celles des dossiers.
+    setRef.current = set as (values: Record<string, unknown>) => void;
+  }, [set]);
 
   return null;
 }
@@ -1347,7 +1090,6 @@ export function PlayDebug({
   state,
   stats,
   onLayoutChange,
-  onReplayLock,
   onSimulateSelect,
   onResetTransition,
   runtime,
@@ -1359,7 +1101,6 @@ export function PlayDebug({
   state: PlayDebugRef;
   stats?: LayoutStats;
   onLayoutChange: () => void;
-  onReplayLock: () => void;
   onSimulateSelect: () => void;
   onResetTransition: () => void;
   runtime?: RefObject<PlayRuntimeState>;
@@ -1462,6 +1203,15 @@ export function PlayDebug({
     }
   };
 
+  const resetSaved = () => {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    window.location.reload();
+  };
+
   const copyJson = () => {
     navigator.clipboard
       .writeText(JSON.stringify(state.current, null, 2))
@@ -1547,6 +1297,13 @@ export function PlayDebug({
             Save
           </button>
           <button
+            onClick={resetSaved}
+            title="Forget saved settings and reload with the defaults"
+            className="flex items-center gap-1 px-2.5 h-7 text-xs font-mono text-white/80 hover:text-white hover:bg-white/10 border border-white/10 rounded transition-all active:scale-95 shrink-0"
+          >
+            Reset
+          </button>
+          <button
             onClick={copyJson}
             title="Copy JSON configuration to clipboard"
             className="flex items-center gap-1 px-2.5 h-7 text-xs font-mono text-white/80 hover:text-white hover:bg-white/10 border border-white/10 rounded transition-all active:scale-95 shrink-0"
@@ -1554,6 +1311,9 @@ export function PlayDebug({
             Copy
           </button>
         </div>
+
+        {/* Étape courante + tête de lecture de la timeline d'entrée */}
+        <TimelineBar state={state} runtime={runtime} />
 
         {/* Leva Controls Area: takes whatever height is needed, scrolls smoothly if taller than screen */}
         <div
@@ -1578,11 +1338,9 @@ export function PlayDebug({
           onLayoutChange={onLayoutChange}
         />
       )}
-      {activeTab === "selection" && <SelectionTab state={state} />}
       {activeTab === "transition" && (
         <TransitionTab
           state={state}
-          onReplayLock={onReplayLock}
           onSimulateSelect={onSimulateSelect}
           onResetTransition={onResetTransition}
         />
