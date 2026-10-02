@@ -81,8 +81,12 @@ export type TransitionConfig = {
   breathe: number; // Respiration du scale pendant le chargement (ex: 0.025)
   loadGrow: number; // Grossissement borné pendant le chargement (ex: 0.1)
   loadWaveSpeed: number; // Cycles/s de la vague qui boucle pendant le chargement
-  burstRandomness: number; // 0..1 — variation de puissance du burst d'une tuile à l'autre
+  burstPowerMin: number; // Puissance minimale du burst d'une tuile (× scatterDistance, ex: 0.5)
+  burstPowerMax: number; // Puissance maximale du burst d'une tuile (× scatterDistance, ex: 1.5)
   burstAngleJitter: number; // Écart angulaire aléatoire de chaque tuile (rad)
+  burstSeed: number; // Graine du tirage aléatoire du burst (changer = autre explosion)
+  simulatedLoadMs: number; // Debug : délai artificiel ajouté au chargement du pack (ms)
+  rewindSpeed: number; // Vitesse du rembobinage quand on annule en cours d'entrée (× temps réel)
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
   lock: TrackSpec; // Impact : la carte se détache au boom
@@ -97,8 +101,8 @@ export type TransitionConfig = {
   lockScalePunch: number; // Détachement (scale) de la carte au lock — lift discret, sans rebond (ex: 0.08)
   overlayExitDuration: number; // Durée d'évacuation de la vague de sélection (s)
   scatterDistance: number; // Écartement radial final de la mosaïque (unités monde)
-  heroZoom: number; // Sommet de l'arc, en multiple du zoom de détail (ex: 1.05×)
-  detailZoom: number; // Zoom de la vue détail stabilisée (× zoom de base)
+  approachZoom: number; // Zoom ABSOLU en fin d'approche, avant la vague (× zoom de base)
+  detailZoom: number; // Zoom ABSOLU de la vue détail stabilisée (× zoom de base)
   navbarLead: number; // Avance du changement de navbar sur la fin du cadrage (s)
   textLead: number; // Avance de l'apparition du side panel sur la fin du cadrage (s)
   maxMediaWidthRatio: number; // Largeur max autorisée du média (% écran, ex: 0.38)
@@ -227,12 +231,16 @@ const BASE_AMPLITUDES = {
   breathe: 0.025,
   loadGrow: 0.1,
   loadWaveSpeed: 0.9,
-  burstRandomness: 0.6,
+  burstPowerMin: 0.5,
+  burstPowerMax: 1.5,
   burstAngleJitter: 0.5,
+  burstSeed: 1,
+  simulatedLoadMs: 0,
+  rewindSpeed: 1.6,
   lockScalePunch: 0.08,
   overlayExitDuration: 0.35,
   scatterDistance: 2800,
-  heroZoom: 1.45,
+  approachZoom: 2.6,
   detailZoom: 1.8,
   navbarLead: 0.3,
   textLead: 0.2,
@@ -269,7 +277,7 @@ export const TRANSITION_PRESETS: Record<
   cinematic: {
     ...BASE_AMPLITUDES,
     waveDuration: 1.3,
-    heroZoom: 1.5,
+    approachZoom: 2.7,
     ...scaleTracks(1.1),
   },
   snappy: {
@@ -277,7 +285,7 @@ export const TRANSITION_PRESETS: Record<
     waveDuration: 0.8,
     lockScalePunch: 0.11,
     overlayExitDuration: 0.22,
-    heroZoom: 1.35,
+    approachZoom: 2.4,
     detailScrollDamping: 14,
     repulseReturnDelay: 0.1,
     ...scaleTracks(0.78),
@@ -288,7 +296,7 @@ export const TRANSITION_PRESETS: Record<
     lockScalePunch: 0.1,
     overlayExitDuration: 0.4,
     scatterDistance: 3400,
-    heroZoom: 1.65,
+    approachZoom: 3,
     desktopMediaWidthRatio: 0.36,
     mobileMediaHeightRatio: 0.5,
     detailScrollDamping: 10,

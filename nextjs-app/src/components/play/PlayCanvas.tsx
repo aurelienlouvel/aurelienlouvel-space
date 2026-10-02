@@ -246,6 +246,8 @@ export type PlayRuntimeState = {
     loop: number;
     /** La timeline attend le téléchargement. */
     holding: boolean;
+    /** Annulation en cours d'entrée : `t` recule jusqu'à 0 (vrai rewind). */
+    rewinding: boolean;
     /** La vague a traversé l'artifact (ou le pack était déjà prêt). */
     passed: boolean;
     /** Cycle de boucle auquel on libère l'attente une fois prêt. */
@@ -285,6 +287,7 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
   rc.transition.wall = 0;
   rc.transition.loop = 0;
   rc.transition.holding = false;
+  rc.transition.rewinding = false;
   rc.transition.passed = false;
   rc.transition.releaseAt = null;
   rc.transition.returnFrom = null;
@@ -304,10 +307,19 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   // Depuis la vue détail (ou n'importe où dans la timeline d'entrée), on ne
   // coupe pas : on bascule sur la timeline de sortie, qui repart de zéro.
   // On ne modifie pas targetColumnScrollY ici pour éviter tout spin arrière.
-  if (rc.transition.phase === "playing" || rc.transition.phase === "isolated") {
-    // Annulée en cours d'entrée : le retour rembobine depuis l'état exact.
-    rc.transition.returnFrom =
-      rc.transition.phase === "playing" ? { ...rc.transition.frame } : null;
+  if (rc.transition.phase === "playing") {
+    // Annulée en cours d'entrée : on rejoue le film à l'envers. Le sampler est
+    // une fonction pure de `t`, donc faire reculer `t` suffit — chaque grandeur
+    // repasse exactement par où elle est venue, sans interpolation de secours.
+    rc.transition.holding = false;
+    rc.transition.releaseAt = null;
+    rc.transition.rewinding = true;
+    rc.camera.mode = "settle";
+    return;
+  }
+
+  if (rc.transition.phase === "isolated") {
+    rc.transition.returnFrom = null;
     rc.transition.holding = false;
     rc.transition.phase = "returning";
     rc.camera.mode = "settle";
@@ -315,6 +327,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
     return;
   }
 
+  rc.transition.rewinding = false;
   rc.transition.targetColumnScrollY = 0;
   rc.transition.phase = "idle";
   rc.transition.targetIndex = -1;
@@ -510,6 +523,11 @@ function advanceClock(
   const tr = rc.transition;
 
   if (tr.phase === "playing") {
+    if (tr.rewinding) {
+      tr.wall += effDelta;
+      tr.t = Math.max(0, tr.t - effDelta * Math.max(0.1, config.rewindSpeed ?? 1));
+      return;
+    }
     const end = timelineEnd(config);
     if (studio?.scrubMode) {
       tr.t = Math.max(0, Math.min(1, studio.scrubProgress)) * end;
@@ -671,7 +689,11 @@ function stepCamera(
   camera.position.y = curveY + rc.camera.settleY;
 
   const exitEnd = config.exit.start + config.exit.duration + config.cameraReturnDelay;
-  if (tr.phase === "returning" && tr.t >= exitEnd) {
+  const returned =
+    (tr.phase === "returning" && tr.t >= exitEnd) ||
+    (tr.phase === "playing" && tr.rewinding && tr.t <= 0);
+  if (returned) {
+    tr.rewinding = false;
     // La courbe a déjà ramené la caméra au repos : on se contente de recaler
     // la cible du pan sur ce que la courbe vient de produire.
     camera.zoom = baseZoom;
@@ -837,6 +859,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       wall: 0,
       loop: 0,
       holding: false,
+      rewinding: false,
       passed: false,
       releaseAt: null,
       returnFrom: null,
@@ -852,11 +875,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   }));
   const handleLayoutChange = useCallback(() => {
     setGravityParams({ ...debug.current.gravity });
-  }, []);
-
-  const handleReplayLock = useCallback(() => {
-    const rc = runtime.current;
-    startPlayback(rc, rc.selected >= 0 ? rc.selected : 0);
   }, []);
 
   const handleResetTransition = useCallback(() => {
@@ -965,8 +983,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       const token = ++selectionToken.current;
       if (artifact?.slug) {
         setApiStatus("fetching");
+        const startedAt = performance.now();
         preloadArtifact(artifact.slug)
-          .then((data) => {
+          .then(async (data) => {
+            // Debug : rallonge artificiellement le chargement pour observer l'attente.
+            const extra =
+              debug.current.transition.simulatedLoadMs - (performance.now() - startedAt);
+            if (extra > 0) await new Promise((resolve) => setTimeout(resolve, extra));
             if (token !== selectionToken.current) return;
             if (data) {
               setSelectedArtifactDetail(data);
@@ -1729,7 +1752,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           state={debug}
           stats={tile?.stats}
           onLayoutChange={handleLayoutChange}
-          onReplayLock={handleReplayLock}
           onSimulateSelect={handleSimulateSelect}
           onResetTransition={handleResetTransition}
           runtime={runtime}

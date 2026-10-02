@@ -94,6 +94,8 @@ export type TransitionClock = {
   loop: number;
   /** La timeline attend que le pack soit téléchargé. */
   holding: boolean;
+  /** Annulation en cours d'entrée : `t` recule, le film se déroule à l'envers. */
+  rewinding?: boolean;
   /** Si le retour part d'une entrée interrompue : le frame au moment de l'annulation. */
   returnFrom: TransitionFrame | null;
 };
@@ -149,10 +151,9 @@ function samplePlaying(
 
   // ── 1. Approche : la caméra file vers l'artifact (zoom du hero) ─────────
   const heroT = trackAt(config.hero, t);
-  const heroZoom = config.detailZoom * (config.heroZoom ?? 1.05);
   const wait = Math.min(1, Math.max(0, (t - config.hero.start - config.hero.duration) / 1.5));
   const drift = (config.silenceDrift ?? 0) * evaluateEasing("easeOutQuad", wait);
-  const climbing = (1 + (heroZoom - 1) * heroT) * (1 + drift);
+  const climbing = (1 + (config.approachZoom - 1) * heroT) * (1 + drift);
 
   // ── 2. Burst : la mosaïque explose, absolu dans la timeline ─────────────
   const burstT = trackAt(config.scatter, t);
@@ -277,6 +278,68 @@ function sampleReturning(
   frame.overlayExit = 1;
   frame.textRevealed = false;
   frame.navbarRevealed = false;
+}
+
+/** Les étapes du film, dans l'ordre de la chorégraphie voulue. */
+export type StageId =
+  | "idle"
+  | "approach"
+  | "burst"
+  | "wait"
+  | "wave"
+  | "cascade"
+  | "panel"
+  | "detail"
+  | "returning";
+
+export const STAGE_LABELS: Record<StageId, string> = {
+  idle: "Repos",
+  approach: "1 · Approche",
+  burst: "2 · Burst",
+  wait: "3 · Attente (chargement)",
+  wave: "4 · Vague",
+  cascade: "5 · Cascade",
+  panel: "6 · Panneau",
+  detail: "Vue détail",
+  returning: "Retour",
+};
+
+/**
+ * Bornes (en secondes de timeline) des étapes d'entrée. Sert à la fois au
+ * calcul de l'étape courante et à la barre de timeline du debug.
+ */
+export function stageBounds(config: TransitionConfig) {
+  const hold = holdTime(config);
+  const passEnd = passEndTime(config);
+  const end = timelineEnd(config);
+  const panelStart = Math.min(
+    end,
+    Math.max(passEnd, scrollEndTime(config) - (config.textLead ?? 0.2)),
+  );
+  const burstStart = Math.min(hold, Math.max(0, config.scatter.start));
+  return { burstStart, hold, passEnd, panelStart, end };
+}
+
+/** Étape logique en cours, pour l'affichage du debug. */
+export function currentStage(
+  config: TransitionConfig,
+  clock: Pick<TransitionClock, "phase" | "t" | "holding">,
+): StageId {
+  switch (clock.phase) {
+    case "idle":
+      return "idle";
+    case "isolated":
+      return "detail";
+    case "returning":
+      return "returning";
+  }
+  const b = stageBounds(config);
+  if (clock.holding) return "wait";
+  if (clock.t < b.burstStart) return "approach";
+  if (clock.t < b.hold) return "burst";
+  if (clock.t < b.passEnd) return "wave";
+  if (clock.t < b.panelStart) return "cascade";
+  return "panel";
 }
 
 /** Remplit `frame` avec l'état de la transition à l'instant décrit par `clock`. */

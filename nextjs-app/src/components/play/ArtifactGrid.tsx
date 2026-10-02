@@ -161,7 +161,12 @@ function stepKinematicMeshes(
   meshRefs: (Mesh | null)[][],
   displacementRef: { current: number },
   delta: number,
-  burst: { burstRandomness?: number; burstAngleJitter?: number },
+  burst: {
+    burstPowerMin?: number;
+    burstPowerMax?: number;
+    burstAngleJitter?: number;
+    burstSeed?: number;
+  },
 ) {
   if (!phys.enabled) {
     displacementRef.current = 0;
@@ -273,12 +278,13 @@ function stepKinematicMeshes(
         if (dist > 0.001) {
           // Burst organique : chaque tuile a sa propre puissance et dévie un peu de la radiale.
           const tc = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : 0;
-          const h1 = hash01(i * 127.1 + k * 311.7 + tc * 17.3);
-          const h2 = hash01(i * 269.5 + k * 183.3 + tc * 7.1);
-          const rnd = burst.burstRandomness ?? 0;
-          const jitter = burst.burstAngleJitter ?? 0;
-          const power = Math.max(0.15, 1 + (h1 - 0.5) * 2 * rnd * 0.8);
-          const ang = (h2 - 0.5) * 2 * jitter * Math.min(1, rnd + 0.001) ;
+          const seed = (burst.burstSeed ?? 0) * 91.7;
+          const h1 = hash01(i * 127.1 + k * 311.7 + tc * 17.3 + seed);
+          const h2 = hash01(i * 269.5 + k * 183.3 + tc * 7.1 + seed);
+          const pMin = burst.burstPowerMin ?? 1;
+          const pMax = Math.max(pMin, burst.burstPowerMax ?? 1);
+          const power = pMin + (pMax - pMin) * h1;
+          const ang = (h2 - 0.5) * 2 * (burst.burstAngleJitter ?? 0);
           const cs = Math.cos(ang);
           const sn = Math.sin(ang);
           const ux = rx / dist;
