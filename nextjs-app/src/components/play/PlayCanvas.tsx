@@ -43,6 +43,8 @@ import {
 } from "./gravity-layout";
 import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types";
 import { PlayLoader } from "./PlayLoader";
+import { PixelEmitter } from "./PixelEmitter";
+import { PixelGlitch } from "@/components/primitives/PixelGlitch";
 import { SelectProgressOverlay } from "./SelectProgressOverlay";
 import {
   type TransitionConfig,
@@ -130,19 +132,19 @@ export type SelectOverlayParams = {
 };
 
 export const OVERLAY_DEFAULTS: SelectOverlayParams = {
-  direction: "tl-to-br",
+  direction: "bl-to-tr",
   crestSoftness: 0.24,
-  waveAmplitude: 0.06,
+  waveAmplitude: 0.15,
   waveFrequency: 6,
   waveSpeed: 2.6,
   iridescence: 0.64,
   baseOpacity: 0.64,
-  glowIntensity: 0.6,
-  zoomBlur: 0.45,
-  zoomPunch: 0.35,
-  bulge: 0.8,
-  lensWidth: 0.3,
-  lensTrail: 0.35,
+  glowIntensity: 1,
+  zoomBlur: 0.8,
+  zoomPunch: 0.48,
+  bulge: 0.4,
+  lensWidth: 0.4,
+  lensTrail: 0,
 };
 
 export type AnimationStudioParams = {
@@ -393,7 +395,7 @@ function applyArrowNavigation(
 }
 
 // ── Ouverture — image ────────────────────────────────────────────────────
-const PLANE_RADIUS = 32;
+const PLANE_RADIUS = 16;
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
 const INDICATOR_FADE_SPEED = 26;
@@ -415,7 +417,7 @@ const DEFAULT_NEIGHBOR_K = 6;
 // ── Ouverture — pan ───────────────────────────────────────────────────────
 const DRAG_THRESHOLD = 6;
 const VELOCITY_WINDOW_MS = 80;
-const INERTIA_FRICTION = -2.5;
+const INERTIA_FRICTION = -0.5;
 const VELOCITY_EPSILON = 0.0001;
 
 /** Texture tirée au double de la largeur affichée, pour les écrans retina. */
@@ -1122,7 +1124,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   const deckWeightsRef = useRef<DeckWeight[]>([]);
   const palettesRef = useRef<Map<string, RGB[]>>(new Map());
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
-  usePanelGradient(panelEl, deckWeightsRef, palettesRef);
+  usePanelGradient(panelEl, deckWeightsRef, palettesRef, debug);
 
   const loadPalette = useCallback((media: { url: string; kind: "image" | "video" }) => {
     if (palettesRef.current.has(media.url)) return;
@@ -1625,6 +1627,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               />
             )}
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
+            <PixelEmitter debug={debug} runtime={runtime} tile={tile} />
             <FisheyeEffect debug={debug} />
           </Canvas>
         )}
@@ -1634,6 +1637,10 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           grand arrondi en haut à gauche. Fond dégradé teinté par le média au
           centre de la wheel ; les textes en mix-blend-mode multiply en
           héritent. Sur mobile il devient une feuille basse. */}
+      {selectedArtifactDetail && isDetailVisible && (
+        <PixelGlitch intensity={debug.current.transition.panelGlitch} />
+      )}
+
       <AnimatePresence mode="wait">
         {selectedArtifactDetail && isDetailVisible && (
           <motion.aside

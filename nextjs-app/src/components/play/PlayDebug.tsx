@@ -660,10 +660,12 @@ function TransitionTab({
   state,
   onSimulateSelect,
   onResetTransition,
+  onPanelChange,
 }: {
   state: PlayDebugRef;
   onSimulateSelect: () => void;
   onResetTransition: () => void;
+  onPanelChange?: () => void;
 }) {
   const tr = state.current.transition;
   const overlay = state.current.overlay;
@@ -737,6 +739,17 @@ function TransitionTab({
         breathe: num(tr, "breathe", { label: "Respiration (scale)", min: 0, max: 0.1, step: 0.005 }),
         loadGrow: num(tr, "loadGrow", { label: "Grossissement max", min: 0, max: 0.4, step: 0.01 }),
         loadWaveSpeed: num(tr, "loadWaveSpeed", { label: "Vague en boucle (cycles par s)", min: 0.2, max: 3, step: 0.05 }),
+        FX: folder(
+          {
+            fxGlitch: num(tr, "fxGlitch", { label: "Glitch de l artifact", min: 0, max: 1, step: 0.01 }),
+            fxPixelCount: num(tr, "fxPixelCount", { label: "Pixels autour (nombre)", min: 0, max: 64, step: 1 }),
+            fxPixelSize: num(tr, "fxPixelSize", { label: "Taille max des pixels", min: 4, max: 60, step: 1 }),
+            fxPixelSpread: num(tr, "fxPixelSpread", { label: "Portee des pixels", min: 0, max: 400, step: 5 }),
+            fxPixelSpeed: num(tr, "fxPixelSpeed", { label: "Vitesse des pixels", min: 0.2, max: 4, step: 0.05 }),
+            fxBurstBoost: num(tr, "fxBurstBoost", { label: "Surintensite au burst", min: 0, max: 3, step: 0.05 }),
+          },
+          { collapsed: false },
+        ),
       },
       { collapsed: true },
     ),
@@ -781,6 +794,16 @@ function TransitionTab({
         ...trackControls(tr, "columnFade", 4, 3),
         ...trackControls(tr, "dezoom", 6, 5),
         detailZoom: num(tr, "detailZoom", { label: "Zoom final (x base)", min: 0.5, max: 4, step: 0.05 }),
+        Layers: folder(
+          {
+            stackDepth: num(tr, "stackDepth", { label: "Layers visibles dessous", min: 0, max: 8, step: 1 }),
+            stackOpacity: num(tr, "stackOpacity", { label: "Opacite du 1er layer", min: 0, max: 1, step: 0.01 }),
+            stackOpacityFalloff: num(tr, "stackOpacityFalloff", { label: "Decroissance par layer", min: 0, max: 1, step: 0.01 }),
+            stackPeek: num(tr, "stackPeek", { label: "Decalage vers le bas (px)", min: 4, max: 80, step: 1 }),
+            stackScale: num(tr, "stackScale", { label: "Echelle par layer", min: 0.5, max: 1, step: 0.01 }),
+          },
+          { collapsed: false },
+        ),
       },
       { collapsed: true },
     ),
@@ -789,6 +812,15 @@ function TransitionTab({
       {
         navbarLead: num(tr, "navbarLead", { label: "Avance navbar (s)", min: 0, max: 2, step: 0.05 }),
         textLead: num(tr, "textLead", { label: "Avance side panel (s)", min: 0, max: 2, step: 0.05 }),
+        panelGradientStrength: num(tr, "panelGradientStrength", { label: "Degrade du panel (intensite)", min: 0, max: 1, step: 0.01 }),
+        panelGradientSpeed: num(tr, "panelGradientSpeed", { label: "Degrade du panel (vitesse)", min: 0, max: 6, step: 0.1 }),
+        panelGlitch: {
+          ...num(tr, "panelGlitch", { label: "Glitch pixel bas droite", min: 0, max: 1, step: 0.01 }),
+          onChange: (v: number) => {
+            tr.panelGlitch = v;
+            onPanelChange?.();
+          },
+        },
       },
       { collapsed: true },
     ),
@@ -936,33 +968,6 @@ function FocusTab({
 
 
     "Deck (Card by Card)": folder({
-      "Behind-card scale": {
-        value: tr.stackScale ?? 0.9,
-        min: 0.6,
-        max: 1,
-        step: 0.01,
-        onChange: (v: number) => {
-          tr.stackScale = v;
-        },
-      },
-      "Peek offset (px)": {
-        value: tr.stackPeek ?? 22,
-        min: 0,
-        max: 80,
-        step: 1,
-        onChange: (v: number) => {
-          tr.stackPeek = v;
-        },
-      },
-      "Visible depth (cards)": {
-        value: tr.stackDepth ?? 3,
-        min: 1,
-        max: 6,
-        step: 1,
-        onChange: (v: number) => {
-          tr.stackDepth = v;
-        },
-      },
       "Exit travel (x screen/2)": {
         value: tr.cardExit ?? 0.7,
         min: 0.1,
@@ -1343,6 +1348,7 @@ export function PlayDebug({
           state={state}
           onSimulateSelect={onSimulateSelect}
           onResetTransition={onResetTransition}
+          onPanelChange={onTextLayoutChange}
         />
       )}
       {activeTab === "focus" && (

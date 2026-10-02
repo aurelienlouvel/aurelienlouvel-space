@@ -2,6 +2,7 @@
 
 import { useEffect, type MutableRefObject } from "react";
 import type { RGB } from "@/lib/dominant-color";
+import type { PlayDebugRef } from "./PlayCanvas";
 
 export type DeckWeight = { url: string; kind: "image" | "video"; w: number };
 
@@ -29,6 +30,16 @@ function mix(list: { w: number; c: RGB }[], fallback: RGB): RGB {
   ];
 }
 
+/** Éclaircit une couleur vers le blanc : `strength` 1 = couleur pleine, 0 = blanc. */
+function tint(c: RGB, strength: number): RGB {
+  const k = Math.min(1, Math.max(0, strength));
+  return [
+    WHITE[0] + (c[0] - WHITE[0]) * k,
+    WHITE[1] + (c[1] - WHITE[1]) * k,
+    WHITE[2] + (c[2] - WHITE[2]) * k,
+  ];
+}
+
 const rgb = (c: RGB, a = 1) =>
   `rgb(${Math.round(c[0])} ${Math.round(c[1])} ${Math.round(c[2])} / ${a})`;
 
@@ -41,6 +52,7 @@ export function usePanelGradient(
   el: HTMLElement | null,
   weightsRef: MutableRefObject<DeckWeight[]>,
   palettesRef: MutableRefObject<Map<string, RGB[]>>,
+  debug: PlayDebugRef,
 ) {
   useEffect(() => {
     if (!el) return;
@@ -51,7 +63,9 @@ export function usePanelGradient(
     const tick = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      const t = now / 1000;
+      const cfg = debug.current.transition;
+      const strength = cfg.panelGradientStrength ?? 0.3;
+      const t = (now / 1000) * (cfg.panelGradientSpeed ?? 1);
       const k = 1 - Math.exp(-dt * 5);
 
       const layers: { w: number; c: RGB }[][] = [[], [], []];
@@ -63,9 +77,10 @@ export function usePanelGradient(
         if (!pal || next < 0.002) continue;
         for (let i = 0; i < 3; i++) layers[i].push({ w: next, c: pal[i] });
       }
-      const c0 = mix(layers[0], WHITE);
-      const c1 = mix(layers[1], WHITE);
-      const c2 = mix(layers[2], WHITE);
+      // Le dégradé reste léger : les teintes du média sont diluées dans le blanc.
+      const c0 = tint(mix(layers[0], WHITE), strength);
+      const c1 = tint(mix(layers[1], WHITE), strength);
+      const c2 = tint(mix(layers[2], WHITE), strength);
 
       const x1 = 50 + 42 * Math.sin(t * 0.37);
       const y1 = 30 + 28 * Math.cos(t * 0.29 + 1.1);
@@ -85,5 +100,5 @@ export function usePanelGradient(
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [el, weightsRef, palettesRef]);
+  }, [el, weightsRef, palettesRef, debug]);
 }
