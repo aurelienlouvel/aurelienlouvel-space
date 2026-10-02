@@ -56,6 +56,8 @@ export type TransitionFrame = {
   columnOpacity: number;
   /** 0..1 — avancement de la vague de charge, avant le boom. */
   waveProgress: number;
+  /** 0..1+ — intensité des effets (glitch, pixels) autour de l'artifact, dès le clic jusqu'à la fin de la vague. */
+  fx: number;
   /** 0..1 — évacuation de la vague de l'overlay de sélection. */
   overlayExit: number;
   /** Le panneau de détail doit-il être monté. */
@@ -77,6 +79,7 @@ export function createTransitionFrame(): TransitionFrame {
     reveal: 0,
     columnOpacity: 0,
     waveProgress: 0,
+    fx: 0,
     overlayExit: 0,
     textRevealed: false,
     navbarRevealed: false,
@@ -133,6 +136,7 @@ function sampleIdle(frame: TransitionFrame) {
   frame.reveal = 0;
   frame.columnOpacity = 0;
   frame.waveProgress = 0;
+  frame.fx = 0;
   frame.overlayExit = 0;
   frame.textRevealed = false;
   frame.navbarRevealed = false;
@@ -160,8 +164,10 @@ function samplePlaying(
   frame.scatter = config.scatterDistance * burstT;
   frame.mosaicOpacity = 1 - burstT;
 
-  // ── 3. Tortillement de l'artifact, de l'approche jusqu'à la fin de la vague ─
-  const wiggleIn = smoothstep((t - config.scatter.start) / 0.35);
+  // ── 3. Tortillement de l'artifact, du clic jusqu'à la fin de la vague ───────
+  // Il démarre au clic, pas au burst : l'approche, le burst et le tortillement
+  // se jouent en même temps au lieu de se passer le relais.
+  const wiggleIn = smoothstep(t / 0.35);
   const wiggleOut = 1 - smoothstep((t - hold - waveDuration * 0.6) / (waveDuration * 0.4 + 0.001));
   const env = wiggleIn * wiggleOut;
   const w = clock.wall * (config.wiggleSpeed ?? 7);
@@ -169,9 +175,14 @@ function samplePlaying(
   frame.tileRoll = env * amp * (Math.sin(w) + 0.5 * Math.sin(w * 1.7 + 1.3));
   frame.tileTiltX = env * amp * 0.8 * Math.sin(w * 1.3 + 0.6);
   frame.tileTiltY = env * amp * 0.8 * Math.cos(w * 0.9);
-  const grow = (config.loadGrow ?? 0.1) * (1 - Math.exp(-Math.max(0, clock.wall - config.scatter.start) * 1.1));
+  const grow = (config.loadGrow ?? 0.1) * (1 - Math.exp(-Math.max(0, clock.wall) * 1.1));
   const breathe = (config.breathe ?? 0.025) * (0.5 + 0.5 * Math.sin(clock.wall * 3.1));
   frame.tileScale = 1 + env * (grow + breathe);
+
+  // Effets visuels (glitch, pixels) : même enveloppe que le tortillement, avec
+  // un pic au moment où la mosaïque explose.
+  const burstPulse = Math.sin(Math.PI * Math.min(1, Math.max(0, (t - config.scatter.start) / 0.9)));
+  frame.fx = env * (1 + (config.fxBurstBoost ?? 0) * burstPulse);
 
   // ── 4. Vague : boucle pendant l'attente, puis traverse l'artifact ───────
   if (clock.holding) {
@@ -222,6 +233,7 @@ function sampleIsolated(config: TransitionConfig, frame: TransitionFrame) {
   frame.reveal = 1;
   frame.columnOpacity = 1;
   frame.waveProgress = 1;
+  frame.fx = 0;
   frame.overlayExit = 1;
   frame.textRevealed = true;
   frame.navbarRevealed = true;
@@ -259,6 +271,7 @@ function sampleReturning(
     reveal: 1,
     columnOpacity: 1,
     waveProgress: 1,
+    fx: 0,
     overlayExit: 1,
     textRevealed: false,
     navbarRevealed: false,
@@ -275,6 +288,7 @@ function sampleReturning(
   frame.reveal = src.reveal * (1 - exitT);
   frame.columnOpacity = src.columnOpacity * (1 - exitT);
   frame.waveProgress = src.waveProgress * (1 - exitT);
+  frame.fx = src.fx * (1 - exitT);
   frame.overlayExit = 1;
   frame.textRevealed = false;
   frame.navbarRevealed = false;

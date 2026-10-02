@@ -37,14 +37,14 @@ export type GravityParams = {
 };
 
 export const GRAVITY_DEFAULTS: GravityParams = {
-  maxWidth: 480,
-  maxHeight: 640,
-  gap: 160,
+  maxWidth: 400,
+  maxHeight: 480,
+  gap: 240,
   scaleVariance: 0.1,
   repeat: 3,
   antiNeighbor: true,
-  repeatGap: 24,
-  iterations: 160,
+  repeatGap: 400,
+  iterations: 240,
   seed: 1,
   targetAspect: 1.6,
 };

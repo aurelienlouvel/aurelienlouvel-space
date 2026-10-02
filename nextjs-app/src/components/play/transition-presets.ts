@@ -87,6 +87,12 @@ export type TransitionConfig = {
   burstSeed: number; // Graine du tirage aléatoire du burst (changer = autre explosion)
   simulatedLoadMs: number; // Debug : délai artificiel ajouté au chargement du pack (ms)
   rewindSpeed: number; // Vitesse du rembobinage quand on annule en cours d'entrée (× temps réel)
+  fxGlitch: number; // 0..1 — glitch (tranches décalées + split RGB) sur l'artifact pendant l'ouverture
+  fxPixelCount: number; // Nombre de pixels qui jaillissent autour de l'artifact (max 64)
+  fxPixelSize: number; // Taille max d'un pixel (unités monde)
+  fxPixelSpread: number; // Distance max d'éjection au-delà du bord de l'artifact (unités monde)
+  fxPixelSpeed: number; // Cycles de vie des pixels par seconde
+  fxBurstBoost: number; // Surintensité des effets au moment du burst (×, 0 = aucune)
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
   lock: TrackSpec; // Impact : la carte se détache au boom
@@ -115,7 +121,12 @@ export type TransitionConfig = {
   detailScrollDamping: number; // Amortissement du passage d'une carte à l'autre
   stackScale: number; // Échelle de chaque carte de plus dans la pile (ex: 0.9)
   stackPeek: number; // Décalage vers le haut de chaque carte de la pile (unités monde)
-  stackDepth: number; // Nombre de cartes visibles derrière la première
+  stackDepth: number; // Nombre de layers visibles sous la première carte
+  stackOpacity: number; // Opacité du premier layer sous la carte (0..1)
+  stackOpacityFalloff: number; // Facteur d'opacité appliqué à chaque layer suivant (0..1)
+  panelGradientStrength: number; // 0..1 — intensité du dégradé de fond du side panel
+  panelGradientSpeed: number; // Vitesse de dérive du dégradé du side panel (×)
+  panelGlitch: number; // 0..1 — intensité du glitch pixel en bas à droite (0 = coupé)
   cardExit: number; // Course de la carte qui s'en va, en hauteurs de carte
   stepCooldown: number; // Délai minimal entre deux cartes à la molette (s)
   dragPxPerCard: number; // Distance de drag (px) pour passer une carte
@@ -151,7 +162,7 @@ export type TransitionConfig = {
  */
 const BASE_TRACKS = {
   lock: { start: 0.0, duration: 0.45, easing: "linear" },
-  scatter: { start: 0.8, duration: 0.8, easing: "easeOutExpo" },
+  scatter: { start: 1.98, duration: 2, easing: "easeOutExpo" },
   reveal: { start: 0.0, duration: 0.6, easing: "easeOutQuint" },
   hero: { start: 0.0, duration: 0.9, easing: "easeInOutCubic" },
   columnFade: { start: 0.25, duration: 1.1, easing: "easeOutCubic" },
@@ -231,16 +242,22 @@ const BASE_AMPLITUDES = {
   breathe: 0.025,
   loadGrow: 0.1,
   loadWaveSpeed: 0.9,
-  burstPowerMin: 0.5,
-  burstPowerMax: 1.5,
-  burstAngleJitter: 0.5,
+  burstPowerMin: 0.1,
+  burstPowerMax: 1,
+  burstAngleJitter: 0,
   burstSeed: 1,
   simulatedLoadMs: 0,
   rewindSpeed: 1.6,
+  fxGlitch: 0.55,
+  fxPixelCount: 36,
+  fxPixelSize: 26,
+  fxPixelSpread: 140,
+  fxPixelSpeed: 1.3,
+  fxBurstBoost: 1,
   lockScalePunch: 0.08,
   overlayExitDuration: 0.35,
-  scatterDistance: 2800,
-  approachZoom: 2.6,
+  scatterDistance: 1000,
+  approachZoom: 1.2,
   detailZoom: 1.8,
   navbarLead: 0.3,
   textLead: 0.2,
@@ -253,6 +270,11 @@ const BASE_AMPLITUDES = {
   stackScale: 0.9,
   stackPeek: 22,
   stackDepth: 4,
+  stackOpacity: 0.55,
+  stackOpacityFalloff: 0.55,
+  panelGradientStrength: 0.3,
+  panelGradientSpeed: 1.8,
+  panelGlitch: 0.6,
   cardExit: 0.7,
   stepCooldown: 0.35,
   dragPxPerCard: 320,

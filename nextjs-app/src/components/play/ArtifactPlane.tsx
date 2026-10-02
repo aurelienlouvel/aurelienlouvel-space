@@ -45,6 +45,8 @@ export type PlaneUniforms = {
   uWaveBulge: IUniform<number>;
   uWaveWidth: IUniform<number>;
   uWaveTrail: IUniform<number>;
+  uGlitch: IUniform<number>;
+  uTime: IUniform<number>;
 };
 
 /**
@@ -79,6 +81,10 @@ uniform float uWavePunch;
 uniform float uWaveBulge;
 uniform float uWaveWidth;
 uniform float uWaveTrail;
+
+// Glitch d'ouverture : tranches horizontales décalées + split RVB.
+uniform float uGlitch;
+uniform float uTime;
 
 /**
  * Déplacement UV des pixels sous la crête de la vague : une lentille qui pousse
@@ -136,7 +142,22 @@ const MOTION_BLUR_MAP = /* glsl */ `
 #ifdef USE_MAP
   float lens = waveDistortion(vUv);
   vec2 mapUv = vMapUv;
+  float glitchOn = 0.0;
+  if (uGlitch > 0.001) {
+    // Les tranches changent ~11 fois par seconde : un tic saccadé, pas un flou continu.
+    float tick = floor(uTime * 11.0);
+    float band = floor(vUv.y * 18.0);
+    float r = fract(sin(band * 12.9898 + tick * 78.233) * 43758.5453);
+    glitchOn = step(1.0 - uGlitch * 0.4, r);
+    float shift = fract(sin((band + tick * 3.1) * 91.7) * 4375.5453) - 0.5;
+    mapUv.x += glitchOn * shift * 0.18 * uGlitch;
+  }
   vec4 sampledDiffuseColor = texture2D( map, mapUv );
+  if (glitchOn > 0.5) {
+    float split = 0.014 * uGlitch;
+    sampledDiffuseColor.r = texture2D( map, mapUv + vec2(split, 0.0) ).r;
+    sampledDiffuseColor.b = texture2D( map, mapUv - vec2(split, 0.0) ).b;
+  }
   if (lens > 0.0005) {
     // Comme si le média était happé par un objectif : il grossit vers le centre
     // (punch), se bombe sur les bords (bulge), puis les pixels s'étirent en
@@ -202,6 +223,8 @@ function roundCorners(
     uWaveBulge: { value: 0 },
     uWaveWidth: { value: 0.28 },
     uWaveTrail: { value: 0 },
+    uGlitch: { value: 0 },
+    uTime: { value: 0 },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
     .replace("#include <common>", `#include <common>\n${ROUNDING_PARS}`)
@@ -220,7 +243,7 @@ function roundCorners(
  * matériaux qui injectent du code.
  */
 function roundCornersCacheKey() {
-  return "play-artifact-grid-motion-blur-lens";
+  return "play-artifact-grid-motion-blur-lens-glitch";
 }
 
 type ArtifactPlaneProps = {

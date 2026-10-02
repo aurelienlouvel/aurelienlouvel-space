@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 
-// Palette pop : pastels saturés, lisibles sur le fond clair de la barre.
+// Bleus du verre dépoli, avec quelques accents (violet, rose, ambre) pour rester multicolore.
 const PIXEL_COLORS = [
-  "#38bdf8",
-  "#a78bfa",
-  "#fb7185",
-  "#fbbf24",
-  "#34d399",
-  "#f472b6",
-  "#818cf8",
+  "#1d3fd0",
+  "#4a8cff",
+  "#9cccff",
+  "#0b1a5e",
+  "#7c6cff",
+  "#ff7ab8",
+  "#ffc457",
 ] as const;
 
 // Tailles volontairement inégales (rem) : un vrai nuage de pixels, pas une grille.

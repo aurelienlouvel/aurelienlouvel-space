@@ -16,6 +16,7 @@ import {
 import type { LayoutPoint, LayoutTile } from "./layout-types";
 import { ArtifactPlane, type PlaneUniforms } from "./ArtifactPlane";
 import { uniformsOf } from "./rounded-frame";
+import type { TransitionConfig } from "./transition-presets";
 
 /**
  * Isole un plane : si son média ne charge pas (404, CORS, réseau…), seul ce
@@ -161,12 +162,7 @@ function stepKinematicMeshes(
   meshRefs: (Mesh | null)[][],
   displacementRef: { current: number },
   delta: number,
-  burst: {
-    burstPowerMin?: number;
-    burstPowerMax?: number;
-    burstAngleJitter?: number;
-    burstSeed?: number;
-  },
+  burst: TransitionConfig,
 ) {
   if (!phys.enabled) {
     displacementRef.current = 0;
@@ -325,6 +321,12 @@ function stepKinematicMeshes(
             rc.transition.phase === "playing" && rc.transition.selectProgress > 0.001;
           uniforms.uWaveProgress.value = waveOn ? rc.transition.selectProgress : 0;
           uniforms.uWaveExit.value = waveOn ? frame.overlayExit : 0;
+          // Glitch d'ouverture : seulement sur la tuile ouverte, tant que les effets durent.
+          const glitchOn = isTarget && rc.transition.phase === "playing";
+          uniforms.uGlitch.value = glitchOn
+            ? Math.min(1, frame.fx * burst.fxGlitch)
+            : 0;
+          uniforms.uTime.value = (performance.now() / 1000) % 1000;
         }
       }
     }

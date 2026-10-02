@@ -1,32 +1,91 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
-/** Côté visé d'un pixel, en px : la grille s'adapte à l'écran pour rester carrée. */
-const TARGET_CELL = 56;
-/** Durée de l'explosion finale avant de démonter le loader (ms). */
-const OUT_DURATION_MS = 1000;
+/** Durée de l'envol final avant de démonter le loader (ms). */
+const OUT_DURATION_MS = 900;
+const DOT_COUNT = 34;
+const BAR_CELLS = 14;
 
-type Grid = { cols: number; rows: number };
+// Bleus du verre dépoli (encre → cobalt → azur → ciel → glace) + un rare accent violet.
+const DOT_COLORS = [
+  "#0a0f2c",
+  "#0b1a5e",
+  "#1d3fd0",
+  "#1d3fd0",
+  "#4a8cff",
+  "#4a8cff",
+  "#7fb4ff",
+  "#b8d6ff",
+  "#7c6cff",
+] as const;
+
+/** Dégradé de la barre, de l'encre à l'azur. */
+const BAR_COLORS = [
+  "#0a0f2c",
+  "#0b1a5e",
+  "#12299a",
+  "#1d3fd0",
+  "#2f5fe8",
+  "#4a8cff",
+  "#7fb4ff",
+] as const;
+
 type Phase = "loading" | "out" | "gone";
 
 /** Bruit déterministe 0..1 : mêmes pixels à chaque rendu, sans Math.random. */
 function hash01(n: number): number {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
-  return x - Math.floor(x);
+  // Hash entier (pas de Math.sin) : identique à l'octet près sur le serveur et dans le navigateur.
+  let h = Math.imul(Math.floor(n * 1000) ^ 0x9e3779b9, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 
+type Dot = {
+  left: number;
+  top: number;
+  size: number;
+  color: string;
+  alpha: number;
+  threshold: number;
+  twinkle: number;
+  delay: number;
+  ox: string;
+  oy: string;
+};
+
+// Nuage clairsemé, plus dense vers le centre (somme de trois tirages ≈ cloche).
+const DOTS: Dot[] = Array.from({ length: DOT_COUNT }, (_, i) => {
+  const bell = (a: number, b: number, c: number) => (a + b + c) / 3;
+  const left = Math.round((50 + (bell(hash01(i * 1.3), hash01(i * 2.9), hash01(i * 4.1)) - 0.5) * 120) * 10) / 10;
+  const top = Math.round((50 + (bell(hash01(i * 5.7), hash01(i * 6.1), hash01(i * 7.3)) - 0.5) * 110) * 10) / 10;
+  const sizes = [0.25, 0.375, 0.5, 0.5, 0.75, 1] as const;
+  return {
+    left,
+    top,
+    size: sizes[Math.floor(hash01(i * 8.9) * sizes.length)],
+    color: DOT_COLORS[Math.floor(hash01(i * 11.3) * DOT_COLORS.length)],
+    alpha: 0.35 + hash01(i * 13.7) * 0.5,
+    // Ordre d'apparition mélangé : les pixels surgissent partout, pas en balayage.
+    threshold: (i + hash01(i * 17.1) * 0.9) / DOT_COUNT,
+    twinkle: 2.4 + hash01(i * 19.3) * 3,
+    delay: hash01(i * 23.9) * 0.3,
+    ox: `${((left - 50) * 0.8).toFixed(1)}vw`,
+    oy: `${((top - 50) * 0.8).toFixed(1)}vh`,
+  };
+});
+
 /**
- * Chargement de /play : un champ de pixels translucides en dégradé multicolore
- * qui se remplit au rythme du chargement réel (`loaded` / `total`), du coin bas
- * gauche vers le coin haut droit, puis éclate vers le canvas quand tout est prêt.
+ * Chargement de /play : fond blanc, quelques pixels translucides en nuances de
+ * bleu qui surgissent au fil du chargement réel (`loaded` / `total`), et une
+ * petite barre de pixels au centre. Quand tout est prêt, les pixels s'envolent
+ * vers l'extérieur, puis le loader se démonte.
  *
- * HTML + CSS + un peu de JS, pas de WebGL : les animations ne touchent que
- * transform/opacity (cf. `.px-cell` dans `globals.css`), donc elles restent
- * fluides pendant que le thread principal décode les textures.
- *
- * `<Canvas>` ne monte qu'une fois `isReady` vrai côté `PlayCanvas` : pas de
- * pop-in progressif des artifacts, l'un des choix actés avec l'utilisateur.
+ * HTML + CSS, pas de WebGL : les animations ne touchent que transform/opacity
+ * (cf. `.ld-dot` dans `globals.css`), donc elles restent fluides pendant que le
+ * thread principal décode les textures.
  */
 export function PlayLoader({
   loaded,
@@ -38,22 +97,9 @@ export function PlayLoader({
   isReady?: boolean;
 }) {
   const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
-  const [grid, setGrid] = useState<Grid | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
 
-  // Mesure unique de l'écran à la création du nœud (callback ref : pas d'effet).
-  const measure = useCallback((el: HTMLDivElement | null) => {
-    if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
-    setGrid((prev) =>
-      prev ?? {
-        cols: Math.max(4, Math.round(width / TARGET_CELL)),
-        rows: Math.max(4, Math.round(height / TARGET_CELL)),
-      },
-    );
-  }, []);
-
-  // Tout est prêt : les pixels éclatent, puis le loader se démonte.
+  // Tout est prêt : les pixels s'envolent, puis le loader se démonte.
   if (isReady && phase === "loading") setPhase("out");
 
   useEffect(() => {
@@ -66,61 +112,59 @@ export function PlayLoader({
 
   const out = phase === "out";
   const progress = out ? 1 : percent / 100;
+  const lit = Math.round(progress * BAR_CELLS);
 
   return (
-    <div ref={measure} className="pointer-events-none fixed inset-0 z-40">
+    <div className="pointer-events-none fixed inset-0 z-40">
       <div
         className="absolute inset-0 bg-white transition-opacity duration-500 ease-out"
-        style={{ opacity: out ? 0 : 1, transitionDelay: out ? "0.3s" : "0s" }}
+        style={{ opacity: out ? 0 : 1, transitionDelay: out ? "0.35s" : "0s" }}
       />
 
-      {grid && (
-        <div
-          className="absolute inset-0 grid gap-[0.125rem] p-[0.125rem]"
-          style={{
-            gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
-            gridTemplateRows: `repeat(${grid.rows}, minmax(0, 1fr))`,
-          }}
-        >
-          {Array.from({ length: grid.cols * grid.rows }, (_, i) => {
-            const col = i % grid.cols;
-            const row = Math.floor(i / grid.cols);
-            const noise = hash01(i);
-            // Front de remplissage : du coin bas gauche au coin haut droit, déchiré par du bruit.
-            const diag =
-              (col / Math.max(1, grid.cols - 1) +
-                (grid.rows - 1 - row) / Math.max(1, grid.rows - 1)) /
-              2;
-            const threshold = Math.min(1, diag * 0.88 + noise * 0.12);
-            const on = progress >= threshold;
-            const hue = Math.round(
-              (190 + (col / grid.cols) * 260 + (row / grid.rows) * 100) % 360,
-            );
-            return (
-              <span
-                key={i}
-                className="px-cell"
-                data-on={on && !out ? "" : undefined}
-                data-out={out && on ? "" : undefined}
-                data-twinkle={!on && noise > 0.82 ? "" : undefined}
-                style={{
-                  background: `linear-gradient(135deg, hsl(${hue} 95% 72% / 0.75), hsl(${(hue + 55) % 360} 95% 66% / 0.5))`,
-                  ["--px-a" as string]: (0.38 + noise * 0.42).toFixed(2),
-                  ["--px-delay" as string]: `${out ? (threshold * 0.45).toFixed(2) : (noise * 0.25).toFixed(2)}s`,
-                }}
-              />
-            );
-          })}
-        </div>
-      )}
+      {DOTS.map((d, i) => {
+        const on = progress >= d.threshold;
+        return (
+          <span
+            key={i}
+            className="ld-dot absolute"
+            data-on={on && !out ? "" : undefined}
+            data-out={out && on ? "" : undefined}
+            style={{
+              left: `${d.left}%`,
+              top: `${d.top}%`,
+              width: `${d.size}rem`,
+              height: `${d.size}rem`,
+              backgroundColor: d.color,
+              ["--px-a" as string]: d.alpha.toFixed(2),
+              ["--px-delay" as string]: `${d.delay.toFixed(2)}s`,
+              ["--px-tw" as string]: `${d.twinkle.toFixed(2)}s`,
+              ["--ox" as string]: d.ox,
+              ["--oy" as string]: d.oy,
+            }}
+          />
+        );
+      })}
 
       <div
-        className="absolute inset-0 flex items-center justify-center transition-opacity duration-300"
+        className="absolute inset-0 flex flex-col items-center justify-center gap-3 transition-opacity duration-300"
         style={{ opacity: out ? 0 : 1 }}
       >
-        <span className="px-glitch-text rounded-md bg-white/70 px-3 py-1 text-sm font-medium tabular-nums text-zinc-900 backdrop-blur-[2px]">
-          {percent}%
-        </span>
+        <div className="flex gap-1">
+          {Array.from({ length: BAR_CELLS }, (_, i) => (
+            <span
+              key={i}
+              className="ld-cell block size-2"
+              data-on={i < lit ? "" : undefined}
+              style={{
+                backgroundColor:
+                  i < lit
+                    ? BAR_COLORS[Math.min(BAR_COLORS.length - 1, Math.floor((i / BAR_CELLS) * BAR_COLORS.length))]
+                    : "#e6edf9",
+              }}
+            />
+          ))}
+        </div>
+        <span className="px-glitch-text text-xs tabular-nums text-zinc-400">{percent}%</span>
       </div>
     </div>
   );

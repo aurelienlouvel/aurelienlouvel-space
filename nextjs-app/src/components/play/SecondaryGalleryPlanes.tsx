@@ -578,6 +578,11 @@ export function SecondaryGalleryPlanes({
     const stackScale = cfg.stackScale ?? 0.9;
     const peek = (cfg.stackPeek ?? 22) / curZoom;
     const depthMax = cfg.stackDepth ?? 3;
+    const stackOpacity = cfg.stackOpacity ?? 0.55;
+    const stackFalloff = cfg.stackOpacityFalloff ?? 0.55;
+    // Tous les médias sont alignés par le BAS : une carte moins haute que la
+    // première laisse quand même voir son bord inférieur, sous la pile.
+    const baseBottom = principalPoint.y - heights[0] / 2;
     const exitTravel = screenH * 0.5 * (cfg.cardExit ?? 0.7);
 
     const mainStartW = Math.min(maxW, principalPoint.width * frame.tileScale);
@@ -609,14 +614,19 @@ export function SecondaryGalleryPlanes({
         const sc = Math.pow(stackScale, d);
         drawW = targetW * sc;
         drawH = targetH * sc;
-        posY = principalPoint.y - (targetH * (1 - sc)) / 2 - peek * d;
-        opacity = Math.max(0, Math.min(1, depthMax + 0.5 - d));
-        shade = 1 - 0.12 * Math.min(d, 3);
+        // Chaque layer s'enfonce de `peek` sous celui du dessus, bord bas aligné.
+        posY = baseBottom - peek * d + drawH / 2;
+        // Opacité : 1 pour la carte du dessus, `stackOpacity` pour le premier
+        // layer, puis `stackOpacityFalloff` à chaque layer suivant.
+        const layerOpacity =
+          d <= 1 ? 1 + (stackOpacity - 1) * d : stackOpacity * Math.pow(stackFalloff, d - 1);
+        opacity = layerOpacity * Math.max(0, Math.min(1, depthMax + 0.5 - d));
+        shade = 1 - 0.06 * Math.min(d, 3);
       } else if (d > -1) {
         const u = -d;
-        posY = principalPoint.y + exitTravel * u * u;
         drawW = targetW * (1 + 0.04 * u);
         drawH = targetH * (1 + 0.04 * u);
+        posY = baseBottom + drawH / 2 + exitTravel * u * u;
         opacity = 1 - u;
       } else {
         opacity = 0;
@@ -629,11 +639,13 @@ export function SecondaryGalleryPlanes({
         drawH = mainStartH + (targetH - mainStartH) * frame.reveal;
         opacity = 1;
       } else if (!isMain && tr.phase === "playing") {
-        // Cascade : les cartes surgissent l'une après l'autre, de dessous.
+        // Cascade : les layers sortent l'un après l'autre de derrière la carte
+        // du dessus, en glissant vers le bas jusqu'à leur place.
         const p = frame.columnOpacity * (depthMax + 1);
         const cin = Math.max(0, Math.min(1, p - (Math.max(1, d) - 1)));
+        const eased = 1 - Math.pow(1 - cin, 3);
         opacity *= cin;
-        posY -= (1 - cin) * peek * 6;
+        posY += peek * Math.max(0, d) * (1 - eased);
       }
 
       if (returning) {
