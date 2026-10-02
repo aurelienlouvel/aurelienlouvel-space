@@ -424,6 +424,7 @@ export type PlayRuntimeState = {
     /** Carte du deck qui se décompose en éclats à cet instant (une seule à la fois). */
     deckFx: {
       intensity: number;
+      spread?: number;
       cx: number;
       cy: number;
       w: number;

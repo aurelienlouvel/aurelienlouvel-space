@@ -59,6 +59,13 @@ type PlaneUniforms = {
   uCardTilt: IUniform<Vector2>;
   uMotionBlur: IUniform<number>;
   uMotionBlurDir: IUniform<Vector2>;
+  uDissolve: IUniform<number>;
+  uDissolveDir: IUniform<Vector2>;
+  uDissolveCols: IUniform<number>;
+  uDissolvePixel: IUniform<number>;
+  uDissolveIrid: IUniform<number>;
+  uDissolveBias: IUniform<number>;
+  uDissolveTime: IUniform<number>;
 };
 
 const ROUNDING_PARS = /* glsl */ `
@@ -67,6 +74,20 @@ uniform float uRadius;
 uniform float uMotionBlur;
 uniform vec2 uMotionBlurDir;
 
+// Désagrégation d'une carte tirée : des zones rectangulaires de tailles variées
+// qui se pixellisent, s'irisent puis disparaissent, le bord qui mène d'abord.
+uniform float uDissolve;
+uniform vec2 uDissolveDir;
+uniform float uDissolveCols;
+uniform float uDissolvePixel;
+uniform float uDissolveIrid;
+uniform float uDissolveBias;
+uniform float uDissolveTime;
+
+float dhash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
 ${GLSL_PIXEL_WIDTH}
 
 ${GLSL_SQUIRCLE}
@@ -74,7 +95,37 @@ ${GLSL_SQUIRCLE}
 
 const MOTION_BLUR_MAP = /* glsl */ `
 #ifdef USE_MAP
-  vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+  vec2 dissolveUv = vMapUv;
+  float dissolveG = 0.0;
+  float dissolveSeed = 0.0;
+  if (uDissolve > 0.003) {
+    // Grille grossière, subdivisée au hasard (1×, 2×, 4×) et étirée : des rectangles de tailles et de formats variés.
+    vec2 cg = vec2(max(2.0, uDissolveCols), max(2.0, uDissolveCols) * 1.15);
+    vec2 cid = floor(vUv * cg);
+    float h0 = dhash(cid);
+    float sub = h0 < 0.34 ? 1.0 : (h0 < 0.7 ? 2.0 : 4.0);
+    float asp = 0.6 + dhash(cid + 7.1) * 1.4;
+    vec2 fg = cg * vec2(sub, sub * asp);
+    vec2 fid = floor(vUv * fg);
+    dissolveSeed = dhash(fid + cid * 3.7);
+    // Le bord qui mène (côté de la visée) part en premier.
+    float along = dot(vUv - 0.5, uDissolveDir) + 0.5;
+    float thr = mix(dissolveSeed, 1.0 - along, uDissolveBias);
+    dissolveG = smoothstep(thr - 0.02, thr + 0.16, uDissolve);
+    // Pixellisation : les zones qui partent se calent sur le centre de leur cellule.
+    vec2 center = (fid + 0.5) / fg;
+    dissolveUv = vMapUv + (center - vUv) * uDissolvePixel * dissolveG;
+  }
+  vec4 sampledDiffuseColor = texture2D( map, dissolveUv );
+  if (dissolveG > 0.0) {
+    vec3 spec = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + dissolveSeed + uDissolveTime * 0.1));
+    sampledDiffuseColor.rgb = mix(
+      sampledDiffuseColor.rgb,
+      sampledDiffuseColor.rgb * (0.65 + 0.7 * spec) + 0.06 * spec,
+      clamp(dissolveG * 1.4, 0.0, 1.0) * uDissolveIrid
+    );
+    sampledDiffuseColor.a *= 1.0 - dissolveG;
+  }
   if (uMotionBlur > 0.0008) {
     vec2 bStep = uMotionBlurDir * uMotionBlur;
     sampledDiffuseColor = sampledDiffuseColor * 0.22
@@ -108,6 +159,13 @@ function roundCorners(
     uCardTilt: { value: new Vector2(0, 0) },
     uMotionBlur: { value: 0 },
     uMotionBlurDir: { value: new Vector2(0, 1) },
+    uDissolve: { value: 0 },
+    uDissolveDir: { value: new Vector2(0, 1) },
+    uDissolveCols: { value: 5 },
+    uDissolvePixel: { value: 0.8 },
+    uDissolveIrid: { value: 0.5 },
+    uDissolveBias: { value: 0.45 },
+    uDissolveTime: { value: 0 },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
     .replace("#include <common>", `#include <common>\n${ROUNDING_PARS}`)
@@ -126,7 +184,7 @@ function roundCorners(
 }
 
 function roundCornersCacheKey() {
-  return "play-secondary-planes-motion-blur-tilt";
+  return "play-secondary-planes-motion-blur-tilt-dissolve";
 }
 
 // ── Cache global de textures vidéo partagées (1 seul élément vidéo HTML5 par URL) ──
@@ -615,6 +673,7 @@ export function SecondaryGalleryPlanes({
     // `deckAimMix`. Mise à jour pendant la traction seulement : la carte garde
     // son cap quand on relâche, et `deckAimCommit` fige celui du changement.
     const spinRad = ((cfg.deckSpin ?? 12) * Math.PI) / 180;
+    const dissolveAmount = Math.min(1, Math.max(0, cfg.deckDissolveAmount ?? 0.9));
     const throwWorld = (cfg.deckThrow ?? 180) / curZoom;
     const ptr = runtime.current.pointer;
     const cardSX = (principalPoint.x - camera.position.x) * curZoom + size.width / 2;
@@ -672,6 +731,9 @@ export function SecondaryGalleryPlanes({
       let opacity = 1;
       let shade = 1;
       let roll = 0;
+      let dissolve = 0;
+      let dissolveX = 0;
+      let dissolveY = 1;
       let weight = Math.max(0, 1 - Math.abs(d));
 
       // Pendant la traction, les layers remontent vers la carte du dessus.
@@ -746,12 +808,20 @@ export function SecondaryGalleryPlanes({
           posX += aim.x * reach;
           posY += aim.y * reach;
           roll += aim.x * spinRad * u;
+          // La désagrégation poursuit celle de la traction jusqu'à la disparition.
+          dissolve = Math.min(1, dissolveAmount * (1 - u) + 1.05 * u);
+          dissolveX = aim.x;
+          dissolveY = aim.y;
         } else {
           // Traction : la carte monte vers sa visée, et s'incline vers elle.
           const mag = Math.abs(pullShown) * liftWorld * near;
           posX += tr.deckAim.x * mag;
           posY += tr.deckAim.y * mag;
           roll += tr.deckAim.x * spinRad * Math.abs(pullShown) * near;
+          // Plus la carte monte, plus elle se disperse ; elle se recompose si on relâche.
+          dissolve = Math.abs(pullShown) * dissolveAmount * near;
+          dissolveX = tr.deckAim.x;
+          dissolveY = tr.deckAim.y;
         }
         // Éclats : un frémissement pendant la traction, puis la désagrégation
         // complète au passage (pic au milieu du départ / de l'arrivée de la carte).
@@ -762,6 +832,8 @@ export function SecondaryGalleryPlanes({
           fxBest = fx;
           const f = tr.deckFx;
           f.intensity = fx;
+          // Les éclats partent d'autant plus loin que la carte est désagrégée.
+          f.spread = Math.max(0.25, Math.min(1, dissolve * 1.1));
           f.cx = posX;
           f.cy = posY;
           f.w = drawW;
@@ -787,6 +859,15 @@ export function SecondaryGalleryPlanes({
         // Les layers plus profonds s'inclinent un peu plus : un effet de parallaxe.
         const layerGain = 1 + (cfg.deckTiltLayerGain ?? 0) * Math.max(0, dv);
         uniforms?.uCardTilt.value.set(tiltRef.current.x * layerGain, tiltRef.current.y * layerGain);
+        if (uniforms) {
+          uniforms.uDissolve.value = dissolve;
+          uniforms.uDissolveDir.value.set(dissolveX, dissolveY);
+          uniforms.uDissolveCols.value = cfg.deckCellCols ?? 5;
+          uniforms.uDissolvePixel.value = cfg.deckCellPixel ?? 0.8;
+          uniforms.uDissolveIrid.value = cfg.deckCellIrid ?? 0.5;
+          uniforms.uDissolveBias.value = cfg.deckCellBias ?? 0.45;
+          uniforms.uDissolveTime.value = (performance.now() / 1000) % 1000;
+        }
         mat.opacity = opacity;
         mat.color.setScalar(shade);
       }
