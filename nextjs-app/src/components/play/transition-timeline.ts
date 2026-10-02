@@ -52,6 +52,8 @@ export type TransitionFrame = {
   tileRoll: number;
   /** 0..1 — M0 : taille de tuile → taille de colonne. */
   reveal: number;
+  /** 0..1 — part de la rotation « posée à la main » conservée par la tuile visée (0 = bien droite). */
+  rest: number;
   /** 0..1 — les cartes de la pile émergent de derrière la première. */
   columnOpacity: number;
   /** 0..1 — avancement de la vague de charge, avant le boom. */
@@ -77,6 +79,7 @@ export function createTransitionFrame(): TransitionFrame {
     tileTiltY: 0,
     tileRoll: 0,
     reveal: 0,
+    rest: 1,
     columnOpacity: 0,
     waveProgress: 0,
     fx: 0,
@@ -134,6 +137,7 @@ function sampleIdle(frame: TransitionFrame) {
   frame.tileTiltY = 0;
   frame.tileRoll = 0;
   frame.reveal = 0;
+  frame.rest = 1;
   frame.columnOpacity = 0;
   frame.waveProgress = 0;
   frame.fx = 0;
@@ -155,6 +159,8 @@ function samplePlaying(
 
   // ── 1. Approche : la caméra file vers l'artifact (zoom du hero) ─────────
   const heroT = trackAt(config.hero, t);
+  // La tuile se redresse pendant l'approche.
+  frame.rest = 1 - heroT;
   const wait = Math.min(1, Math.max(0, (t - config.hero.start - config.hero.duration) / 1.5));
   const drift = (config.silenceDrift ?? 0) * evaluateEasing("easeOutQuad", wait);
   const climbing = (1 + (config.approachZoom - 1) * heroT) * (1 + drift);
@@ -231,6 +237,7 @@ function sampleIsolated(config: TransitionConfig, frame: TransitionFrame) {
   frame.tileTiltY = 0;
   frame.tileRoll = 0;
   frame.reveal = 1;
+  frame.rest = 0;
   frame.columnOpacity = 1;
   frame.waveProgress = 1;
   frame.fx = 0;
@@ -269,6 +276,7 @@ function sampleReturning(
     tileTiltY: 0,
     tileRoll: 0,
     reveal: 1,
+    rest: 0,
     columnOpacity: 1,
     waveProgress: 1,
     fx: 0,
@@ -286,6 +294,7 @@ function sampleReturning(
   frame.tileTiltY = src.tileTiltY * (1 - exitT);
   frame.tileRoll = src.tileRoll * (1 - exitT);
   frame.reveal = src.reveal * (1 - exitT);
+  frame.rest = src.rest + (1 - src.rest) * exitT;
   frame.columnOpacity = src.columnOpacity * (1 - exitT);
   frame.waveProgress = src.waveProgress * (1 - exitT);
   frame.fx = src.fx * (1 - exitT);

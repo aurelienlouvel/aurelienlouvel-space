@@ -491,29 +491,36 @@ body.body-project {
   animation: ld-cell-in 0.3s steps(3, end) both;
 }
 
-/* Pastille « play » de la navigation : la vague balaie de gauche à droite.
-   --x (0..1) décale chaque rectangle selon sa position, d'où le balayage. */
-@keyframes da-wave {
-  0% { opacity: 0; transform: translateX(-0.5rem) scale(0.5); }
-  10% { opacity: var(--da-a, 0.5); transform: translateX(0) scale(1.15); }
-  24% { opacity: calc(var(--da-a, 0.5) * 0.55); transform: translateX(0.25rem) scale(1); }
-  40%, 100% { opacity: 0; transform: translateX(0.6rem) scale(0.8); }
+/* Pastille « play » de la navigation : un champ régulier de cellules aux
+   opacités variées. Actif : il défile doucement vers la droite (sans vague).
+   Survol : une vague le balaie de gauche à droite (--x décale chaque cellule). */
+@keyframes da-drift {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(0); }
 }
 
-@keyframes da-wave-hover {
-  0% { opacity: 0; transform: translateX(-0.6rem) scale(0.4); }
-  22% { opacity: calc(var(--da-a, 0.5) * 1.5); transform: translateX(0) scale(1.2); }
-  60% { opacity: calc(var(--da-a, 0.5) * 0.7); }
-  100% { opacity: 0; transform: translateX(0.7rem) scale(0.8); }
+@keyframes da-cell-wave {
+  0% { opacity: 0; transform: scale(0.55); }
+  32% { opacity: min(1, calc(var(--a, 0.3) * 2.6 + 0.14)); transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.8); }
 }
 
-.da-wave-active .da-pix {
-  animation: da-wave var(--da-period, 4.2s) steps(8, end) infinite;
-  animation-delay: calc(var(--x, 0) * var(--da-spread, 1.6s));
+.da-pill {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 16%, #000 84%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 16%, #000 84%, transparent 100%);
 }
 
-.da-wave-hover .da-pix {
-  animation: da-wave-hover var(--da-hover-dur, 1.1s) steps(10, end) 1 both;
+.da-drift {
+  animation: da-drift var(--da-period, 14s) linear infinite;
+}
+
+.da-field .da-cell {
+  opacity: calc(var(--a, 0.3) * 0.7 * var(--da-nav-a, 1));
+}
+
+.da-field-hover .da-cell {
+  opacity: 0;
+  animation: da-cell-wave var(--da-hover-dur, 1.1s) ease-in-out 1 both;
   animation-delay: calc(var(--x, 0) * var(--da-hover-spread, 0.55s));
 }
 
@@ -548,8 +555,8 @@ body.body-project {
   .ld-rect[data-on],
   .ld-rect[data-out],
   .ld-cell[data-on],
-  .da-wave-active .da-pix,
-  .da-wave-hover .da-pix,
+  .da-drift,
+  .da-field-hover .da-cell,
   .pg-field,
   .pg-rect {
     animation: none;
@@ -558,10 +565,6 @@ body.body-project {
   .ld-rect[data-on] {
     opacity: var(--da-a, 0.5);
     transform: scale(1);
-  }
-
-  .da-wave-active .da-pix {
-    opacity: calc(var(--da-a, 0.5) * 0.5);
   }
 
   .pg-rect {
@@ -659,29 +662,16 @@ textarea,
   cursor: url("/cursors/text.svg") 16 16, text;
 }
 
-/* Sur /play uniquement (PlayHost pose data-play sur <html>) : mêmes curseurs,
-   en 56px, plus lisibles sur le canvas. Hotspots mis à l'échelle (×1.75). */
-html[data-play] {
-  cursor: url("/cursors/lg/default.svg") 7 4, auto;
+/* Sur /play, le curseur est dessiné par PlayCursor (il s'incline, grossit au survol
+   et rétrécit au clic) : le curseur natif est masqué tant qu'il est actif, sauf
+   sur le panneau de debug. L'attribut est posé par PlayCursor. */
+html[data-play-cursor],
+html[data-play-cursor] * {
+  cursor: none !important;
 }
-html[data-play] :is(
-    a,
-    button,
-    select,
-    summary,
-    label[for],
-    [role="button"],
-    [data-cursor="link"],
-    [class*="cursor-pointer"]
-  ) {
-  cursor: url("/cursors/lg/pointer.svg") 19 4, pointer;
-}
-html[data-play] :is(
-    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    textarea,
-    [contenteditable="true"]
-  ) {
-  cursor: url("/cursors/lg/text.svg") 28 28, text;
+html[data-play-cursor] #leva__root,
+html[data-play-cursor] #leva__root * {
+  cursor: auto !important;
 }
 
 /* Les couleurs du dégradé du side panel de /play s'animent entre deux médias. */

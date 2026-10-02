@@ -21,6 +21,7 @@ import type {
   WaveDirection,
 } from "./PlayCanvas";
 import type { LayoutTile } from "./layout-types";
+import { restRotation } from "./rest-rotation";
 
 const OVERLAY_Z = 0.5;
 
@@ -330,7 +331,8 @@ export function SelectProgressOverlay({
       state.clock.getElapsedTime(),
       debug.current.overlay,
       { x: rc.transition.frame.tileTiltX, y: rc.transition.frame.tileTiltY },
-      rc.transition.frame.tileRoll,
+      rc.transition.frame.tileRoll +
+        restRotation(selIndex, debug.current.plane.rotationRange) * rc.transition.frame.rest,
     );
   });
 

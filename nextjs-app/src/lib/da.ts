@@ -55,3 +55,23 @@ export function daHue(t: number): number {
   const u = ((t % 1) + 1) % 1;
   return 200 + 130 * (u < 0.5 ? u * 2 : 2 - u * 2);
 }
+
+type RGB3 = [number, number, number];
+
+const SPECTRUM_RGB: RGB3[] = [
+  [143, 208, 255],
+  [169, 155, 255],
+  [255, 159, 208],
+  [255, 214, 160],
+  [143, 240, 216],
+];
+
+/** Un point (0..1) du spectre Prism, interpolé, en `rgb()` CSS : le dégradé de gauche à droite. */
+export function daSpectrumAt(t: number): string {
+  const u = Math.min(1, Math.max(0, t)) * (SPECTRUM_RGB.length - 1);
+  const i = Math.min(SPECTRUM_RGB.length - 2, Math.floor(u));
+  const f = u - i;
+  const a = SPECTRUM_RGB[i];
+  const b = SPECTRUM_RGB[i + 1];
+  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * f)} ${Math.round(a[1] + (b[1] - a[1]) * f)} ${Math.round(a[2] + (b[2] - a[2]) * f)})`;
+}
