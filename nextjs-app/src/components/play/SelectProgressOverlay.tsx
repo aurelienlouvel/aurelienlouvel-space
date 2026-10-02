@@ -8,7 +8,12 @@ import {
   Vector2,
   type Mesh,
 } from "three";
-import { CARD_TILT_GLSL, clampRadius } from "./rounded-frame";
+import {
+  CARD_TILT_GLSL,
+  CORNER_SMOOTHING,
+  GLSL_SQUIRCLE,
+  clampRadius,
+} from "./rounded-frame";
 import type {
   PlayDebugRef,
   PlayRuntimeRef,
@@ -69,11 +74,8 @@ uniform int uDirection;
 
 varying vec2 vUv;
 
-// Distance signée à un rectangle aux coins arrondis
-float sdRoundedRect(vec2 p, vec2 b, float r) {
-  vec2 q = abs(p) - b + vec2(r);
-  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
-}
+// Distance signée à un rectangle aux coins arrondis (lissés, cf. rounded-frame)
+${GLSL_SQUIRCLE}
 
 // Largeur d'un pixel en espace repère pour un antialiasing net
 float pixelWidth(vec2 p) {
@@ -257,6 +259,7 @@ export function SelectProgressOverlay({
         uniforms: {
           uSize: { value: new Vector2(1, 1) },
           uRadius: { value: 0 },
+          uCornerSmooth: CORNER_SMOOTHING,
           uProgress: { value: 0 },
           uExitProgress: { value: 0 },
           uTime: { value: 0 },

@@ -17,8 +17,9 @@ import {
   type TransitionConfig,
 } from "./transition-presets";
 import { currentStage, stageBounds, STAGE_LABELS, type StageId } from "./transition-timeline";
+import type { ShardParams } from "./ShardField";
 
-const STORAGE_KEY = "play-debug-v34";
+const STORAGE_KEY = "play-debug-v35";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -202,13 +203,23 @@ function CameraTab({ state }: { state: PlayDebugRef }) {
       hoverScale: num(state.current.hover, "scale", { label: "Grossissement", min: 0, max: 0.2, step: 0.005 }),
       hoverRotate: num(state.current.hover, "rotate", { label: "Rotation max (deg)", min: 0, max: 8, step: 0.1 }),
       hoverSpeed: num(state.current.hover, "speed", { label: "Vitesse", min: 2, max: 30, step: 0.5 }),
+      hoverWaveAmp: num(state.current.hover, "waveAmp", { label: "Vague irisee (intensite)", min: 0, max: 1.5, step: 0.05 }),
+      hoverWaveWidth: num(state.current.hover, "waveWidth", { label: "Vague : largeur", min: 0.05, max: 0.6, step: 0.01 }),
+      hoverWaveDuration: num(state.current.hover, "waveDuration", { label: "Vague : duree (s)", min: 0.25, max: 2.5, step: 0.05 }),
     }),
     "Dezoom en mouvement": folder({
       speedDezoom: num(state.current.camera, "speedDezoom", { label: "Dezoom max (0.2 = -20 pct)", min: 0, max: 0.6, step: 0.01 }),
       speedDezoomRef: num(state.current.camera, "speedDezoomRef", { label: "Vitesse pour dezoom complet (px/s)", min: 400, max: 5000, step: 50 }),
+      speedDezoomResponse: num(state.current.camera, "speedDezoomResponse", { label: "Reactivite (colle au mouvement)", min: 4, max: 40, step: 0.5 }),
+    }),
+    "DA Prism (nav, panel)": folder({
+      daNavPixels: num(state.current.da, "navPixels", { label: "Pixels de la pastille play", min: 0, max: 2, step: 0.05 }),
+      daPanelScale: num(state.current.da, "panelPixelScale", { label: "Rectangles du panel (taille)", min: 0.3, max: 2.5, step: 0.05 }),
+      daPanelSpread: num(state.current.da, "panelGradientSpread", { label: "Degrade du panel (etendue)", min: 0.4, max: 1.8, step: 0.05 }),
     }),
     Curseur: folder({
       cursorTrail: num(state.current.camera, "cursorTrail", { label: "Trainee de pixels (0 = off)", min: 0, max: 1, step: 0.05 }),
+      cursorTrailLife: num(state.current.camera, "cursorTrailLife", { label: "Longueur de la trainee (ms)", min: 80, max: 1200, step: 10 }),
     }),
     "Motion Blur (Camera & Canvas)": folder({
       "Motion blur enabled": {
@@ -270,6 +281,15 @@ function MediaTab({ state }: { state: PlayDebugRef }) {
       step: 1,
       onChange: (v: number) => {
         state.current.plane.radius = v;
+      },
+    },
+    "Corner smoothing (0.32 = 32 pct)": {
+      value: state.current.plane.cornerSmoothing,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      onChange: (v: number) => {
+        state.current.plane.cornerSmoothing = v;
       },
     },
   }));
@@ -481,6 +501,30 @@ function trackControls(
     [`${prefix}_start`]: num(track, "start", { label: "Start (s)", min: 0, max: maxStart, step: 0.02 }),
     [`${prefix}_duration`]: num(track, "duration", { label: "Duration (s)", min: 0.05, max: maxDuration, step: 0.02 }),
     [`${prefix}_easing`]: easingControl(track, "easing"),
+  };
+}
+
+/** Réglages des éclats (image qui se sépare en morceaux), partagés ouverture + changement de carte. */
+function shardControls(p: ShardParams) {
+  return {
+    shardCount: num(p, "count", { label: "Nombre d eclats", min: 0, max: 96, step: 1 }),
+    shardMin: num(p, "minSize", { label: "Taille min", min: 4, max: 120, step: 1 }),
+    shardMax: num(p, "maxSize", { label: "Taille max", min: 20, max: 400, step: 1 }),
+    shardAspect: num(p, "aspect", { label: "Etirement (rectangles)", min: 1, max: 8, step: 0.1 }),
+    shardTravel: num(p, "travel", { label: "Distance d ejection", min: 0, max: 600, step: 5 }),
+    shardTravelFar: num(p, "travelFar", { label: "Parallaxe plan arriere", min: 0, max: 2, step: 0.05 }),
+    shardTravelNear: num(p, "travelNear", { label: "Parallaxe plan avant", min: 0, max: 4, step: 0.05 }),
+    shardScaleFar: num(p, "scaleFar", { label: "Echelle plan arriere", min: 0.3, max: 1.5, step: 0.02 }),
+    shardScaleNear: num(p, "scaleNear", { label: "Echelle plan avant", min: 0.5, max: 2.5, step: 0.02 }),
+    shardOpacity: num(p, "opacity", { label: "Opacite", min: 0, max: 1, step: 0.01 }),
+    shardBlurFar: num(p, "blurFar", { label: "Flou plan arriere", min: 0, max: 6, step: 0.1 }),
+    shardBlurNear: num(p, "blurNear", { label: "Flou plan avant", min: 0, max: 6, step: 0.1 }),
+    shardSoftness: num(p, "softness", { label: "Bords fondus (degrade)", min: 0, max: 1, step: 0.01 }),
+    shardIrid: num(p, "iridescence", { label: "Irisation", min: 0, max: 1, step: 0.01 }),
+    shardSpeed: num(p, "speed", { label: "Vitesse (cycles par s)", min: 0.1, max: 3, step: 0.05 }),
+    shardSpin: num(p, "spin", { label: "Rotation max (deg)", min: 0, max: 90, step: 1 }),
+    shardUp: num(p, "upBias", { label: "Derive vers le haut", min: 0, max: 1.5, step: 0.05 }),
+    shardSeed: num(p, "seed", { label: "Graine", min: 0, max: 999, step: 1 }),
   };
 }
 
@@ -753,16 +797,11 @@ function TransitionTab({
         loadWaveSpeed: num(tr, "loadWaveSpeed", { label: "Vague en boucle (cycles par s)", min: 0.2, max: 3, step: 0.05 }),
         FX: folder(
           {
-            fxGlitch: num(tr, "fxGlitch", { label: "Dither de l artifact", min: 0, max: 1, step: 0.01 }),
-            fxDitherCols: num(tr, "fxDitherCols", { label: "Dither : cases en largeur", min: 6, max: 48, step: 1 }),
-            fxPixelCount: num(tr, "fxPixelCount", { label: "Pixels autour (nombre)", min: 0, max: 64, step: 1 }),
-            fxPixelSize: num(tr, "fxPixelSize", { label: "Taille max des pixels", min: 4, max: 60, step: 1 }),
-            fxPixelSpread: num(tr, "fxPixelSpread", { label: "Portee des pixels", min: 0, max: 400, step: 5 }),
-            fxPixelSpeed: num(tr, "fxPixelSpeed", { label: "Vitesse des pixels", min: 0.2, max: 4, step: 0.05 }),
             fxBurstBoost: num(tr, "fxBurstBoost", { label: "Surintensite au burst", min: 0, max: 3, step: 0.05 }),
           },
           { collapsed: false },
         ),
+        Eclats: folder(shardControls(state.current.shards), { collapsed: true }),
       },
       { collapsed: true },
     ),
@@ -981,24 +1020,15 @@ function FocusTab({
 
 
     "Deck (Card by Card)": folder({
-      "Exit travel (x screen/2)": {
-        value: tr.cardExit ?? 0.7,
-        min: 0.1,
-        max: 1.5,
-        step: 0.05,
-        onChange: (v: number) => {
-          tr.cardExit = v;
-        },
-      },
-      "Wheel step cooldown (s)": {
-        value: tr.stepCooldown ?? 0.35,
-        min: 0.1,
-        max: 1.2,
-        step: 0.05,
-        onChange: (v: number) => {
-          tr.stepCooldown = v;
-        },
-      },
+      deckPullDistance: num(tr, "deckPullDistance", { label: "Traction : distance pour passer (px)", min: 120, max: 1600, step: 10 }),
+      deckResist: num(tr, "deckResist", { label: "Traction : resistance (courbe)", min: 1, max: 6, step: 0.1 }),
+      deckLift: num(tr, "deckLift", { label: "Traction : course de la carte (px)", min: 0, max: 200, step: 1 }),
+      deckRelease: num(tr, "deckRelease", { label: "Retour si on lache (vitesse)", min: 1, max: 30, step: 0.5 }),
+      deckHold: num(tr, "deckHold", { label: "Delai avant retour (s)", min: 0, max: 1, step: 0.01 }),
+      deckShimmer: num(tr, "deckShimmer", { label: "Eclats pendant la traction", min: 0, max: 1.5, step: 0.05 }),
+      deckDissolve: num(tr, "deckDissolve", { label: "Evanouissement (courbe)", min: 0.5, max: 4, step: 0.1 }),
+      deckStepCooldown: num(tr, "stepCooldown", { label: "Verrou apres changement (s)", min: 0, max: 2, step: 0.05 }),
+      deckStepDamping: num(tr, "detailScrollDamping", { label: "Vitesse du changement", min: 2, max: 30, step: 0.5 }),
       "Drag px per card": {
         value: tr.dragPxPerCard ?? 320,
         min: 100,
@@ -1015,18 +1045,6 @@ function FocusTab({
         step: 0.005,
         onChange: (v: number) => {
           tr.packShake = v;
-        },
-      },
-    }),
-
-    "Free Scroll (Inertia)": folder({
-      "Scroll damping": {
-        value: tr.detailScrollDamping,
-        min: 2,
-        max: 30,
-        step: 0.5,
-        onChange: (v: number) => {
-          tr.detailScrollDamping = v;
         },
       },
     }),

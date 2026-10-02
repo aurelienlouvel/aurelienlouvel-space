@@ -99,35 +99,30 @@ export function usePanelGradient(
       const k1 = blend(iri(0.3), c1);
       const k2 = blend(iri(0.6), c2);
 
-      // Le dégradé vit uniquement dans le coin bas droit, là où se trouve le glitch pixel.
-      const x1 = 100 + 7 * Math.sin(t * 0.37);
-      const y1 = 100 + 6 * Math.cos(t * 0.29 + 1.1);
-      const x2 = 88 + 10 * Math.cos(t * 0.31 + 2.0);
-      const y2 = 100 + 8 * Math.sin(t * 0.43 + 0.4);
-      const x3 = 100 + 9 * Math.sin(t * 0.23 + 4.0);
-      const y3 = 84 + 8 * Math.cos(t * 0.35 + 2.7);
+      // Le dégradé occupe le bas du panel et monte le long du bord droit ; le haut
+      // reste blanc. Les halos dérivent lentement autour du coin bas droit.
+      const spread = debug.current.da.panelGradientSpread;
+      const x1 = 100 + 6 * Math.sin(t * 0.37);
+      const y1 = 100 + 5 * Math.cos(t * 0.29 + 1.1);
+      const x2 = 96 + 8 * Math.cos(t * 0.31 + 2.0);
+      const y2 = 66 + 8 * Math.sin(t * 0.43 + 0.4);
+      const x3 = 74 + 9 * Math.sin(t * 0.23 + 4.0);
+      const y3 = 100 + 5 * Math.cos(t * 0.35 + 2.7);
       const a = Math.min(1, strength);
 
       el.style.backgroundImage = [
-        `radial-gradient(58% 34% at ${x1}% ${y1}%, ${rgb(k0, a)} 0%, transparent 72%)`,
-        `radial-gradient(44% 26% at ${x2}% ${y2}%, ${rgb(k1, a * 0.85)} 0%, transparent 74%)`,
-        `radial-gradient(34% 22% at ${x3}% ${y3}%, ${rgb(k2, a * 0.8)} 0%, transparent 76%)`,
+        // Voile blanc : garde le haut du panel net, là où vit le texte.
+        "linear-gradient(to bottom, rgb(255 255 255) 0%, rgb(255 255 255 / 0.85) 24%, rgb(255 255 255 / 0) 62%)",
+        `radial-gradient(${88 * spread}% ${62 * spread}% at ${x1}% ${y1}%, ${rgb(k0, a)} 0%, transparent 72%)`,
+        `radial-gradient(${62 * spread}% ${58 * spread}% at ${x2}% ${y2}%, ${rgb(k1, a * 0.85)} 0%, transparent 74%)`,
+        `radial-gradient(${64 * spread}% ${46 * spread}% at ${x3}% ${y3}%, ${rgb(k2, a * 0.8)} 0%, transparent 76%)`,
       ].join(",");
 
-      // Mêmes couleurs, partagées avec le glitch pixel (cf. PixelGlitch).
-      const root = document.documentElement.style;
-      root.setProperty("--pg-c0", rgb(blend(k0, [90, 120, 255]), 1));
-      root.setProperty("--pg-c1", rgb(blend(k1, [150, 110, 255]), 1));
-      root.setProperty("--pg-c2", rgb(blend(k2, [120, 210, 255]), 1));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
-      const root = document.documentElement.style;
-      root.removeProperty("--pg-c0");
-      root.removeProperty("--pg-c1");
-      root.removeProperty("--pg-c2");
     };
   }, [el, weightsRef, palettesRef, debug]);
 }
