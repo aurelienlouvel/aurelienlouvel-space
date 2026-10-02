@@ -444,60 +444,6 @@ function CanvasTab({
 // ── 4. Tab Selection ────────────────────────────────────────────
 function SelectionTab({ state }: { state: PlayDebugRef }) {
   useControls("Selection, Brackets & Repulsion", () => ({
-    "Hold to Select": folder({
-      "Hold duration (s)": {
-        value: state.current.transition.selectDuration,
-        min: 0.2,
-        max: 2.0,
-        step: 0.05,
-        onChange: (v: number) => {
-          state.current.transition.selectDuration = v;
-        },
-      },
-      "Hold zoom": {
-        value: state.current.transition.selectZoom,
-        min: 1.0,
-        max: 1.5,
-        step: 0.01,
-        onChange: (v: number) => {
-          state.current.transition.selectZoom = v;
-        },
-      },
-      "Hold tile scale": {
-        value: state.current.transition.selectScale,
-        min: 0.8,
-        max: 1.5,
-        step: 0.01,
-        onChange: (v: number) => {
-          state.current.transition.selectScale = v;
-        },
-      },
-      "Hold repulsion": {
-        value: state.current.transition.selectRepulse,
-        min: 0,
-        max: 2000,
-        step: 10,
-        onChange: (v: number) => {
-          state.current.transition.selectRepulse = v;
-        },
-      },
-      "Hold tilt (3D)": {
-        value: state.current.transition.selectTiltMax,
-        min: 0,
-        max: 0.3,
-        step: 0.01,
-        onChange: (v: number) => {
-          state.current.transition.selectTiltMax = v;
-        },
-      },
-      "Hold easing": {
-        value: state.current.transition.selectEasing,
-        options: EASING_OPTIONS,
-        onChange: (v: string) => {
-          state.current.transition.selectEasing = v as EasingName;
-        },
-      },
-    }),
     "Mosaic Repulsion Physics": folder({
       "Physics enabled": {
         value: state.current.physics.enabled,
@@ -566,79 +512,6 @@ function SelectionTab({ state }: { state: PlayDebugRef }) {
         step: 0.1,
         onChange: (v: number) => {
           state.current.physics.mass = v;
-        },
-      },
-    }),
-    "Corner Brackets": folder({
-      "Padding (px)": {
-        value: state.current.brackets.padding,
-        min: 0,
-        max: 60,
-        step: 1,
-        onChange: (v: number) => {
-          state.current.brackets.padding = v;
-        },
-      },
-      "Radius (px)": {
-        value: state.current.brackets.radius,
-        min: 0,
-        max: 80,
-        step: 1,
-        onChange: (v: number) => {
-          state.current.brackets.radius = v;
-        },
-      },
-      "Angle (deg)": {
-        value: state.current.brackets.angle,
-        min: 10,
-        max: 90,
-        step: 1,
-        onChange: (v: number) => {
-          state.current.brackets.angle = v;
-        },
-      },
-      "Arm length (px)": {
-        value: state.current.brackets.arm,
-        min: 0,
-        max: 40,
-        step: 1,
-        onChange: (v: number) => {
-          state.current.brackets.arm = v;
-        },
-      },
-      "Thickness (px)": {
-        value: state.current.brackets.thickness,
-        min: 1,
-        max: 12,
-        step: 0.5,
-        onChange: (v: number) => {
-          state.current.brackets.thickness = v;
-        },
-      },
-      Color: {
-        value: state.current.brackets.color,
-        onChange: (v: string) => {
-          if (HEX_COLOR.test(v)) state.current.brackets.color = v;
-        },
-      },
-    }),
-    "Focus Indicator": folder({
-      "Move speed": {
-        value: state.current.indicator.moveSpeed,
-        min: 1,
-        max: 30,
-        step: 0.5,
-        onChange: (v: number) => {
-          state.current.indicator.moveSpeed = v;
-        },
-      },
-      "Fade speed": {
-        value: state.current.indicator.fadeSpeed,
-        min: 5,
-        max: 60,
-        step: 1,
-        onChange: (v: number) => {
-          state.current.indicator.fadeSpeed = v;
         },
       },
     }),
@@ -718,6 +591,51 @@ function SelectionTab({ state }: { state: PlayDebugRef }) {
         step: 0.05,
         onChange: (v: number) => {
           state.current.overlay.glowIntensity = v;
+        },
+      },
+      "Lens: zoom blur": {
+        value: state.current.overlay.zoomBlur,
+        min: 0,
+        max: 1.2,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.overlay.zoomBlur = v;
+        },
+      },
+      "Lens: zoom punch": {
+        value: state.current.overlay.zoomPunch,
+        min: 0,
+        max: 0.8,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.overlay.zoomPunch = v;
+        },
+      },
+      "Lens: bulge": {
+        value: state.current.overlay.bulge,
+        min: 0,
+        max: 2,
+        step: 0.02,
+        onChange: (v: number) => {
+          state.current.overlay.bulge = v;
+        },
+      },
+      "Lens: width": {
+        value: state.current.overlay.lensWidth,
+        min: 0.05,
+        max: 0.8,
+        step: 0.01,
+        onChange: (v: number) => {
+          state.current.overlay.lensWidth = v;
+        },
+      },
+      "Lens: trail": {
+        value: state.current.overlay.lensTrail,
+        min: 0,
+        max: 1,
+        step: 0.02,
+        onChange: (v: number) => {
+          state.current.overlay.lensTrail = v;
         },
       },
     }),
@@ -823,81 +741,102 @@ function TransitionTab({
       },
     }),
 
-    "Selection & Hold (Pre-Transition)": folder({
-      "Hold duration": {
-        value: tr.selectDuration,
-        min: 0.1,
-        max: 2,
+    "Burst & Loading Wiggle": folder({
+      "Burst randomness (power)": {
+        value: tr.burstRandomness ?? 0.6,
+        min: 0,
+        max: 1,
         step: 0.05,
         onChange: (v: number) => {
-          tr.selectDuration = v;
+          tr.burstRandomness = v;
         },
       },
-      "Camera zoom (hold)": {
-        value: tr.selectZoom,
-        min: 0.8,
+      "Burst direction jitter (rad)": {
+        value: tr.burstAngleJitter ?? 0.5,
+        min: 0,
         max: 1.5,
-        step: 0.02,
+        step: 0.05,
         onChange: (v: number) => {
-          tr.selectZoom = v;
+          tr.burstAngleJitter = v;
         },
       },
-      "Tile scale (hold)": {
-        value: tr.selectScale,
-        min: 0.8,
-        max: 1.4,
-        step: 0.02,
-        onChange: (v: number) => {
-          tr.selectScale = v;
-        },
-      },
-      "Repulse distance": {
-        value: tr.selectRepulse,
-        min: 0,
-        max: 600,
-        step: 10,
-        onChange: (v: number) => {
-          tr.selectRepulse = v;
-        },
-      },
-      "Burst lead": {
-        value: tr.burstLead,
-        min: 0,
-        max: 0.6,
-        step: 0.01,
-        onChange: (v: number) => {
-          tr.burstLead = v;
-        },
-      },
-      "Burst lead depth": {
-        value: tr.burstLeadDepth,
-        min: 0,
-        max: 0.25,
-        step: 0.005,
-        onChange: (v: number) => {
-          tr.burstLeadDepth = v;
-        },
-      },
-      "Tilt (hold)": {
-        value: tr.selectTiltMax,
+      "Wiggle amount (rad)": {
+        value: tr.packShake ?? 0.05,
         min: 0,
         max: 0.3,
-        step: 0.01,
+        step: 0.005,
         onChange: (v: number) => {
-          tr.selectTiltMax = v;
+          tr.packShake = v;
         },
       },
-      "Hold easing": {
-        value: tr.selectEasing,
+      "Wiggle speed": {
+        value: tr.wiggleSpeed ?? 7,
+        min: 0,
+        max: 20,
+        step: 0.5,
+        onChange: (v: number) => {
+          tr.wiggleSpeed = v;
+        },
+      },
+      "Breathe (scale)": {
+        value: tr.breathe ?? 0.025,
+        min: 0,
+        max: 0.1,
+        step: 0.005,
+        onChange: (v: number) => {
+          tr.breathe = v;
+        },
+      },
+      "Grow while loading (max)": {
+        value: tr.loadGrow ?? 0.1,
+        min: 0,
+        max: 0.4,
+        step: 0.01,
+        onChange: (v: number) => {
+          tr.loadGrow = v;
+        },
+      },
+      "Loading wave cycles/s": {
+        value: tr.loadWaveSpeed ?? 0.9,
+        min: 0.2,
+        max: 3,
+        step: 0.05,
+        onChange: (v: number) => {
+          tr.loadWaveSpeed = v;
+        },
+      },
+    }),
+
+    "Wave Charge (Pre-Boom)": folder({
+      "Wave duration (s)": {
+        value: tr.waveDuration,
+        min: 0.2,
+        max: 3,
+        step: 0.05,
+        onChange: (v: number) => {
+          tr.waveDuration = v;
+        },
+      },
+      "Wave easing": {
+        value: tr.waveEasing,
         options: EASING_OPTIONS,
         onChange: (v: string) => {
-          tr.selectEasing = v as EasingName;
+          tr.waveEasing = v as EasingName;
+        },
+      },
+      "Approach drift": {
+        value: tr.silenceDrift,
+        min: 0,
+        max: 0.3,
+        step: 0.005,
+        onChange: (v: number) => {
+          tr.silenceDrift = v;
         },
       },
     }),
 
     "Transition IN (Choreography)": folder({
-      "1. Lock (Brackets)": folder(
+      "1. Boom (tile detach)": folder(
         {
           lock_start: {
             label: "Start",
@@ -917,34 +856,6 @@ function TransitionTab({
             step: 0.02,
             onChange: (v: number) => {
               tr.lock.duration = v;
-            },
-          },
-          "Bracket shrink (px)": {
-            value: tr.lockBracketShrink ?? tr.lockBracketTighten ?? 14,
-            min: 0,
-            max: 40,
-            step: 1,
-            onChange: (v: number) => {
-              tr.lockBracketShrink = v;
-              tr.lockBracketTighten = v;
-            },
-          },
-          "Pop tilt (lock)": {
-            value: tr.lockPopTilt ?? 0.085,
-            min: 0,
-            max: 0.5,
-            step: 0.005,
-            onChange: (v: number) => {
-              tr.lockPopTilt = v;
-            },
-          },
-          "Pop roll (lock)": {
-            value: tr.lockPopRoll ?? 0.012,
-            min: 0,
-            max: 0.3,
-            step: 0.002,
-            onChange: (v: number) => {
-              tr.lockPopRoll = v;
             },
           },
           "Detach lift (lock)": {
@@ -1044,92 +955,7 @@ function TransitionTab({
         },
         { collapsed: true },
       ),
-      "5. Slide (Secondary Entry)": folder(
-        {
-          slide_start: {
-            label: "Start",
-            value: tr.slide.start,
-            min: 0,
-            max: 4,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.slide.start = v;
-            },
-          },
-          slide_duration: {
-            label: "Duration",
-            value: tr.slide.duration,
-            min: 0.05,
-            max: 4,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.slide.duration = v;
-            },
-          },
-          slide_easing: {
-            label: "Easing",
-            value: tr.slide.easing,
-            options: EASING_OPTIONS,
-            onChange: (v: string) => {
-              tr.slide.easing = v as EasingName;
-            },
-          },
-          "Slide offset (px)": {
-            value: tr.slideOffset,
-            min: 0,
-            max: 1200,
-            step: 20,
-            onChange: (v: number) => {
-              tr.slideOffset = v;
-            },
-          },
-        },
-        { collapsed: true },
-      ),
       "6. Column Fade (Opacity)": trackRow("columnFade", 4, 3),
-      "7. Scroll (Wheel Spin & Blur)": folder(
-        {
-          "Media count to spin": {
-            value: tr.spinMediaCount,
-            min: 1,
-            max: 60,
-            step: 1,
-            label: "Items to scroll past",
-            onChange: (v: number) => {
-              tr.spinMediaCount = v;
-            },
-          },
-          "Spin easing": {
-            value: tr.spinEasing,
-            options: EASING_OPTIONS,
-            label: "Spin curve",
-            onChange: (v: string) => {
-              tr.spinEasing = v as EasingName;
-            },
-          },
-          scroll_start: {
-            label: "Start",
-            value: tr.scroll.start,
-            min: 0,
-            max: 6,
-            step: 0.02,
-            onChange: (v: number) => {
-              tr.scroll.start = v;
-            },
-          },
-          scroll_duration: {
-            label: "Duration",
-            value: tr.scroll.duration,
-            min: 0.2,
-            max: 6,
-            step: 0.05,
-            onChange: (v: number) => {
-              tr.scroll.duration = v;
-            },
-          },
-        },
-        { collapsed: false },
-      ),
       "8. Dezoom (Framing)": folder(
         {
           dezoom_start: {
@@ -1174,13 +1000,22 @@ function TransitionTab({
       ),
       "9. Text Reveal": folder(
         {
-          "Text reveal at (s)": {
-            value: tr.textRevealAt,
+          "Navbar lead (s)": {
+            value: tr.navbarLead,
             min: 0,
-            max: 6,
+            max: 2,
             step: 0.05,
             onChange: (v: number) => {
-              tr.textRevealAt = v;
+              tr.navbarLead = v;
+            },
+          },
+          "Side panel lead (s)": {
+            value: tr.textLead,
+            min: 0,
+            max: 2,
+            step: 0.05,
+            onChange: (v: number) => {
+              tr.textLead = v;
             },
           },
         },
@@ -1211,15 +1046,6 @@ function TransitionTab({
         },
         { collapsed: true },
       ),
-      "Exit slide offset": {
-        value: tr.exitSlideOffset,
-        min: 0,
-        max: 1200,
-        step: 20,
-        onChange: (v: number) => {
-          tr.exitSlideOffset = v;
-        },
-      },
       "Mosaic return delay (s)": {
         value: tr.repulseReturnDelay,
         min: 0,
@@ -1278,45 +1104,6 @@ function FocusTab({
         label: "Column position (0.5=center)",
         onChange: (v: number) => {
           tr.detailColumnRatio = v;
-        },
-      },
-      "Arc curvature (px)": {
-        value: tr.arcCurvature,
-        min: -400,
-        max: 400,
-        step: 10,
-        label: "Arc curvature (center inset px)",
-        onChange: (v: number) => {
-          tr.arcCurvature = v;
-        },
-      },
-      "Portrait arc curvature (px)": {
-        value: tr.portraitArcCurvature ?? 50,
-        min: -200,
-        max: 200,
-        step: 5,
-        label: "Portrait arc curvature (px)",
-        onChange: (v: number) => {
-          tr.portraitArcCurvature = v;
-        },
-      },
-      "Arc rotation (deg)": {
-        value: tr.arcRotation,
-        min: -30,
-        max: 30,
-        step: 1,
-        label: "Rotation toward exterior (deg)",
-        onChange: (v: number) => {
-          tr.arcRotation = v;
-        },
-      },
-      "Media gap (px)": {
-        value: tr.mediaGap,
-        min: 0,
-        max: 120,
-        step: 2,
-        onChange: (v: number) => {
-          tr.mediaGap = v;
         },
       },
       "Desktop width ratio": {
@@ -1404,32 +1191,69 @@ function FocusTab({
       },
     }),
 
-    "Center Magnetic Snap": folder({
-      "Snap enabled": {
-        value: tr.snapEnabled,
-        label: "Snap to center enabled",
-        onChange: (v: boolean) => {
-          tr.snapEnabled = v;
+
+    "Deck (Card by Card)": folder({
+      "Behind-card scale": {
+        value: tr.stackScale ?? 0.9,
+        min: 0.6,
+        max: 1,
+        step: 0.01,
+        onChange: (v: number) => {
+          tr.stackScale = v;
         },
       },
-      "Snap damping (softness)": {
-        value: tr.snapStrength,
+      "Peek offset (px)": {
+        value: tr.stackPeek ?? 22,
+        min: 0,
+        max: 80,
+        step: 1,
+        onChange: (v: number) => {
+          tr.stackPeek = v;
+        },
+      },
+      "Visible depth (cards)": {
+        value: tr.stackDepth ?? 3,
         min: 1,
-        max: 20,
-        step: 0.5,
-        label: "Snap damping (lower = softer)",
+        max: 6,
+        step: 1,
         onChange: (v: number) => {
-          tr.snapStrength = v;
+          tr.stackDepth = v;
         },
       },
-      "Snap delay (s)": {
-        value: tr.snapDelay,
-        min: 0.0,
-        max: 1.0,
+      "Exit travel (x screen/2)": {
+        value: tr.cardExit ?? 0.7,
+        min: 0.1,
+        max: 1.5,
         step: 0.05,
-        label: "Snap idle delay (s)",
         onChange: (v: number) => {
-          tr.snapDelay = v;
+          tr.cardExit = v;
+        },
+      },
+      "Wheel step cooldown (s)": {
+        value: tr.stepCooldown ?? 0.35,
+        min: 0.1,
+        max: 1.2,
+        step: 0.05,
+        onChange: (v: number) => {
+          tr.stepCooldown = v;
+        },
+      },
+      "Drag px per card": {
+        value: tr.dragPxPerCard ?? 320,
+        min: 100,
+        max: 800,
+        step: 10,
+        onChange: (v: number) => {
+          tr.dragPxPerCard = v;
+        },
+      },
+      "Pack shake (rad)": {
+        value: tr.packShake ?? 0.04,
+        min: 0,
+        max: 0.2,
+        step: 0.005,
+        onChange: (v: number) => {
+          tr.packShake = v;
         },
       },
     }),
@@ -1442,15 +1266,6 @@ function FocusTab({
         step: 0.5,
         onChange: (v: number) => {
           tr.detailScrollDamping = v;
-        },
-      },
-      "Scroll speed multiplier": {
-        value: tr.detailScrollSpeed,
-        min: 0.2,
-        max: 3.0,
-        step: 0.05,
-        onChange: (v: number) => {
-          tr.detailScrollSpeed = v;
         },
       },
     }),

@@ -14,6 +14,8 @@ import { projectId } from "@/sanity/env";
  * par contenu, donc cache immuable d'un an en cas de succès.
  */
 
+export const dynamic = "force-dynamic";
+
 const HOST = "cdn.sanity.io";
 const ALLOWED_PREFIXES = [`/images/${projectId}/`, `/files/${projectId}/`];
 
@@ -48,13 +50,14 @@ export async function GET(request: Request) {
 
   const upstreamHeaders: Record<string, string> = {
     Accept: request.headers.get("accept") ?? "*/*",
+    "Accept-Encoding": "identity",
   };
   const range = request.headers.get("range");
   if (range) upstreamHeaders.Range = range;
 
   let upstream: Response;
   try {
-    upstream = await fetch(target, { headers: upstreamHeaders });
+    upstream = await fetch(target, { headers: upstreamHeaders, cache: "no-store" });
   } catch {
     return new Response("Upstream unreachable", { status: 502 });
   }

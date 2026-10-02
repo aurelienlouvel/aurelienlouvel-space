@@ -1,5 +1,6 @@
 import { LogoTile } from "@/components/blocks/LogoTile";
 import { formatDateRange } from "@/lib/date-utils";
+import { DateAgo } from "@/components/blocks/DateAgo";
 import { cn } from "@/lib/utils";
 
 export function TimelineRow({
@@ -34,9 +35,17 @@ export function TimelineRow({
             {orgName ?? title}
           </span>
           {startDate && (
-            <span className="hidden shrink-0 whitespace-nowrap text-sm font-medium text-stone-600 sm:inline">
-              {formatDateRange(startDate, endDate, ongoingFallback)}
-            </span>
+            <DateAgo
+              date={endDate ?? startDate}
+              ongoing={!endDate}
+              floating
+              align="right"
+              className="hidden shrink-0 sm:inline-flex"
+            >
+              <span className="whitespace-nowrap text-sm font-medium text-stone-600">
+                {formatDateRange(startDate, endDate, ongoingFallback)}
+              </span>
+            </DateAgo>
           )}
         </div>
         {orgName && (
@@ -48,9 +57,15 @@ export function TimelineRow({
           </span>
         )}
         {startDate && (
-          <span className="mt-0.5 text-sm font-medium text-stone-500 sm:hidden">
-            {formatDateRange(startDate, endDate, ongoingFallback)}
-          </span>
+          <DateAgo
+            date={endDate ?? startDate}
+            ongoing={!endDate}
+            className="mt-0.5 sm:hidden"
+          >
+            <span className="text-sm font-medium text-stone-500">
+              {formatDateRange(startDate, endDate, ongoingFallback)}
+            </span>
+          </DateAgo>
         )}
       </div>
     </>

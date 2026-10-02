@@ -66,3 +66,24 @@ export function calcDuration(start: string, end: string | null): string {
   if (rem === 0) return `${years} yr${years !== 1 ? "s" : ""}`;
   return `${years}y ${rem}m`;
 }
+
+/**
+ * « 3 years ago », « 5 months ago »… à partir d'une date seule (YYYY-MM-DD).
+ * Sous le mois, « this month » ; l'année s'affiche avec ses mois restants
+ * quand ils comptent (« 2 years, 4 months ago »).
+ */
+export function timeAgo(dateStr: string): string {
+  const then = parseDate(dateStr);
+  const now = new Date();
+  let months =
+    (now.getFullYear() - then.getFullYear()) * 12 +
+    (now.getMonth() - then.getMonth());
+  if (now.getDate() < then.getDate()) months -= 1;
+  if (months < 1) return "this month";
+  if (months < 12) return `${months} month${months !== 1 ? "s" : ""} ago`;
+  const years = Math.floor(months / 12);
+  const rem = months % 12;
+  const y = `${years} year${years !== 1 ? "s" : ""}`;
+  if (rem === 0) return `${y} ago`;
+  return `${y}, ${rem} month${rem !== 1 ? "s" : ""} ago`;
+}

@@ -19,7 +19,7 @@ import type { LayoutTile } from "./layout-types";
 
 const OVERLAY_Z = 0.5;
 
-function getDirectionCode(dir: WaveDirection): number {
+export function getDirectionCode(dir: WaveDirection): number {
   switch (dir) {
     case "top-to-bottom":
       return 1;
@@ -287,7 +287,7 @@ export function SelectProgressOverlay({
 
     if (
       progress <= 0.001 ||
-      (rc.transition.phase !== "selecting" && rc.transition.phase !== "playing")
+      rc.transition.phase !== "playing"
     ) {
       mesh.visible = false;
       return;

@@ -298,7 +298,7 @@ export const artifactDetailQuery = defineQuery(`
     },
     "contributors": contributors[] {
       _key,
-      "roles": roles[]-> { _id, name },
+      "roles": roles[]->{ _id, name, color, icon },
       "person": person-> {
         _id,
         firstName,
@@ -308,7 +308,7 @@ export const artifactDetailQuery = defineQuery(`
         linkedinUrl
       }
     },
-    "roles": roles[]-> { _id, name },
+    "roles": roles[]->{ _id, name, color, icon },
     "gallery": gallery[] {
       _key,
       _type,
@@ -360,7 +360,7 @@ export type ArtifactDetail = {
   }> | null;
   contributors?: Array<{
     _key: string;
-    roles?: Array<{ _id: string; name: string }> | null;
+    roles?: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
     person: {
       _id: string;
       firstName: string;
@@ -370,7 +370,7 @@ export type ArtifactDetail = {
       linkedinUrl?: string | null;
     };
   }> | null;
-  roles?: Array<{ _id: string; name: string }> | null;
+  roles?: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
   gallery: ArtifactGalleryItem[];
 };
 
