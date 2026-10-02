@@ -494,20 +494,12 @@ body.body-project {
   animation: px-glitch-text 2.6s steps(1, end) infinite;
 }
 
-/* Glitch pixel du side panel : un nuage clairsemé en bas à droite. */
-@keyframes pg-dot {
-  0%, 52%, 100% { opacity: 0; }
-  54%, 60% { opacity: var(--pg-a, 0.6); }
-  62%, 70% { opacity: 0; }
-  72%, 78% { opacity: calc(var(--pg-a, 0.6) * 0.7); }
-  80% { opacity: 0; }
-}
-
-@keyframes pg-slice {
-  0%, 90%, 100% { transform: translate(0, 0); }
-  91% { transform: translate(-0.4rem, 0); }
-  93% { transform: translate(0.5rem, 0); }
-  95% { transform: translate(-0.15rem, 0); }
+/* Dither pixel du side panel : un nuage de petits pixels arrondis, dense dans
+   le coin bas droit et de plus en plus clairsemé (trame ordonnée), aux couleurs
+   irisées du dégradé (--pg-c0..2, posées par usePanelGradient). */
+@keyframes pg-shimmer {
+  0%, 100% { opacity: calc(var(--pg-a, 0.7) * 0.35); transform: scale(0.82); }
+  50% { opacity: var(--pg-a, 0.7); transform: scale(1); }
 }
 
 @keyframes pg-fade-in {
@@ -516,16 +508,11 @@ body.body-project {
 }
 
 .pg-field {
-  animation: pg-fade-in 0.8s ease-out both;
-}
-
-.pg-slice {
-  animation: pg-slice 4.8s steps(1, end) infinite;
+  animation: pg-fade-in 0.9s ease-out both;
 }
 
 .pg-dot {
-  opacity: 0;
-  animation: pg-dot var(--pg-d, 3s) steps(1, end) var(--pg-delay, 0s) infinite;
+  animation: pg-shimmer var(--pg-d, 4s) ease-in-out var(--pg-delay, 0s) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -535,7 +522,6 @@ body.body-project {
   .ld-cell[data-on],
   .px-glitch-text,
   .pg-field,
-  .pg-slice,
   .pg-dot {
     animation: none;
   }
@@ -546,7 +532,7 @@ body.body-project {
   }
 
   .pg-dot {
-    opacity: calc(var(--pg-a, 0.6) * 0.5);
+    opacity: calc(var(--pg-a, 0.7) * 0.6);
   }
 }
 
@@ -620,9 +606,9 @@ body.body-project {
 }
 
 /* Curseurs du site : des SVG dans /public/cursors (flèche, main, poing, I-beam).
-   Les deux nombres sont le point actif (hotspot) dans l'image de 32px. */
+   Les deux nombres sont le point actif (hotspot) dans l'image de 44px. */
 html {
-  cursor: url("/cursors/default.svg") 4 2, auto;
+  cursor: url("/cursors/default.svg") 5 3, auto;
 }
 a,
 button,
@@ -632,12 +618,12 @@ label[for],
 [role="button"],
 [data-cursor="link"],
 [class*="cursor-pointer"] {
-  cursor: url("/cursors/pointer.svg") 11 2, pointer;
+  cursor: url("/cursors/pointer.svg") 15 3, pointer;
 }
 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 textarea,
 [contenteditable="true"] {
-  cursor: url("/cursors/text.svg") 16 16, text;
+  cursor: url("/cursors/text.svg") 22 22, text;
 }
 
 /* Les couleurs du dégradé du side panel de /play s'animent entre deux médias. */

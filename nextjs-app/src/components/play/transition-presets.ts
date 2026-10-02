@@ -87,7 +87,8 @@ export type TransitionConfig = {
   burstSeed: number; // Graine du tirage aléatoire du burst (changer = autre explosion)
   simulatedLoadMs: number; // Debug : délai artificiel ajouté au chargement du pack (ms)
   rewindSpeed: number; // Vitesse du rembobinage quand on annule en cours d'entrée (× temps réel)
-  fxGlitch: number; // 0..1 — glitch (tranches décalées + split RGB) sur l'artifact pendant l'ouverture
+  fxGlitch: number; // 0..1 — dither pixel (cases arrondies aux couleurs de l'image) sur l'artifact pendant l'ouverture
+  fxDitherCols: number; // Nombre de cases du dither sur la largeur de l'artifact
   fxPixelCount: number; // Nombre de pixels qui jaillissent autour de l'artifact (max 64)
   fxPixelSize: number; // Taille max d'un pixel (unités monde)
   fxPixelSpread: number; // Distance max d'éjection au-delà du bord de l'artifact (unités monde)
@@ -248,10 +249,11 @@ const BASE_AMPLITUDES = {
   burstSeed: 1,
   simulatedLoadMs: 0,
   rewindSpeed: 1.6,
-  fxGlitch: 0.55,
-  fxPixelCount: 36,
-  fxPixelSize: 26,
-  fxPixelSpread: 140,
+  fxGlitch: 0.5,
+  fxDitherCols: 18,
+  fxPixelCount: 22,
+  fxPixelSize: 18,
+  fxPixelSpread: 120,
   fxPixelSpeed: 1.3,
   fxBurstBoost: 1,
   lockScalePunch: 0.08,
@@ -272,7 +274,7 @@ const BASE_AMPLITUDES = {
   stackDepth: 4,
   stackOpacity: 0.55,
   stackOpacityFalloff: 0.55,
-  panelGradientStrength: 0.3,
+  panelGradientStrength: 0.55,
   panelGradientSpeed: 1.8,
   panelGlitch: 0.6,
   cardExit: 0.7,

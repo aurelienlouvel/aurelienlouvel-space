@@ -46,6 +46,7 @@ export type PlaneUniforms = {
   uWaveWidth: IUniform<number>;
   uWaveTrail: IUniform<number>;
   uGlitch: IUniform<number>;
+  uGlitchCols: IUniform<number>;
   uTime: IUniform<number>;
 };
 
@@ -82,8 +83,9 @@ uniform float uWaveBulge;
 uniform float uWaveWidth;
 uniform float uWaveTrail;
 
-// Glitch d'ouverture : tranches horizontales décalées + split RVB.
+// Dither pixel d'ouverture (cf. plus bas) : cases arrondies aux couleurs de l'image.
 uniform float uGlitch;
+uniform float uGlitchCols;
 uniform float uTime;
 
 /**
@@ -142,22 +144,7 @@ const MOTION_BLUR_MAP = /* glsl */ `
 #ifdef USE_MAP
   float lens = waveDistortion(vUv);
   vec2 mapUv = vMapUv;
-  float glitchOn = 0.0;
-  if (uGlitch > 0.001) {
-    // Les tranches changent ~11 fois par seconde : un tic saccadé, pas un flou continu.
-    float tick = floor(uTime * 11.0);
-    float band = floor(vUv.y * 18.0);
-    float r = fract(sin(band * 12.9898 + tick * 78.233) * 43758.5453);
-    glitchOn = step(1.0 - uGlitch * 0.4, r);
-    float shift = fract(sin((band + tick * 3.1) * 91.7) * 4375.5453) - 0.5;
-    mapUv.x += glitchOn * shift * 0.18 * uGlitch;
-  }
   vec4 sampledDiffuseColor = texture2D( map, mapUv );
-  if (glitchOn > 0.5) {
-    float split = 0.014 * uGlitch;
-    sampledDiffuseColor.r = texture2D( map, mapUv + vec2(split, 0.0) ).r;
-    sampledDiffuseColor.b = texture2D( map, mapUv - vec2(split, 0.0) ).b;
-  }
   if (lens > 0.0005) {
     // Comme si le média était happé par un objectif : il grossit vers le centre
     // (punch), se bombe sur les bords (bulge), puis les pixels s'étirent en
@@ -176,6 +163,37 @@ const MOTION_BLUR_MAP = /* glsl */ `
       wsum += w;
     }
     sampledDiffuseColor = acc / wsum;
+  }
+  // Dither pixel : certaines cases de l'image deviennent de petits pixels
+  // arrondis, remplis de la couleur de l'image à cet endroit, avec un dégradé
+  // intérieur et un reflet irisé. Concentré sous la crête de la vague (lens), un
+  // peu présent partout pendant l'ouverture (uGlitch) — jamais en barres.
+  float ditherAmount = clamp(uGlitch * 0.5 + lens * 0.65, 0.0, 0.9);
+  if (ditherAmount > 0.01) {
+    float cols = max(4.0, uGlitchCols);
+    float cell = uSize.x / cols;
+    vec2 gp = vUv * uSize / cell;
+    vec2 gid = floor(gp);
+    vec2 gf = fract(gp) - 0.5;
+    float seedStatic = fract(sin(dot(gid, vec2(12.9898, 78.233))) * 43758.5453);
+    float seedTick = fract(sin(dot(gid, vec2(39.346, 11.135)) + floor(uTime * 5.0) * 0.7) * 24634.6345);
+    // Seuil mêlant un motif stable et un frémissement lent : les pixels naissent
+    // et meurent doucement, la trame ne saute pas d'une image à l'autre.
+    float picked = step(seedStatic * 0.75 + seedTick * 0.25, ditherAmount);
+    if (picked > 0.5) {
+      vec2 centerUv = (gid + 0.5) * cell / uSize;
+      vec3 base = texture2D( map, mapUv + (centerUv - vUv) ).rgb;
+      // Case arrondie.
+      float dBox = length(max(abs(gf) - 0.3, 0.0)) - 0.15;
+      float inside = 1.0 - smoothstep(-0.02, 0.05, dBox);
+      // Dégradé intérieur : plus clair en haut à gauche, plus profond en bas à droite.
+      float g = clamp(0.5 - gf.x * 0.6 + gf.y * 0.6, 0.0, 1.0);
+      vec3 inner = mix(base * 0.8, base * 1.18 + 0.05, g);
+      // Reflet irisé, même famille que la vague.
+      vec3 spec = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + seedStatic + uTime * 0.12 + g * 0.35));
+      inner = mix(inner, inner * (0.65 + 0.7 * spec), 0.4);
+      sampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb, inner, inside * 0.92);
+    }
   }
   float blurLen = length(uMotionBlur);
   if (blurLen > 0.0008) {
@@ -224,6 +242,7 @@ function roundCorners(
     uWaveWidth: { value: 0.28 },
     uWaveTrail: { value: 0 },
     uGlitch: { value: 0 },
+    uGlitchCols: { value: 18 },
     uTime: { value: 0 },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
@@ -243,7 +262,7 @@ function roundCorners(
  * matériaux qui injectent du code.
  */
 function roundCornersCacheKey() {
-  return "play-artifact-grid-motion-blur-lens-glitch";
+  return "play-artifact-grid-motion-blur-lens-dither";
 }
 
 type ArtifactPlaneProps = {
