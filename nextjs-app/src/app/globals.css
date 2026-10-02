@@ -422,6 +422,92 @@ body.body-project {
     }
 }
 
+/* ── DA pixel / glitch pop ─────────────────────────────────────────────────
+   Pixels qui apparaissent par paliers (steps) plutôt que par interpolation :
+   c'est ce qui donne le côté 8-bit. Animations limitées à transform/opacity,
+   donc composées sur le GPU et fluides même quand le thread principal charge
+   les textures de /play. */
+@keyframes px-burst-pop {
+  0% { opacity: 0; transform: translate(0, 0) scale(0); }
+  30% { opacity: 1; transform: translate(0, 0) scale(1.5); }
+  60% { opacity: 1; transform: translate(var(--px-drift, 0), -0.25rem) scale(1); }
+  100% { opacity: 0; transform: translate(var(--px-drift, 0), -0.6rem) scale(1); }
+}
+
+.px-burst {
+  animation: px-burst-pop 0.7s steps(5, end) both;
+}
+
+@keyframes px-cell-in {
+  0% { opacity: 0; transform: scale(0.2); }
+  50% { opacity: 1; transform: scale(1.3); }
+  100% { opacity: var(--px-a, 0.6); transform: scale(1); }
+}
+
+@keyframes px-cell-flicker {
+  0%, 100% { opacity: var(--px-a, 0.6); }
+  50% { opacity: calc(var(--px-a, 0.6) * 0.55); }
+}
+
+@keyframes px-cell-twinkle {
+  0%, 88%, 100% { opacity: 0.1; transform: scale(0.3); }
+  92% { opacity: 0.5; transform: scale(0.6); }
+}
+
+@keyframes px-cell-out {
+  0% { opacity: var(--px-a, 0.6); transform: scale(1); }
+  100% { opacity: 0; transform: scale(2.6); }
+}
+
+@keyframes px-glitch {
+  0%, 92%, 100% { transform: translate(0, 0); text-shadow: 1px 0 #f472b6, -1px 0 #38bdf8; }
+  93% { transform: translate(-3px, 1px); text-shadow: 3px 0 #f472b6, -3px 0 #38bdf8; }
+  95% { transform: translate(2px, -1px); text-shadow: -3px 0 #f472b6, 3px 0 #38bdf8; }
+  97% { transform: translate(0, 0); text-shadow: 2px 1px #fbbf24, -2px -1px #34d399; }
+}
+
+.px-cell {
+  opacity: 0.1;
+  transform: scale(0.3);
+}
+
+.px-cell[data-twinkle] {
+  animation: px-cell-twinkle 3.2s steps(1, end) var(--px-delay, 0s) infinite;
+}
+
+.px-cell[data-on] {
+  animation:
+    px-cell-in 0.4s steps(4, end) var(--px-delay, 0s) both,
+    px-cell-flicker 1.6s steps(1, end) calc(var(--px-delay, 0s) + 0.4s) infinite;
+}
+
+.px-cell[data-out] {
+  animation: px-cell-out 0.5s steps(5, end) var(--px-delay, 0s) both;
+}
+
+.px-glitch-text {
+  animation: px-glitch 2.4s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .px-burst,
+  .px-cell,
+  .px-cell[data-on],
+  .px-cell[data-twinkle],
+  .px-glitch-text {
+    animation: none;
+  }
+
+  .px-cell[data-on] {
+    opacity: var(--px-a, 0.6);
+    transform: scale(1);
+  }
+
+  .px-cell[data-out] {
+    opacity: 0;
+  }
+}
+
 @keyframes slow-ping {
   0% {
     transform: scale(1);
