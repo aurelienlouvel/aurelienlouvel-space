@@ -240,6 +240,9 @@ export default async function InfoPage() {
                   <div>
                     <h1 className="text-lg! leading-tight! font-bold tracking-tight text-stone-900">
                       {profile.firstName} {profile.lastName}
+                      <span className="ml-2 font-medium text-stone-400">
+                        b. 2002
+                      </span>
                     </h1>
                     {profile.jobTitle && (
                       <p className="mt-0.5 text-base text-stone-500">

@@ -30,7 +30,19 @@ export function preloadArtifact(
       const data: ArtifactDetail = await res.json();
       artifactDataCache.set(slug, data);
 
-      // Preload gallery media assets into browser cache & three.js texture cache
+      // Le « pack » n'est ouvert que lorsque tout est téléchargé : on attend les
+      // médias (avec un plafond, pour qu'un fichier lent ne bloque pas).
+      const pending: Promise<void>[] = [];
+      const waitFor = (el: HTMLImageElement | HTMLVideoElement) =>
+        pending.push(
+          new Promise<void>((resolve) => {
+            if (el instanceof HTMLImageElement) {
+              el.onload = el.onerror = () => resolve();
+            } else {
+              el.onloadeddata = el.onerror = () => resolve();
+            }
+          }),
+        );
       if (Array.isArray(data.gallery)) {
         for (const item of data.gallery) {
           if (item._type === "galleryImage" && item.imageRef) {
@@ -41,6 +53,7 @@ export function preloadArtifact(
             );
             const img = new Image();
             img.crossOrigin = "anonymous";
+            waitFor(img);
             img.src = url;
             preloadedElements.add(img);
           } else if (item._type === "galleryVideo") {
@@ -50,6 +63,7 @@ export function preloadArtifact(
               const video = document.createElement("video");
               video.crossOrigin = "anonymous";
               video.preload = "auto";
+              waitFor(video);
               video.src = videoUrl;
               video.load();
               preloadedElements.add(video);
@@ -68,6 +82,11 @@ export function preloadArtifact(
           }
         }
       }
+
+      await Promise.race([
+        Promise.all(pending),
+        new Promise<void>((resolve) => setTimeout(resolve, 8000)),
+      ]);
 
       return data;
     } catch (err) {

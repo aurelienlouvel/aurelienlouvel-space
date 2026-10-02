@@ -6,12 +6,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, type Variants } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Calendar02Icon } from "@hugeicons/core-free-icons";
+import { Calendar02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { Canvas, events, useFrame } from "@react-three/fiber";
 import { Stats, useTexture } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
@@ -22,7 +23,12 @@ import { fileRefToUrl, playMediaUrl } from "@/lib/sanity-utils";
 import type { PlayArtifact, ArtifactDetail, Mate } from "@/sanity/queries";
 import { Tag } from "@/components/primitives/Tag";
 import { MatesBlock } from "@/components/blocks/MatesBlock";
-import { formatDateRange } from "@/lib/date-utils";
+import { formatMonth } from "@/lib/date-utils";
+import { RoleBlock } from "@/components/blocks/RoleBlock";
+import { DateAgo } from "@/components/blocks/DateAgo";
+import { paletteFromImageUrl, paletteFromVideo, type RGB } from "@/lib/dominant-color";
+import { usePanelGradient, type DeckWeight } from "./panel-gradient";
+import { getSharedVideoElement } from "./SecondaryGalleryPlanes";
 import { ArtifactGrid, setAppCursor } from "./ArtifactGrid";
 import {
   SecondaryGalleryPlanes,
@@ -30,7 +36,6 @@ import {
 import { resolveArtifactMedia } from "./artifact-media";
 import { dampTowards } from "./damp";
 import { FisheyeEffect } from "./FisheyeEffect";
-import { FocusIndicator } from "./FocusIndicator";
 import {
   buildGravityTile,
   GRAVITY_DEFAULTS,
@@ -44,6 +49,7 @@ import {
   DEFAULT_TRANSITION_CONFIG,
   cloneTransitionConfig,
   timelineEnd,
+  holdTime,
 } from "./transition-presets";
 import {
   createTransitionFrame,
@@ -111,6 +117,16 @@ export type SelectOverlayParams = {
   iridescence: number;
   baseOpacity: number;
   glowIntensity: number;
+  /** Longueur du zoom blur radial sous la crête (0 = aucun, 1 = jusqu'au centre). */
+  zoomBlur: number;
+  /** Grossissement du média au passage de la crête (0 = aucun). */
+  zoomPunch: number;
+  /** Bombement type fisheye du média sous la crête. */
+  bulge: number;
+  /** Largeur de la lentille autour de la crête (fraction de la tuile). */
+  lensWidth: number;
+  /** Part de la déformation qui traîne derrière la crête (0..1). */
+  lensTrail: number;
 };
 
 export const OVERLAY_DEFAULTS: SelectOverlayParams = {
@@ -122,6 +138,11 @@ export const OVERLAY_DEFAULTS: SelectOverlayParams = {
   iridescence: 0.64,
   baseOpacity: 0.64,
   glowIntensity: 0.6,
+  zoomBlur: 0.45,
+  zoomPunch: 0.35,
+  bulge: 0.8,
+  lensWidth: 0.3,
+  lensTrail: 0.35,
 };
 
 export type AnimationStudioParams = {
@@ -147,14 +168,6 @@ export type CameraDebugParams = {
 
 export type PlayDebugState = {
   plane: { radius: number };
-  brackets: {
-    padding: number;
-    radius: number;
-    angle: number;
-    arm: number;
-    thickness: number;
-    color: string;
-  };
   indicator: { fadeSpeed: number; moveSpeed: number };
   camera: CameraDebugParams;
   gravity: GravityParams;
@@ -216,17 +229,29 @@ export type PlayRuntimeState = {
     /** Horloge de la timeline, en secondes depuis son début. */
     t: number;
     /** 0..1 — avancement du hold, réversible tant que la timeline n'a pas démarré. */
+    /** 0..1 — avancement de la vague de charge (miroir de `frame.waveProgress`). */
     selectProgress: number;
-    /** Point cliqué sur la tuile au déclenchement, normalisé -1..1 depuis son centre. */
-    clickOffset: { x: number; y: number };
-    holding: boolean;
-    trigger: "pointer" | "key" | null;
     targetIndex: number;
     /** Mémorise que le panneau a été notifié, pour n'appeler le callback qu'une fois. */
     textRevealed: boolean;
+    navbarRevealed: boolean;
     columnScrollY: number;
     targetColumnScrollY: number;
     isSnapping: boolean;
+    /** Les données du « pack » sont téléchargées : la timeline peut passer au boom. */
+    ready: boolean;
+    /** Temps réel depuis le clic (tortillement). */
+    wall: number;
+    /** Cycles de la vague qui boucle pendant l'attente. */
+    loop: number;
+    /** La timeline attend le téléchargement. */
+    holding: boolean;
+    /** La vague a traversé l'artifact (ou le pack était déjà prêt). */
+    passed: boolean;
+    /** Cycle de boucle auquel on libère l'attente une fois prêt. */
+    releaseAt: number | null;
+    /** Frame figé au moment d'une annulation en cours d'entrée. */
+    returnFrom: TransitionFrame | null;
     /** Échantillon de la frame courante, partagé par tous les `useFrame`. */
     frame: TransitionFrame;
   };
@@ -238,65 +263,36 @@ function rewindTransition(rc: PlayRuntimeState) {
   rc.transition.t = 0;
   rc.transition.selectProgress = 0;
   rc.transition.textRevealed = false;
-}
-
-/** Démarre le hold sur `pointIndex`, réversible tant qu'il n'est pas complet. */
-function beginSelect(
-  rc: PlayRuntimeState,
-  pointIndex: number,
-  canonicalPos: { x: number; y: number },
-  trigger: "pointer" | "key",
-  clickOffset: { x: number; y: number },
-) {
-  rc.repulsor.active = true;
-  rc.repulsor.pointIndex = pointIndex;
-  rc.repulsor.x = canonicalPos.x;
-  rc.repulsor.y = canonicalPos.y;
-  rc.transition.phase = "selecting";
-  rc.transition.targetIndex = pointIndex;
-  rc.transition.holding = true;
-  rc.transition.trigger = trigger;
-  rc.transition.clickOffset = clickOffset;
-  rewindTransition(rc);
+  rc.transition.navbarRevealed = false;
 }
 
 /**
- * Démarre la timeline sans passer par le hold — utilisé par le studio
- * d'animation (rejeu, raccourci « R ») pour rejouer la séquence complète.
+ * Démarre la timeline sur `pointIndex` : le clic lance directement la vague,
+ * puis le boom. Il n'y a plus de hold.
  */
 export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
+  if (rc.transition.phase !== "idle") return;
   rc.transition.targetIndex = pointIndex;
   rc.transition.phase = "playing";
   rc.transition.t = 0;
-  rc.transition.selectProgress = 1;
-  rc.transition.holding = false;
-  rc.transition.trigger = null;
+  rc.transition.selectProgress = 0;
   rc.transition.textRevealed = false;
+  rc.transition.navbarRevealed = false;
   rc.transition.columnScrollY = 0;
   rc.transition.targetColumnScrollY = 0;
   rc.transition.isSnapping = false;
+  rc.transition.ready = false;
+  rc.transition.wall = 0;
+  rc.transition.loop = 0;
+  rc.transition.holding = false;
+  rc.transition.passed = false;
+  rc.transition.releaseAt = null;
+  rc.transition.returnFrom = null;
   rc.camera.mode = "settle";
   rc.repulsor.active = true;
   rc.repulsor.pointIndex = pointIndex;
   rc.repulsor.x = rc.selectedPos.x;
   rc.repulsor.y = rc.selectedPos.y;
-}
-
-export function applyPointerDown(
-  rc: PlayRuntimeState,
-  pointIndex: number,
-  canonicalPos: { x: number; y: number },
-  clickOffset: { x: number; y: number },
-) {
-  if (rc.transition.phase !== "idle") return;
-  beginSelect(rc, pointIndex, canonicalPos, "pointer", clickOffset);
-}
-
-export function applyPointerUp(rc: PlayRuntimeState) {
-  if (rc.transition.trigger === "pointer") {
-    rc.transition.holding = false;
-    rc.transition.trigger = null;
-  }
 }
 
 export function applyResetTransition(rc: PlayRuntimeState) {
@@ -309,9 +305,11 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   // coupe pas : on bascule sur la timeline de sortie, qui repart de zéro.
   // On ne modifie pas targetColumnScrollY ici pour éviter tout spin arrière.
   if (rc.transition.phase === "playing" || rc.transition.phase === "isolated") {
-    rc.transition.phase = "returning";
+    // Annulée en cours d'entrée : le retour rembobine depuis l'état exact.
+    rc.transition.returnFrom =
+      rc.transition.phase === "playing" ? { ...rc.transition.frame } : null;
     rc.transition.holding = false;
-    rc.transition.trigger = null;
+    rc.transition.phase = "returning";
     rc.camera.mode = "settle";
     rewindTransition(rc);
     return;
@@ -319,8 +317,6 @@ export function applyResetTransition(rc: PlayRuntimeState) {
 
   rc.transition.targetColumnScrollY = 0;
   rc.transition.phase = "idle";
-  rc.transition.holding = false;
-  rc.transition.trigger = null;
   rc.transition.targetIndex = -1;
   rc.transition.columnScrollY = 0;
   rc.repulsor.active = false;
@@ -340,18 +336,7 @@ function applyKeyDownEnter(
   if (rc.transition.phase !== "idle") return;
   const selPt = points[rc.selected];
   if (!selPt) return;
-
-  beginSelect(rc, rc.selected, selPt, "key", { x: 0, y: 0 });
-  rc.camera.mode = "settle";
-  rc.camera.targetX = rc.selectedPos.x;
-  rc.camera.targetY = rc.selectedPos.y;
-}
-
-function applyKeyUpEnter(rc: PlayRuntimeState) {
-  if (rc.transition.trigger === "key") {
-    rc.transition.holding = false;
-    rc.transition.trigger = null;
-  }
+  startPlayback(rc, rc.selected);
 }
 
 function applyPanWheel(
@@ -397,14 +382,6 @@ function applyArrowNavigation(
 // ── Ouverture — image ────────────────────────────────────────────────────
 const PLANE_RADIUS = 32;
 
-// ── Ouverture — brackets ─────────────────────────────────────────────────
-const BRACKET_PADDING = 20;
-const BRACKET_RADIUS = 48;
-const BRACKET_ANGLE = 90;
-const BRACKET_ARM = 8;
-const BRACKET_THICKNESS = 4;
-const BRACKET_COLOR = "#a6a09b";
-
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
 const INDICATOR_FADE_SPEED = 26;
 const INDICATOR_MOVE_SPEED = 6;
@@ -418,6 +395,8 @@ const CAMERA_SETTLE_SPEED = 8;
 /** Vitesse d'extinction des reliquats de courbe : assez rapide pour disparaître
  *  sous la seconde, assez lente pour ne jamais se voir comme un saut. */
 const SETTLE_DECAY_SPEED = 12;
+/** Le glissement de la caméra vers la tuile cliquée, plus doux que le zoom. */
+const SETTLE_POS_DECAY_SPEED = 4.5;
 const DEFAULT_NEIGHBOR_K = 6;
 
 // ── Ouverture — pan ───────────────────────────────────────────────────────
@@ -442,37 +421,33 @@ const DIRECTION_CONE_COS = Math.cos((60 * Math.PI) / 180);
 /**
  * Animation fluide d'apparition du contenu texte depuis le bas lors du focus.
  */
-const DETAIL_CONTAINER_VARIANTS: Variants = {
-  hidden: { opacity: 0 },
+const DETAIL_PANEL_VARIANTS: Variants = {
+  hidden: (desktop: boolean) =>
+    desktop ? { opacity: 0, x: 48 } : { opacity: 0, y: 48 },
   visible: {
     opacity: 1,
+    x: 0,
+    y: 0,
     transition: {
-      staggerChildren: 0.08,
+      duration: 0.4,
+      ease: [0.16, 1, 0.3, 1],
+      staggerChildren: 0.04,
       delayChildren: 0.05,
     },
   },
-  exit: {
+  exit: (desktop: boolean) => ({
     opacity: 0,
-    y: 16,
-    transition: {
-      duration: 0.25,
-      ease: [0.16, 1, 0.3, 1],
-    },
-  },
+    ...(desktop ? { x: 32 } : { y: 32 }),
+    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
+  }),
 };
 
 const DETAIL_ITEM_VARIANTS: Variants = {
-  hidden: {
-    opacity: 0,
-    y: 28,
-  },
+  hidden: { opacity: 0, y: 16 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: {
-      duration: 0.75,
-      ease: [0.16, 1, 0.3, 1],
-    },
+    transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] },
   },
 };
 
@@ -534,42 +509,45 @@ function advanceClock(
 ) {
   const tr = rc.transition;
 
-  if (tr.phase === "selecting") {
-    if (tr.holding) {
-      tr.selectProgress = Math.min(
-        1,
-        tr.selectProgress + effDelta / Math.max(0.1, config.selectDuration),
-      );
-      if (tr.selectProgress >= 1) {
-        tr.phase = "playing";
-        tr.t = 0;
-      }
-      return;
-    }
-    tr.selectProgress = Math.max(
-      0,
-      tr.selectProgress - effDelta / Math.max(0.05, config.selectDuration * 0.4),
-    );
-    if (tr.selectProgress <= 0.02) {
-      tr.selectProgress = 0;
-      tr.phase = "idle";
-      rc.repulsor.active = false;
-      rc.repulsor.pointIndex = -1;
-    }
-    return;
-  }
-
   if (tr.phase === "playing") {
     const end = timelineEnd(config);
     if (studio?.scrubMode) {
       tr.t = Math.max(0, Math.min(1, studio.scrubProgress)) * end;
       return;
     }
+    tr.wall += effDelta;
+    const hold = holdTime(config);
+
+    if (tr.holding) {
+      // Le pack n'est pas encore téléchargé : la vague boucle, l'artifact se tortille.
+      tr.loop += effDelta * (config.loadWaveSpeed ?? 0.9);
+      if (tr.ready && tr.releaseAt === null) tr.releaseAt = Math.ceil(tr.loop);
+      if (tr.ready && tr.releaseAt !== null && tr.loop >= tr.releaseAt) {
+        tr.holding = false;
+        tr.passed = true;
+      }
+      return;
+    }
+
     tr.t += effDelta;
+    if (!tr.passed && tr.t >= hold) {
+      if (tr.ready) {
+        tr.passed = true;
+      } else {
+        tr.t = hold;
+        tr.holding = true;
+        tr.loop = 0;
+        tr.releaseAt = null;
+        return;
+      }
+    }
     if (tr.t >= end) {
       if (studio?.loopLock) {
         tr.t = 0;
+        tr.wall = 0;
+        tr.passed = false;
         tr.textRevealed = false;
+        tr.navbarRevealed = false;
         return;
       }
       tr.t = end;
@@ -595,6 +573,7 @@ function stepCamera(
   screenSize?: { width: number; height: number },
   onTextReveal?: () => void,
   onReturnComplete?: () => void,
+  onNavbarReveal?: () => void,
 ) {
   const effDelta = delta * (studio?.speed ?? 1);
   const tr = rc.transition;
@@ -602,22 +581,24 @@ function stepCamera(
   advanceClock(rc, config, effDelta, studio);
   sampleTransition(config, tr, tr.frame);
   const frame = tr.frame;
+  tr.selectProgress = frame.waveProgress;
 
   // Le panneau de détail est notifié une seule fois, sur le front montant.
   if (frame.textRevealed !== tr.textRevealed) {
     tr.textRevealed = frame.textRevealed;
     if (frame.textRevealed) onTextReveal?.();
   }
+  if (frame.navbarRevealed !== tr.navbarRevealed) {
+    tr.navbarRevealed = frame.navbarRevealed;
+    if (frame.navbarRevealed) onNavbarReveal?.();
+  }
 
   // ── Défilement libre de la colonne (vue détail) ─────────────────────────
   if (tr.phase === "isolated") {
-    const damping = tr.isSnapping
-      ? (config.snapStrength ?? 6)
-      : config.detailScrollDamping;
     tr.columnScrollY = dampTowards(
       tr.columnScrollY,
       tr.targetColumnScrollY,
-      damping,
+      config.detailScrollDamping,
       effDelta,
     );
   } else if (tr.phase === "returning") {
@@ -666,8 +647,9 @@ function stepCamera(
           velocity.y = 0;
         }
       }
-      camera.position.x = rc.camera.targetX;
-      camera.position.y = rc.camera.targetY;
+      // Lissage léger : les deltas discrets de la molette ne sautent plus d'une frame à l'autre.
+      camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, 22, effDelta);
+      camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, 22, effDelta);
       return;
     }
     camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
@@ -676,20 +658,6 @@ function stepCamera(
   }
 
   // ── Transition : la courbe s'applique telle quelle ──────────────────────
-  if (tr.phase === "playing" && tr.t < config.lock.start) {
-    // Avant le lock : immobilité absolue, la caméra ne bouge pas d'un cheveu.
-    // Fenêtre nulle dans la chorégraphie actuelle (le lock démarre à 0) — elle
-    // réapparaît dès qu'on repousse son départ depuis le panneau de debug.
-    rc.camera.settleX = 0;
-    rc.camera.settleY = 0;
-    rc.camera.settleZoom = 1;
-    camera.position.x = curveX;
-    camera.position.y = curveY;
-    camera.zoom = curveZoom;
-    camera.updateProjectionMatrix();
-    return;
-  }
-
   rc.camera.settleZoom = dampTowards(rc.camera.settleZoom, 1, SETTLE_DECAY_SPEED, effDelta);
   const appliedZoom = curveZoom * rc.camera.settleZoom;
   if (Math.abs(camera.zoom - appliedZoom) > 0.00001) {
@@ -697,16 +665,8 @@ function stepCamera(
     camera.updateProjectionMatrix();
   }
 
-  // Pendant le hold, la caméra se recentre sur la tuile : c'est un mouvement de
-  // rattrapage, pas une courbe, donc il reste amorti.
-  if (tr.phase === "selecting") {
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
-    return;
-  }
-
-  rc.camera.settleX = dampTowards(rc.camera.settleX, 0, SETTLE_DECAY_SPEED, effDelta);
-  rc.camera.settleY = dampTowards(rc.camera.settleY, 0, SETTLE_DECAY_SPEED, effDelta);
+  rc.camera.settleX = dampTowards(rc.camera.settleX, 0, SETTLE_POS_DECAY_SPEED, effDelta);
+  rc.camera.settleY = dampTowards(rc.camera.settleY, 0, SETTLE_POS_DECAY_SPEED, effDelta);
   camera.position.x = curveX + rc.camera.settleX;
   camera.position.y = curveY + rc.camera.settleY;
 
@@ -741,12 +701,14 @@ function CameraRig({
   runtime,
   velocity,
   onTextReveal,
+  onNavbarReveal,
   onReturnComplete,
 }: {
   debug: PlayDebugRef;
   runtime: PlayRuntimeRef;
   velocity: RefObject<{ x: number; y: number }>;
   onTextReveal?: () => void;
+  onNavbarReveal?: () => void;
   onReturnComplete?: () => void;
 }) {
   const prevCamPosRef = useRef({ x: 0, y: 0, initialized: false });
@@ -769,6 +731,7 @@ function CameraRig({
       state.size,
       onTextReveal,
       onReturnComplete,
+      onNavbarReveal,
     );
 
     // Vélocité instantanée de la caméra pour le flou de mouvement global
@@ -821,14 +784,6 @@ function CameraRig({
 export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   const debug = useRef<PlayDebugState>({
     plane: { radius: PLANE_RADIUS },
-    brackets: {
-      padding: BRACKET_PADDING,
-      radius: BRACKET_RADIUS,
-      angle: BRACKET_ANGLE,
-      arm: BRACKET_ARM,
-      thickness: BRACKET_THICKNESS,
-      color: BRACKET_COLOR,
-    },
     indicator: { fadeSpeed: INDICATOR_FADE_SPEED, moveSpeed: INDICATOR_MOVE_SPEED },
     camera: {
       zoom: CAMERA_ZOOM,
@@ -872,14 +827,19 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       phase: "idle",
       t: 0,
       selectProgress: 0,
-      clickOffset: { x: 0, y: 0 },
-      holding: false,
-      trigger: null,
       targetIndex: -1,
       textRevealed: false,
+      navbarRevealed: false,
       columnScrollY: 0,
       targetColumnScrollY: 0,
       isSnapping: false,
+      ready: false,
+      wall: 0,
+      loop: 0,
+      holding: false,
+      passed: false,
+      releaseAt: null,
+      returnFrom: null,
       frame: createTransitionFrame(),
     },
   });
@@ -985,18 +945,29 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   const [selectedArtifactDetail, setSelectedArtifactDetail] = useState<ArtifactDetail | null>(null);
   const [principalPoint, setPrincipalPoint] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [isDetailVisible, setIsDetailVisible] = useState(false);
+  const [isNavbarVisible, setIsNavbarVisible] = useState(false);
   const [apiStatus, setApiStatus] = useState<"idle" | "fetching" | "ready" | "error">("idle");
 
+
+  useEffect(() => {
+    const idle = selectedArtifactIndex === null;
+    const slug = selectedArtifactIndex !== null ? artifacts[selectedArtifactIndex]?.slug : null;
+    runtime.current.transition.ready = idle ? false : !slug || apiStatus === "ready" || apiStatus === "error";
+  }, [apiStatus, selectedArtifactIndex, artifacts]);
+
+  const selectionToken = useRef(0);
 
   const handleStartSelect = useCallback(
     (artifactIndex: number, point?: { x: number; y: number; width: number; height: number }) => {
       if (point) setPrincipalPoint(point);
       setSelectedArtifactIndex(artifactIndex);
       const artifact = artifacts[artifactIndex];
+      const token = ++selectionToken.current;
       if (artifact?.slug) {
         setApiStatus("fetching");
         preloadArtifact(artifact.slug)
           .then((data) => {
+            if (token !== selectionToken.current) return;
             if (data) {
               setSelectedArtifactDetail(data);
               setApiStatus("ready");
@@ -1005,6 +976,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
             }
           })
           .catch(() => {
+            if (token !== selectionToken.current) return;
             setApiStatus("error");
           });
       }
@@ -1017,15 +989,23 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     setIsDetailVisible(true);
   }, []);
 
+  /** Front montant de la navbar : elle change un peu avant la fin du rouleau. */
+  const handleNavbarReveal = useCallback(() => {
+    setIsNavbarVisible(true);
+  }, []);
+
   const { setProject, clearProject } = useActionBar();
 
   const handleCloseDetail = useCallback(() => {
+    selectionToken.current++;
     setIsDetailVisible(false);
+    setIsNavbarVisible(false);
     clearProject();
     applyResetTransition(runtime.current);
   }, [clearProject]);
 
   const handleReturnComplete = useCallback(() => {
+    setIsNavbarVisible(false);
     setSelectedArtifactDetail(null);
     setPrincipalPoint(null);
     setSelectedArtifactIndex(null);
@@ -1034,20 +1014,24 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     runtime.current.transition.targetColumnScrollY = 0;
   }, []);
 
+  // Le bouton retour (avec le nom de l'artifact) est là dès le clic : il annule
+  // l'entrée en cours, ou ferme la vue détail.
+  const selectedTitle =
+    selectedArtifactIndex !== null
+      ? selectedArtifactDetail?.title || artifacts[selectedArtifactIndex]?.title || "Artifact"
+      : null;
+  const selectedLink = selectedArtifactDetail?.link ?? null;
+
   useEffect(() => {
-    if (selectedArtifactDetail && isDetailVisible) {
-      setProject({
-        title: selectedArtifactDetail.title || "Artifact",
-        redirectUrl: selectedArtifactDetail.link ?? null,
-        onBack: handleCloseDetail,
-      });
+    if (selectedTitle && runtime.current.transition.phase !== "returning") {
+      setProject({ title: selectedTitle, redirectUrl: selectedLink, onBack: handleCloseDetail });
     } else {
       clearProject();
     }
     return () => {
       clearProject();
     };
-  }, [selectedArtifactDetail, isDetailVisible, setProject, clearProject, handleCloseDetail]);
+  }, [selectedTitle, selectedLink, setProject, clearProject, handleCloseDetail]);
 
   const handleSimulateSelect = useCallback(() => {
     const rc = runtime.current;
@@ -1110,6 +1094,35 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     };
   }, [selectedArtifactIndex, textureUrls, mediaKinds, ratios]);
 
+  // Palettes (3 teintes) des médias de la pile ; le dégradé du side panel les
+  // mélange en continu selon le poids de chaque carte visible.
+  const deckWeightsRef = useRef<DeckWeight[]>([]);
+  const palettesRef = useRef<Map<string, RGB[]>>(new Map());
+  const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
+  usePanelGradient(panelEl, deckWeightsRef, palettesRef);
+
+  const loadPalette = useCallback((media: { url: string; kind: "image" | "video" }) => {
+    if (palettesRef.current.has(media.url)) return;
+    if (media.kind === "image") {
+      paletteFromImageUrl(media.url).then((p) => {
+        if (p) palettesRef.current.set(media.url, p);
+      });
+      return;
+    }
+    let attempts = 0;
+    const sample = () => {
+      const video = getSharedVideoElement(media.url);
+      const p = video ? paletteFromVideo(video) : null;
+      if (p) palettesRef.current.set(media.url, p);
+      else if (attempts++ < 10) setTimeout(sample, 300);
+    };
+    sample();
+  }, []);
+
+  useEffect(() => {
+    palettesRef.current = new Map();
+    if (primaryMedia) loadPalette({ url: primaryMedia.url, kind: primaryMedia.kind });
+  }, [primaryMedia, loadPalette]);
 
   useEffect(() => {
     if (!tile || tile.points.length === 0) return;
@@ -1221,6 +1234,9 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     let lastX = 0;
     let lastY = 0;
     const recent: { x: number; y: number; t: number }[] = [];
+    let wheelAcc = 0;
+    let lastWheelAt = 0;
+    let lastStepAt = 0;
 
     function onWheel(e: WheelEvent) {
       e.preventDefault();
@@ -1231,13 +1247,21 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       }
 
       if (runtime.current.transition.phase === "isolated") {
-        const zoom = debug.current.camera.zoom * (debug.current.transition.detailZoom || 1.8);
-        const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
         const isDesktopLayout = window.innerWidth >= 1024 && window.innerWidth >= window.innerHeight;
         const deltaVal = isDesktopLayout
           ? e.deltaY
           : (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
-        runtime.current.transition.targetColumnScrollY += (deltaVal / (zoom || 1)) * 0.9 * speed;
+        const now = performance.now();
+        if (now - lastWheelAt > 160) wheelAcc = 0;
+        lastWheelAt = now;
+        wheelAcc += deltaVal;
+        const cooldown = (debug.current.transition.stepCooldown ?? 0.35) * 1000;
+        if (Math.abs(wheelAcc) >= 36 && now - lastStepAt >= cooldown) {
+          const tr = runtime.current.transition;
+          tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + Math.sign(wheelAcc);
+          lastStepAt = now;
+          wheelAcc = 0;
+        }
         return;
       }
 
@@ -1292,11 +1316,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         const dy = e.clientY - lastY;
         lastX = e.clientX;
         lastY = e.clientY;
-        const zoom = debug.current.camera.zoom * (debug.current.transition.detailZoom || 1.8);
-        const speed = debug.current.transition.detailScrollSpeed ?? 1.0;
         const isDesktopLayout = window.innerWidth >= 1024 && window.innerWidth >= window.innerHeight;
         const moveDelta = isDesktopLayout ? dy : dx;
-        runtime.current.transition.targetColumnScrollY -= (moveDelta / (zoom || 1)) * 1.1 * speed;
+        const pxPerCard = debug.current.transition.dragPxPerCard ?? 320;
+        if (dragMoved.current) {
+          runtime.current.transition.targetColumnScrollY -= moveDelta / pxPerCard;
+        }
         return;
       }
 
@@ -1319,9 +1344,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         if (runtime.current.hovered !== null) {
           runtime.current.hovered = null;
           runtime.current.hoveredPos = null;
-        }
-        if (runtime.current.transition.phase === "selecting") {
-          applyResetTransition(runtime.current);
         }
       }
 
@@ -1352,6 +1374,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         curPhase === "playing" ||
         curPhase === "returning"
       ) {
+        if (curPhase === "isolated" && dragging && dragMoved.current) {
+          // Fin du drag : la carte la plus proche vient se poser au premier plan.
+          const tr = runtime.current.transition;
+          tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY);
+        }
         dragging = false;
         dragMoved.current = false;
         setAppCursor("auto");
@@ -1475,6 +1502,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       e.preventDefault();
 
       const rc = runtime.current;
+      if (rc.transition.phase === "isolated") {
+        const next = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : -1;
+        rc.transition.targetColumnScrollY = Math.round(rc.transition.targetColumnScrollY) + next;
+        return;
+      }
       if (rc.transition.phase !== "idle") return;
       const candidates = neighbors[rc.selected];
       if (!candidates || candidates.length === 0) return;
@@ -1489,7 +1521,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
     function onKeyUp(e: KeyboardEvent) {
       if (e.key === "Enter") {
-        applyKeyUpEnter(runtime.current);
       }
     }
 
@@ -1513,7 +1544,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           <Canvas
             flat
             orthographic
-            dpr={[1, 2]}
+            dpr={[1, 1.5]}
             camera={{ position: [0, 0, 100], zoom: CAMERA_ZOOM, near: 0.1, far: 1000 }}
             events={(store) => {
               const base = events(store);
@@ -1546,6 +1577,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               runtime={runtime}
               velocity={velocity}
               onTextReveal={handleTextReveal}
+              onNavbarReveal={handleNavbarReveal}
               onReturnComplete={handleReturnComplete}
             />
             <ArtifactGrid
@@ -1565,53 +1597,56 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
                 runtime={runtime}
                 debug={debug}
                 gap={32}
+                onFocusMedia={loadPalette}
+                weightsRef={deckWeightsRef}
               />
             )}
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
-            <FocusIndicator debug={debug} runtime={runtime} />
             <FisheyeEffect debug={debug} />
           </Canvas>
         )}
       </div>
 
-      {/* Panneau d'informations transparent sur les 50% droits de l'écran (aucun fond blanc opaque) */}
+      {/* Side panel : posé à droite, décollé du haut, bord léger, sans ombre,
+          grand arrondi en haut à gauche. Fond dégradé teinté par le média au
+          centre de la wheel ; les textes en mix-blend-mode multiply en
+          héritent. Sur mobile il devient une feuille basse. */}
       <AnimatePresence mode="wait">
         {selectedArtifactDetail && isDetailVisible && (
-          <motion.div
+          <motion.aside
             key={selectedArtifactDetail._id}
+            ref={setPanelEl}
+            custom={isDesktop}
             initial="hidden"
             animate="visible"
             exit="exit"
-            variants={DETAIL_CONTAINER_VARIANTS}
-            className="fixed pointer-events-none z-10 select-none inset-x-0 bottom-0 top-[50%] flex flex-col justify-start px-6 sm:px-10 pb-8 overflow-y-auto lg:inset-y-0 lg:left-auto lg:right-0 lg:top-0 lg:bottom-0 lg:w-[50%] lg:h-full lg:justify-center lg:px-8 lg:sm:px-16 lg:overflow-visible"
+            variants={DETAIL_PANEL_VARIANTS}
+            onWheel={(e) => e.stopPropagation()}
+            className="fixed z-10 select-none overflow-y-auto overscroll-contain border border-zinc-200/80 inset-x-0 bottom-0 top-[52%] rounded-t-[1.75rem] border-b-0 lg:inset-x-auto lg:right-0 lg:rounded-tr-none lg:rounded-tl-[2.5rem] lg:border-r-0"
             style={
-              isDesktop
-                ? {
-                    width: `${(debug.current.transition.landscapeTextWidthRatio ?? 0.5) * 100}%`,
-                    right: `${debug.current.transition.landscapeTextRightOffset ?? 0}px`,
-                    transform: `translateY(${debug.current.transition.landscapeTextTopOffset ?? 0}px)`,
-                  }
-                : undefined
+              {
+                isolation: "isolate",
+                backgroundColor: "#fff",
+                ...(isDesktop
+                  ? {
+                      top: `calc(6rem + ${debug.current.transition.landscapeTextTopOffset ?? 0}px)`,
+                      right: `${debug.current.transition.landscapeTextRightOffset ?? 0}px`,
+                      width: `min(${(debug.current.transition.landscapeTextWidthRatio ?? 0.42) * 100}vw, ${(debug.current.transition.landscapeTextMaxWidth ?? 576) + 96}px)`,
+                    }
+                  : {}),
+              } as CSSProperties
             }
           >
-            <div
-              className="max-w-xl w-full pointer-events-auto flex flex-col my-auto lg:my-0"
-              style={{
-                maxWidth:
-                  isDesktop && debug.current.transition.landscapeTextMaxWidth != null
-                    ? `${debug.current.transition.landscapeTextMaxWidth}px`
-                    : undefined,
-              }}
-            >
+            <div className="flex flex-col gap-6 px-6 py-8 sm:px-10 lg:px-12 lg:py-12">
               <motion.h1
                 variants={DETAIL_ITEM_VARIANTS}
-                className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-950 mb-6 text-balance"
+                className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-900 text-balance mix-blend-multiply"
               >
                 {selectedArtifactDetail.title}
               </motion.h1>
 
               {selectedArtifactDetail.tags && selectedArtifactDetail.tags.length > 0 && (
-                <motion.div variants={DETAIL_ITEM_VARIANTS} className="flex flex-wrap gap-2 mb-6">
+                <motion.div variants={DETAIL_ITEM_VARIANTS} className="flex flex-wrap gap-2">
                   {selectedArtifactDetail.tags.map((tag) => (
                     <Tag
                       key={tag._id}
@@ -1623,61 +1658,69 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
                 </motion.div>
               )}
 
-              {selectedArtifactDetail.startDate && (
-                <motion.div
-                  variants={DETAIL_ITEM_VARIANTS}
-                  className="flex items-center gap-2 text-sm text-zinc-500 font-medium mb-6"
-                >
-                  <HugeiconsIcon icon={Calendar02Icon} size={16} strokeWidth={2} />
-                  <span>
-                    {formatDateRange(
-                      selectedArtifactDetail.startDate,
-                      selectedArtifactDetail.endDate ?? null,
-                    )}
-                  </span>
-                </motion.div>
-              )}
-
               {selectedArtifactDetail.description && (
                 <motion.div
                   variants={DETAIL_ITEM_VARIANTS}
-                  className="text-base sm:text-lg text-zinc-600 leading-relaxed whitespace-pre-line mb-8 max-h-48 overflow-y-auto"
+                  className="text-base sm:text-lg text-zinc-700 leading-relaxed whitespace-pre-line mix-blend-multiply"
                 >
                   {selectedArtifactDetail.description}
                 </motion.div>
               )}
 
-              {selectedArtifactDetail.contributors && selectedArtifactDetail.contributors.length > 0 && (
-                <motion.div
-                  variants={DETAIL_ITEM_VARIANTS}
-                  className="space-y-3 pt-4 border-t border-zinc-200/60 mb-6"
-                >
-                  <span className="text-xs uppercase tracking-wider font-semibold text-zinc-400">
-                    Collaborators
-                  </span>
-                  <MatesBlock mates={selectedArtifactDetail.contributors as unknown as Mate[]} />
-                </motion.div>
-              )}
+              {/* Date, rôles, collaborateurs : les uns sous les autres. Les mates
+                  sont en dernier, pour que leur carte de survol ne cache rien. */}
+              <div className="flex flex-col gap-7 border-t border-zinc-900/10 pt-7">
+                {selectedArtifactDetail.startDate && (
+                  <motion.div variants={DETAIL_ITEM_VARIANTS} className="mix-blend-multiply">
+                    <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-stone-500">
+                      <HugeiconsIcon icon={Calendar02Icon} size={12} strokeWidth={2} />
+                      timeline
+                    </div>
+                    <DateAgo
+                      date={selectedArtifactDetail.endDate ?? selectedArtifactDetail.startDate}
+                      ongoing={!selectedArtifactDetail.endDate}
+                    >
+                      <p className="whitespace-nowrap text-lg font-semibold text-stone-700">
+                        {(() => {
+                          const start = formatMonth(selectedArtifactDetail.startDate);
+                          const end = selectedArtifactDetail.endDate
+                            ? formatMonth(selectedArtifactDetail.endDate)
+                            : "Present";
+                          if (start === end) return start;
+                          return (
+                            <>
+                              {start}
+                              <span className="px-2 font-semibold text-stone-500">→</span>
+                              {end}
+                            </>
+                          );
+                        })()}
+                      </p>
+                    </DateAgo>
+                  </motion.div>
+                )}
 
-              {selectedArtifactDetail.roles && selectedArtifactDetail.roles.length > 0 && (
-                <motion.div variants={DETAIL_ITEM_VARIANTS} className="space-y-2 pt-2">
-                  <span className="text-xs uppercase tracking-wider font-semibold text-zinc-400">
-                    Roles
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedArtifactDetail.roles.map((r) => (
-                      <span
-                        key={r._id}
-                        className="px-2.5 py-1 text-xs font-medium rounded-md bg-zinc-100 text-zinc-700"
-                      >
-                        {r.name}
-                      </span>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
+                {selectedArtifactDetail.roles && selectedArtifactDetail.roles.length > 0 && (
+                  <motion.div variants={DETAIL_ITEM_VARIANTS} className="mix-blend-multiply">
+                    <RoleBlock roles={selectedArtifactDetail.roles} />
+                  </motion.div>
+                )}
+
+                {selectedArtifactDetail.contributors &&
+                  selectedArtifactDetail.contributors.length > 0 && (
+                    <motion.div variants={DETAIL_ITEM_VARIANTS} className="relative z-10">
+                      <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-stone-500 mix-blend-multiply">
+                        <HugeiconsIcon icon={UserMultipleIcon} size={12} strokeWidth={2} />
+                        mates
+                      </div>
+                      <MatesBlock
+                        mates={selectedArtifactDetail.contributors as unknown as Mate[]}
+                      />
+                    </motion.div>
+                  )}
+              </div>
             </div>
-          </motion.div>
+          </motion.aside>
         )}
       </AnimatePresence>
 

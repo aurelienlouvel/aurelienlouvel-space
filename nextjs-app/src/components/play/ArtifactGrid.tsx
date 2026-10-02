@@ -4,10 +4,10 @@ import { Component, Suspense, useEffect, useRef, type ReactNode, type RefObject 
 import { useFrame, useThree } from "@react-three/fiber";
 import { Group, Mesh, type MeshBasicMaterial } from "three";
 import type { MediaKind } from "./artifact-media";
+import { CURSOR_GRABBING, CURSOR_POINTER } from "@/lib/cursors";
 import { dampTowards } from "./damp";
 import {
-  applyPointerDown,
-  applyPointerUp,
+  startPlayback,
   type PhysicsParams,
   type PlayDebugRef,
   type PlayRuntimeRef,
@@ -53,15 +53,21 @@ class PlaneBoundary extends Component<
  */
 const COPIES = 9;
 
-/** Modifie le curseur sur le body et le canvas pour un support cross-browser complet */
+/**
+ * Pose le curseur sur le body et le canvas. « auto » et « default » retirent
+ * le style inline : c'est alors le curseur par défaut du site (globals.css).
+ */
 export function setAppCursor(cursor: "pointer" | "auto" | "default" | "grabbing") {
-  if (typeof document !== "undefined") {
-    if (document.body.style.cursor !== cursor) {
-      document.body.style.cursor = cursor;
-    }
-    const canvas = document.querySelector("canvas");
-    if (canvas && canvas.style.cursor !== cursor) {
-      canvas.style.cursor = cursor;
+  if (typeof document === "undefined") return;
+  const value =
+    cursor === "pointer" ? CURSOR_POINTER : cursor === "grabbing" ? CURSOR_GRABBING : "";
+  const canvas = document.querySelector("canvas");
+  for (const el of [document.body, canvas]) {
+    if (!el) continue;
+    if (value) {
+      if (el.style.cursor !== value) el.style.cursor = value;
+    } else if (el.style.cursor) {
+      el.style.removeProperty("cursor");
     }
   }
 }
@@ -81,11 +87,7 @@ function applyHover(
   isDragging?: boolean,
 ) {
   if (rc.transition.phase !== "idle") {
-    if (rc.transition.phase === "selecting") {
-      setAppCursor("pointer");
-    } else {
-      setAppCursor("auto");
-    }
+    setAppCursor("auto");
     return;
   }
   if (hovering) {
@@ -122,14 +124,13 @@ function applySelect(
   width: number,
   height: number,
 ) {
-  if (rc.transition.phase !== "idle" && rc.transition.phase !== "selecting") return;
+  if (rc.transition.phase !== "idle") return;
   rc.selected = pointIndex;
   rc.selectedPos = world;
   rc.hovered = null;
   rc.hoveredPos = null;
-  rc.camera.targetX = world.x;
-  rc.camera.targetY = world.y;
-  rc.camera.mode = "settle";
+  // La caméra ne bouge pas : la tuile reste là où on a cliqué, c'est la
+  // timeline qui la rejoint après le « boom ».
   rc.indicatorTarget = { x: world.x, y: world.y, width, height };
 }
 
@@ -147,6 +148,11 @@ function applySelect(
  *    - Dès que le maintien cesse ou que le mode isolé est quitté, le déplacement s'amortit
  *      directement et proprement vers 0 (position canonique de repos), sans inertie chaotique.
  */
+function hash01(n: number): number {
+  const x = Math.sin(n) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 function stepKinematicMeshes(
   phys: PhysicsParams,
   rc: PlayRuntimeState,
@@ -155,6 +161,7 @@ function stepKinematicMeshes(
   meshRefs: (Mesh | null)[][],
   displacementRef: { current: number },
   delta: number,
+  burst: { burstRandomness?: number; burstAngleJitter?: number },
 ) {
   if (!phys.enabled) {
     displacementRef.current = 0;
@@ -264,8 +271,20 @@ function stepKinematicMeshes(
         scale = selectScaleFactor;
       } else if (currentD > 0.001) {
         if (dist > 0.001) {
-          curDx = (rx / dist) * currentD;
-          curDy = (ry / dist) * currentD;
+          // Burst organique : chaque tuile a sa propre puissance et dévie un peu de la radiale.
+          const tc = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : 0;
+          const h1 = hash01(i * 127.1 + k * 311.7 + tc * 17.3);
+          const h2 = hash01(i * 269.5 + k * 183.3 + tc * 7.1);
+          const rnd = burst.burstRandomness ?? 0;
+          const jitter = burst.burstAngleJitter ?? 0;
+          const power = Math.max(0.15, 1 + (h1 - 0.5) * 2 * rnd * 0.8);
+          const ang = (h2 - 0.5) * 2 * jitter * Math.min(1, rnd + 0.001) ;
+          const cs = Math.cos(ang);
+          const sn = Math.sin(ang);
+          const ux = rx / dist;
+          const uy = ry / dist;
+          curDx = (ux * cs - uy * sn) * currentD * power;
+          curDy = (ux * sn + uy * cs) * currentD * power;
         }
       }
 
@@ -293,6 +312,13 @@ function stepKinematicMeshes(
             isTarget ? frame.tileTiltX : 0,
             isTarget ? frame.tileTiltY : 0,
           );
+          // Même condition de visibilité que le dégradé (SelectProgressOverlay) :
+          // la déformation n'existe que tant que la vague est à l'écran.
+          const waveOn =
+            isTarget &&
+            rc.transition.phase === "playing" && rc.transition.selectProgress > 0.001;
+          uniforms.uWaveProgress.value = waveOn ? rc.transition.selectProgress : 0;
+          uniforms.uWaveExit.value = waveOn ? frame.overlayExit : 0;
         }
       }
     }
@@ -336,33 +362,10 @@ export function ArtifactGrid({
     displacementRef.current = 0;
   }, [points]);
 
-  // Relâchement global du clic de répulsion / transition
-  useEffect(() => {
-    function onPointerUp() {
-      applyPointerUp(runtime.current);
-    }
-
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
-    return () => {
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
-    };
-  }, [runtime]);
-
   // Boucle par frame :
   // 1. Tuilage 3×3 infini virtualisé autour de la caméra
   // 2. Déplacement cinématique uniforme et mise à jour des positions des meshes
   useFrame((_, delta) => {
-    if (
-      !runtime.current.transition.holding &&
-      runtime.current.transition.selectProgress === 0 &&
-      runtime.current.transition.phase === "idle" &&
-      runtime.current.repulsor.active
-    ) {
-      applyPointerUp(runtime.current);
-    }
-
     if (TILE_W > 0 && TILE_H > 0 && runtime.current.transition.phase === "idle") {
       const tx = Math.round(camera.position.x / TILE_W);
       const ty = Math.round(camera.position.y / TILE_H);
@@ -386,6 +389,7 @@ export function ArtifactGrid({
       meshRefs.current,
       displacementRef,
       delta,
+      debug.current.transition,
     );
   });
 
@@ -412,21 +416,17 @@ export function ArtifactGrid({
     );
   }
 
-  function handlePointerDown(
+  /** Clic franc (pas un drag) : la timeline démarre tout de suite. */
+  function handleSelect(
     pointIndex: number,
     world: { x: number; y: number },
     width: number,
     height: number,
-    offset: { x: number; y: number },
   ) {
-    if (runtime.current.transition.phase !== "idle") return;
-    applySelect(runtime.current, pointIndex, world, width, height);
-    applyPointerDown(
-      runtime.current,
-      pointIndex,
-      { x: world.x, y: world.y },
-      offset,
-    );
+    const rc = runtime.current;
+    if (dragMoved.current || rc.transition.phase !== "idle") return;
+    applySelect(rc, pointIndex, world, width, height);
+    startPlayback(rc, pointIndex);
     if (points[pointIndex]) {
       onStartSelect?.(points[pointIndex].artifactIndex, {
         ...points[pointIndex],
@@ -434,16 +434,6 @@ export function ArtifactGrid({
         y: world.y,
       });
     }
-  }
-
-  function handleSelect(
-    pointIndex: number,
-    world: { x: number; y: number },
-    width: number,
-    height: number,
-  ) {
-    if (dragMoved.current) return;
-    applySelect(runtime.current, pointIndex, world, width, height);
   }
 
   return (
@@ -478,9 +468,6 @@ export function ArtifactGrid({
                   }}
                   onHoverChange={(hovering, world) =>
                     handleHover(i, world, point.width, point.height, hovering)
-                  }
-                  onPointerDown={(world, offset) =>
-                    handlePointerDown(i, world, point.width, point.height, offset)
                   }
                   onSelect={(world) => handleSelect(i, world, point.width, point.height)}
                 />

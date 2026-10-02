@@ -490,3 +490,36 @@ body.body-project {
         background: rgba(255, 255, 255, 0.35);
     }
 }
+
+/* Curseurs du site : des SVG dans /public/cursors (flèche, main, poing, I-beam).
+   Les deux nombres sont le point actif (hotspot) dans l'image de 32px. */
+html {
+  cursor: url("/cursors/default.svg") 4 2, auto;
+}
+a,
+button,
+select,
+summary,
+label[for],
+[role="button"],
+[data-cursor="link"],
+[class*="cursor-pointer"] {
+  cursor: url("/cursors/pointer.svg") 11 2, pointer;
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+textarea,
+[contenteditable="true"] {
+  cursor: url("/cursors/text.svg") 16 16, text;
+}
+
+/* Les couleurs du dégradé du side panel de /play s'animent entre deux médias. */
+@property --panel-c1 {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: rgb(255 255 255);
+}
+@property --panel-c2 {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: rgb(255 255 255);
+}

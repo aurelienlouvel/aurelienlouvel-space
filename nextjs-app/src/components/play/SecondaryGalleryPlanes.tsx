@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useState, useEffect } from "react";
+import { useRef, useMemo, useState, useEffect, type MutableRefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
   Vector2,
@@ -34,6 +34,10 @@ type SecondaryGalleryPlanesProps = {
   runtime: PlayRuntimeRef;
   debug: PlayDebugRef;
   gap?: number;
+  /** Notifié quand le média le plus proche du centre de l'écran change (wheel). */
+  onFocusMedia?: (media: { url: string; kind: "image" | "video" }) => void;
+  /** Poids (0..1) de chaque carte visible, mutés à chaque frame : alimente le dégradé. */
+  weightsRef?: MutableRefObject<{ url: string; kind: "image" | "video"; w: number }[]>;
 };
 
 type PoolSlot = {
@@ -117,6 +121,11 @@ function roundCornersCacheKey() {
 // ── Cache global de textures vidéo partagées (1 seul élément vidéo HTML5 par URL) ──
 const sharedVideoTextures = new Map<string, { texture: VideoTexture; video: HTMLVideoElement }>();
 export const sharedVideoDimensions = new Map<string, { width: number; height: number; ratio: number }>();
+
+/** Élément vidéo partagé d'une url, s'il existe déjà. */
+export function getSharedVideoElement(url: string): HTMLVideoElement | null {
+  return sharedVideoTextures.get(url)?.video ?? null;
+}
 
 export function getOrCreateVideoTexture(url: string, colorSpace?: string): VideoTexture | null {
   if (!url) return null;
@@ -347,22 +356,23 @@ export function SecondaryGalleryPlanes({
   runtime,
   debug,
   gap = 32,
+  onFocusMedia,
+  weightsRef,
 }: SecondaryGalleryPlanesProps) {
   const { size, camera } = useThree();
   const groupRef = useRef<Group>(null);
   const meshRefs = useRef<(Mesh | null)[]>([]);
 
-  // Pause les vidéos partagées au démontage pour libérer les décodeurs matériels
+  // Les vidéos partagées (mosaïque comprise) ne doivent jamais s'arrêter : au
+  // montage comme au démontage (React StrictMode rejoue l'effet), on relance
+  // celles qu'un cycle précédent aurait mises en pause.
   useEffect(() => {
-    return () => {
+    const resume = () =>
       sharedVideoTextures.forEach(({ video }) => {
-        try {
-          if (!video.paused) {
-            video.pause();
-          }
-        } catch {}
+        if (video.paused) video.play().catch(() => {});
       });
-    };
+    resume();
+    return resume;
   }, []);
 
   // Détection responsive : desktop (>= 1024px et paysage) vs mobile
@@ -435,7 +445,8 @@ export function SecondaryGalleryPlanes({
     const minCycles = Math.ceil(3600 / Math.max(300, approxCycleHeight));
     const baseCycles = Math.max(3, minCycles);
     // Nombre impair de cycles C garantissant une symétrie parfaite autour du slot central
-    const C = baseCycles % 2 === 0 ? baseCycles + 1 : baseCycles;
+    const C = 1;
+    void baseCycles;
     const halfCycles = Math.floor(C / 2);
     const totalSlots = C * K;
     const centerIdx = halfCycles * K;
@@ -464,18 +475,24 @@ export function SecondaryGalleryPlanes({
     };
   }, [gallery, principalPoint, primaryMedia]);
 
-  const lastTargetScrollYRef = useRef(0);
-  const quietTimeRef = useRef(0);
-  const prevScrollYRef = useRef(0);
-  const motionBlurValRef = useRef(0);
   const lastPhaseRef = useRef<string>("idle");
-  const isSnappingRef = useRef(false);
-  const exitSlotRef = useRef<number>(-1);
-  const exitStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const exitStartRotRef = useRef<number>(0);
-  const exitStartScaleRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  const onFocusMediaRef = useRef(onFocusMedia);
+  const notifiedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    onFocusMediaRef.current = onFocusMedia;
+  }, [onFocusMedia]);
+  const exitStartRef = useRef({ x: 0, y: 0, w: 0, h: 0, op: 1 });
 
-  useFrame((_, delta) => {
+  // Entrées de poids partagées avec le dégradé du panneau (mutées en place).
+  const weightEntries = useMemo(
+    () => uniqueMedia.map((m) => ({ url: m.url, kind: m.kind, w: 0 })),
+    [uniqueMedia],
+  );
+  useEffect(() => {
+    if (weightsRef) weightsRef.current = weightEntries;
+  }, [weightsRef, weightEntries]);
+
+  useFrame(() => {
     const group = groupRef.current;
     if (!group || !principalPoint || pool.length === 0) return;
 
@@ -486,9 +503,13 @@ export function SecondaryGalleryPlanes({
       group.visible = false;
       return;
     }
-    // Pendant la phase playing avant le début de reveal (pause 0.6s + lock micro-animation),
-    // la tuile reste affichée dans ArtifactGrid : aucun conflit, Z-fighting ou clignotement.
+    // Avant le reveal, la tuile reste affichée par ArtifactGrid : pas de doublon.
     if (tr.phase === "playing" && frame.reveal < 0.001) {
+      group.visible = false;
+      return;
+    }
+    // Entrée annulée avant le réveil : la tuile de la mosaïque n'a jamais été remplacée.
+    if (tr.phase === "returning" && tr.returnFrom && tr.returnFrom.reveal < 0.001) {
       group.visible = false;
       return;
     }
@@ -496,16 +517,11 @@ export function SecondaryGalleryPlanes({
 
     const isPortrait = !isDesktop;
     const cfg = debug.current.transition;
-    const effectiveGap = cfg.mediaGap ?? gap;
 
-    // ── Géométrie de la colonne / ligne et contain-fit avec marges d'écran garanties ──
     const curZoom = Math.max(0.1, camera.zoom);
     const screenW = size.width / curZoom;
     const screenH = size.height / curZoom;
 
-    // Bornes maximales avec marges confortables quel que soit le ratio (portrait, paysage, carré) :
-    // - En paysage (desktop) : max 38% largeur, max 74% hauteur (au moins 13% de marge en haut et en bas).
-    // - En portrait (mobile) : max 72% largeur, max 34% hauteur (reste strictement dans la moitié haute sans toucher le haut).
     const maxW = isDesktop
       ? screenW * (cfg.maxMediaWidthRatio ?? 0.38)
       : screenW * (cfg.desktopMediaWidthRatio ?? 0.72);
@@ -514,373 +530,151 @@ export function SecondaryGalleryPlanes({
       : screenH * (cfg.mobileMediaHeightRatio ?? 0.34);
 
     const K = Math.max(1, uniqueCount);
-    const uniqueHeights: number[] = new Array(K);
-    const uniqueWidths: number[] = new Array(K);
-
+    const widths: number[] = new Array(K);
+    const heights: number[] = new Array(K);
     for (let m = 0; m < K; m++) {
       const itemUrl = uniqueMedia[m]?.url;
       const dynRatio = itemUrl ? sharedVideoDimensions.get(itemUrl)?.ratio : undefined;
       const r = dynRatio ?? uniqueMedia[m]?.ratio ?? 1.5;
+      let w: number;
+      let h: number;
       if (isPortrait) {
-        let h = maxH;
-        let w = h * r;
+        h = maxH;
+        w = h * r;
         if (w > maxW) {
           w = maxW;
           h = w / r;
         }
-        uniqueWidths[m] = w;
-        uniqueHeights[m] = h;
       } else {
-        let w = maxW;
-        let h = w / r;
+        w = maxW;
+        h = w / r;
         if (h > maxH) {
           h = maxH;
           w = h * r;
         }
-        uniqueWidths[m] = w;
-        uniqueHeights[m] = h;
       }
+      widths[m] = w;
+      heights[m] = h;
     }
 
-    let oneCycleSpan = 0;
-    for (let m = 0; m < K; m++) {
-      oneCycleSpan += (isPortrait ? uniqueWidths[m] : uniqueHeights[m]) + effectiveGap;
-    }
-
-    const totalPoolSpan = oneCycleSpan * totalCycles;
-
-    // Positions de repos : M0 ancré au centre, la ligne/colonne se construit de part et d'autre.
-    const restingPos: number[] = new Array(pool.length);
-    restingPos[centerSlotIdx] = isPortrait ? principalPoint.x : principalPoint.y;
-
-    for (let s = centerSlotIdx + 1; s < pool.length; s++) {
-      const prevDim = isPortrait
-        ? uniqueWidths[pool[s - 1].galleryIdx % K]
-        : uniqueHeights[pool[s - 1].galleryIdx % K];
-      const curDim = isPortrait
-        ? uniqueWidths[pool[s].galleryIdx % K]
-        : uniqueHeights[pool[s].galleryIdx % K];
-      if (isPortrait) {
-        restingPos[s] = restingPos[s - 1] + prevDim * 0.5 + effectiveGap + curDim * 0.5;
-      } else {
-        restingPos[s] = restingPos[s - 1] - prevDim * 0.5 - effectiveGap - curDim * 0.5;
-      }
-    }
-
-    for (let s = centerSlotIdx - 1; s >= 0; s--) {
-      const nextDim = isPortrait
-        ? uniqueWidths[pool[s + 1].galleryIdx % K]
-        : uniqueHeights[pool[s + 1].galleryIdx % K];
-      const curDim = isPortrait
-        ? uniqueWidths[pool[s].galleryIdx % K]
-        : uniqueHeights[pool[s].galleryIdx % K];
-      if (isPortrait) {
-        restingPos[s] = restingPos[s + 1] - nextDim * 0.5 - effectiveGap - curDim * 0.5;
-      } else {
-        restingPos[s] = restingPos[s + 1] + nextDim * 0.5 + effectiveGap + curDim * 0.5;
-      }
-    }
-
-    const anchorCoord = isPortrait ? principalPoint.x : principalPoint.y;
-    const screenCenterCoord = isPortrait ? camera.position.x : camera.position.y;
-    const visibleHalfCoord = ((isPortrait ? size.width : size.height) / Math.max(0.1, camera.zoom)) * 0.5;
-    const boundLimit = anchorCoord + Math.max(visibleHalfCoord + 300, oneCycleSpan * 0.75);
-    const screenMin = screenCenterCoord - visibleHalfCoord;
-    const screenMax = screenCenterCoord + visibleHalfCoord;
-
-    // ── Rouleau (Spin de la wheel basé sur le nombre de médias) ─────────────
-    const spinCount = Math.max(1, Math.round(cfg.spinMediaCount ?? 30));
-    const fullCycles = Math.floor(spinCount / K);
-    const remainder = spinCount % K;
-    const targetSlot = centerSlotIdx + remainder;
-    const subDistance =
-      targetSlot < pool.length
-        ? Math.abs(restingPos[centerSlotIdx] - restingPos[targetSlot])
-        : 0;
-    const baseDistance = fullCycles * oneCycleSpan + subDistance;
-    const spinDistance = baseDistance + (screenCenterCoord - anchorCoord);
-    const scrollOffset = frame.scroll * spinDistance + tr.columnScrollY;
-
-    // ── Calcul de la vélocité et du Motion Blur de la roue ─────────────────
-    let deltaScroll = 0;
     if (lastPhaseRef.current !== tr.phase) {
       if (tr.phase === "returning") {
-        // Détecter l'itération de M0 (slot.galleryIdx === 0) la plus proche du centre écran
-        let closestSlot = centerSlotIdx;
-        let minDistance = Infinity;
-
-        pool.forEach((slot, s) => {
-          if (slot.galleryIdx === 0) {
-            const m = meshRefs.current[s];
-            if (m) {
-              const curCoord = isPortrait ? m.position.x : m.position.y;
-              const dist = Math.abs(curCoord - screenCenterCoord);
-              if (dist < minDistance) {
-                minDistance = dist;
-                closestSlot = s;
-              }
+        const m0 = meshRefs.current[0];
+        const mat0 = m0?.material as MeshBasicMaterial | undefined;
+        exitStartRef.current = m0
+          ? {
+              x: m0.position.x,
+              y: m0.position.y,
+              w: m0.scale.x,
+              h: m0.scale.y,
+              op: m0.visible ? (mat0?.opacity ?? 1) : 0,
             }
-          }
-        });
-
-        exitSlotRef.current = closestSlot;
-        const chosenMesh = meshRefs.current[closestSlot];
-        if (chosenMesh) {
-          exitStartPosRef.current = {
-            x: chosenMesh.position.x,
-            y: chosenMesh.position.y,
-          };
-          exitStartRotRef.current = chosenMesh.rotation.z;
-          exitStartScaleRef.current = {
-            w: chosenMesh.scale.x,
-            h: chosenMesh.scale.y,
-          };
-        } else {
-          exitStartPosRef.current = {
-            x: principalPoint.x,
-            y: principalPoint.y,
-          };
-          exitStartRotRef.current = 0;
-          exitStartScaleRef.current = {
-            w: principalPoint.width,
-            h: principalPoint.height,
-          };
-        }
-      } else {
-        exitSlotRef.current = centerSlotIdx;
+          : { x: principalPoint.x, y: principalPoint.y, w: principalPoint.width, h: principalPoint.height, op: 1 };
       }
-      prevScrollYRef.current = scrollOffset;
       lastPhaseRef.current = tr.phase;
-    } else if (delta > 0) {
-      deltaScroll = (scrollOffset - prevScrollYRef.current) / delta;
-      prevScrollYRef.current = scrollOffset;
     }
 
-    const camCfg = debug.current.camera;
-    const isBlurActive = camCfg.motionBlur ?? true;
-    let targetBlur = 0;
-    if (isBlurActive && (tr.phase === "playing" || tr.phase === "isolated")) {
-      const speed = Math.abs(deltaScroll);
-      const refCardDim = isPortrait
-        ? Math.max(100, uniqueWidths[0] ?? maxW)
-        : Math.max(100, uniqueHeights[0] ?? maxH);
-      const normSpeed = speed / refCardDim;
-      const blurStrength = camCfg.motionBlurStrength ?? 1.0;
-      const blurMax = camCfg.motionBlurMax ?? 0.08;
-      targetBlur = Math.min(blurMax, normSpeed * 0.0035 * blurStrength);
-    }
+    const deckPos = tr.columnScrollY;
+    const stackScale = cfg.stackScale ?? 0.9;
+    const peek = (cfg.stackPeek ?? 22) / curZoom;
+    const depthMax = cfg.stackDepth ?? 3;
+    const exitTravel = screenH * 0.5 * (cfg.cardExit ?? 0.7);
 
-    const smoothing = tr.phase === "playing" ? 25 : 15;
-    motionBlurValRef.current +=
-      (targetBlur - motionBlurValRef.current) * Math.min(1, delta * smoothing);
-    if (motionBlurValRef.current < 0.0005) {
-      motionBlurValRef.current = 0;
-    }
-    const currentMotionBlur = motionBlurValRef.current;
-
-    // M0 part de la tuile de la mosaïque, sans jamais dépasser maxW ou maxH
     const mainStartW = Math.min(maxW, principalPoint.width * frame.tileScale);
     const mainStartH = Math.min(maxH, principalPoint.height * frame.tileScale);
 
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
       if (!mesh) return;
+      const isMain = s === 0;
+      const i = slot.galleryIdx % K;
 
-      // Pendant la phase returning, isMain désigne l'itération la plus proche de M0
-      const isMain = tr.phase === "returning"
-        ? s === exitSlotRef.current
-        : s === centerSlotIdx;
+      // Profondeur cyclique signée : 0 = carte du dessus, >0 = derrière, <0 = partie.
+      let d = i - deckPos;
+      d -= K * Math.round(d / K);
 
-      // Pendant la phase returning, masquer immédiatement toute autre itération de M0
-      // pour garantir qu'un SEUL média M0 n'est visible et retourne sur sa tuile d'origine.
-      if (tr.phase === "returning" && slot.galleryIdx === 0 && !isMain) {
-        mesh.visible = false;
-        const mat = mesh.material as MeshBasicMaterial | undefined;
-        if (mat) mat.opacity = 0;
-        return;
-      }
+      const returning = tr.phase === "returning";
+      const targetW = widths[i];
+      const targetH = heights[i];
 
-      // M0 est toujours visible dès t = 0 dans SecondaryGalleryPlanes.
-      // Les cartes secondaires ne s'affichent qu'au déploiement de la colonne.
-      mesh.visible = true;
-      const offset = slot.relativeIdx;
-
-      let primaryPos = isPortrait
-        ? restingPos[s] - scrollOffset
-        : restingPos[s] + scrollOffset;
-
-      if (!isMain && frame.slide !== 0) {
-        primaryPos += offset > 0 ? -frame.slide : frame.slide;
-      }
-
-      // À l'entrée, les cartes secondaires ne se déploient que dans le sens d'arrivée
-      const gated =
-        tr.phase === "playing" && offset < 0 && (
-          isPortrait
-            ? restingPos[s] - scrollOffset >= boundLimit
-            : restingPos[s] + scrollOffset <= boundLimit
-        );
-
-      if (pool.length > 1 && totalPoolSpan > 100) {
-        primaryPos = wrapPeriodic(primaryPos, totalPoolSpan, boundLimit);
-      }
-
-      // ── Incurvation en arc et rotation de la roue ───────────────────────────
-      const deltaFromCenter = primaryPos - screenCenterCoord;
-      const normCoord = Math.max(-2, Math.min(2, deltaFromCenter / Math.max(1, visibleHalfCoord)));
-
-      // Arc :
-      // En paysage : translation X vers l'intérieur (gauche si curve < 0)
-      // En portrait : translation Y vers le centre de la page en bas
-      const arcCurve = isPortrait
-        ? (cfg.portraitArcCurvature ?? 50)
-        : (cfg.arcCurvature ?? 140);
-      const arcShift = -arcCurve * Math.max(0, 1 - normCoord * normCoord * 0.7);
-
-      const arcAngleDeg = cfg.arcRotation ?? (isPortrait ? 8 : 12);
-      const rotZ = isPortrait
-        ? normCoord * ((arcAngleDeg * Math.PI) / 180)
-        : normCoord * ((arcAngleDeg * Math.PI) / 180);
-
-      // M0 ne s'incurve et ne tourne que lorsque la roue est réellement en mouvement (scroll ou navigation libre).
-      // Pendant la confirmation de lock, l'expansion hero et le temps de pause, il reste parfaitement droit et centré.
-      const wheelActive = frame.scroll > 0.001 || tr.columnScrollY !== 0 || tr.phase === "isolated";
-      const curveAmount = isMain
-        ? (tr.phase === "returning" ? frame.reveal : (wheelActive ? Math.min(1, frame.scroll * 5) : 0))
-        : 1;
-
-      let posX = isPortrait ? primaryPos : (principalPoint.x + arcShift * curveAmount);
-      let posY = isPortrait ? (principalPoint.y + arcShift * curveAmount) : primaryPos;
-
-      // Pendant la phase de retour (exit), l'itération la plus proche de M0 rejoint
-      // de façon continue et fluide sa tuile d'origine sur la mosaïque, sans aucun saut ni spin.
-      if (isMain && tr.phase === "returning") {
-        const rev = frame.reveal; // 1 -> 0
-        const startX = exitStartPosRef.current.x;
-        const startY = exitStartPosRef.current.y;
-        posX = principalPoint.x + (startX - principalPoint.x) * rev;
-        posY = principalPoint.y + (startY - principalPoint.y) * rev;
-      }
-
-      const rotToApply = isMain && tr.phase === "returning"
-        ? exitStartRotRef.current * frame.reveal
-        : rotZ * curveAmount;
-      mesh.position.set(posX, posY, isMain ? 0.01 : 0);
-      mesh.rotation.set(0, 0, rotToApply);
-      mesh.renderOrder = isMain ? 10 : 5;
-
-      const curItemIdx = slot.galleryIdx % K;
-      const targetW = uniqueWidths[curItemIdx];
-      const targetH = uniqueHeights[curItemIdx];
-
-      // M0 :
-      // - À l'aller : taille de tuile → taille de colonne/ligne, piloté par la piste `reveal`.
-      // - Au retour : taille actuelle sur la wheel → taille de la tuile sur la mosaïque, piloté par `reveal` (1 -> 0).
+      let posX = principalPoint.x;
+      let posY = principalPoint.y;
       let drawW = targetW;
       let drawH = targetH;
-      if (isMain) {
-        if (tr.phase === "returning") {
-          const startW = exitStartScaleRef.current.w;
-          const startH = exitStartScaleRef.current.h;
-          drawW = principalPoint.width + (startW - principalPoint.width) * frame.reveal;
-          drawH = principalPoint.height + (startH - principalPoint.height) * frame.reveal;
+      let opacity = 1;
+      let shade = 1;
+      let weight = Math.max(0, 1 - Math.abs(d));
+
+      if (d >= 0) {
+        const sc = Math.pow(stackScale, d);
+        drawW = targetW * sc;
+        drawH = targetH * sc;
+        posY = principalPoint.y - (targetH * (1 - sc)) / 2 - peek * d;
+        opacity = Math.max(0, Math.min(1, depthMax + 0.5 - d));
+        shade = 1 - 0.12 * Math.min(d, 3);
+      } else if (d > -1) {
+        const u = -d;
+        posY = principalPoint.y + exitTravel * u * u;
+        drawW = targetW * (1 + 0.04 * u);
+        drawH = targetH * (1 + 0.04 * u);
+        opacity = 1 - u;
+      } else {
+        opacity = 0;
+        weight = 0;
+      }
+
+      if (isMain && !returning && tr.phase === "playing") {
+        // Réveil : taille de tuile → taille de carte, sans fondu.
+        drawW = mainStartW + (targetW - mainStartW) * frame.reveal;
+        drawH = mainStartH + (targetH - mainStartH) * frame.reveal;
+        opacity = 1;
+      } else if (!isMain && tr.phase === "playing") {
+        // Cascade : les cartes surgissent l'une après l'autre, de dessous.
+        const p = frame.columnOpacity * (depthMax + 1);
+        const cin = Math.max(0, Math.min(1, p - (Math.max(1, d) - 1)));
+        opacity *= cin;
+        posY -= (1 - cin) * peek * 6;
+      }
+
+      if (returning) {
+        if (isMain) {
+          const st = exitStartRef.current;
+          const rev = frame.reveal;
+          posX = principalPoint.x + (st.x - principalPoint.x) * rev;
+          posY = principalPoint.y + (st.y - principalPoint.y) * rev;
+          drawW = principalPoint.width + (st.w - principalPoint.width) * rev;
+          drawH = principalPoint.height + (st.h - principalPoint.height) * rev;
+          opacity = st.op + (1 - st.op) * (1 - rev);
+          shade = 1;
         } else {
-          drawW = mainStartW + (targetW - mainStartW) * frame.reveal;
-          drawH = mainStartH + (targetH - mainStartH) * frame.reveal;
+          opacity *= frame.columnOpacity;
         }
       }
-      mesh.scale.set(drawW, drawH, 1);
 
-      // Fondu doux aux extrémités de l'écran
-      const fadeZone = Math.max(100, (isPortrait ? drawW : drawH) * 0.35);
-      const cardMin = isPortrait ? posX - drawW * 0.5 : posY - drawH * 0.5;
-      const cardMax = isPortrait ? posX + drawW * 0.5 : posY + drawH * 0.5;
-      let edgeFade = 1;
-      if (cardMin < screenMin + fadeZone) {
-        edgeFade = Math.max(0, Math.min(1, (cardMax - screenMin) / fadeZone));
-      } else if (cardMax > screenMax - fadeZone) {
-        edgeFade = Math.max(0, Math.min(1, (screenMax - cardMin) / fadeZone));
-      }
+      weightEntries[i].w = returning ? 0 : weight * (tr.phase === "playing" ? frame.columnOpacity || 1 : 1);
+
+      const visible = opacity > 0.002;
+      mesh.visible = visible;
+      if (!visible) return;
+
+      mesh.position.set(posX, posY, 0.01 - Math.max(0, d) * 0.001);
+      mesh.rotation.set(0, 0, 0);
+      mesh.renderOrder = isMain && returning ? 200 : Math.round(100 - d * 10);
+      mesh.scale.set(drawW, drawH, 1);
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
         const uniforms = uniformsOf<PlaneUniforms>(mat);
-        if (uniforms) {
-          if (uniforms.uMotionBlur) uniforms.uMotionBlur.value = currentMotionBlur;
-          if (uniforms.uMotionBlurDir) uniforms.uMotionBlurDir.value.set(isPortrait ? 1 : 0, isPortrait ? 0 : 1);
-        }
-        if (gated) {
-          mat.opacity = 0;
-        } else if (isMain) {
-          // Pendant playing et returning, M0 est le média focalisé et reste toujours 100% opaque sans fondu d'arête
-          mat.opacity = (tr.phase === "playing" || tr.phase === "returning") ? 1 : edgeFade;
-        } else {
-          mat.opacity = frame.columnOpacity * edgeFade;
-        }
+        if (uniforms?.uMotionBlur) uniforms.uMotionBlur.value = 0;
+        mat.opacity = opacity;
+        mat.color.setScalar(shade);
+      }
+
+      if (weight > 0.05 && !returning && !notifiedRef.current.has(slot.url)) {
+        notifiedRef.current.add(slot.url);
+        onFocusMediaRef.current?.({ url: slot.url, kind: slot.kind });
       }
     });
-
-    // ── Système magnétique de snap au centre (Focus mode) ───────────────────
-    if (tr.phase === "isolated" && cfg.snapEnabled) {
-      const scrollDiff = Math.abs(tr.targetColumnScrollY - lastTargetScrollYRef.current);
-
-      if (scrollDiff > 0.5) {
-        // L'utilisateur scroll manuellement (roulette ou drag) : on coupe tout snap en cours
-        isSnappingRef.current = false;
-        tr.isSnapping = false;
-        quietTimeRef.current = 0;
-        lastTargetScrollYRef.current = tr.targetColumnScrollY;
-      } else if (isSnappingRef.current) {
-        // Snap en cours : maintient la référence à jour et vérifie la convergence
-        lastTargetScrollYRef.current = tr.targetColumnScrollY;
-        const remaining = Math.abs(tr.columnScrollY - tr.targetColumnScrollY);
-        if (remaining < 0.5) {
-          isSnappingRef.current = false;
-          tr.isSnapping = false;
-          quietTimeRef.current = 0;
-        }
-      } else {
-        quietTimeRef.current += delta;
-        lastTargetScrollYRef.current = tr.targetColumnScrollY;
-
-        const snapDelay = cfg.snapDelay ?? 0.14;
-        const currentSpeed = Math.abs(tr.columnScrollY - tr.targetColumnScrollY);
-        if (quietTimeRef.current >= snapDelay && currentSpeed < 4) {
-          // Trouver le média le plus proche du centre (screenCenterX en portrait, screenCenterY en paysage)
-          let closestOffset = Infinity;
-          pool.forEach((_, s) => {
-            const m = meshRefs.current[s];
-            if (!m) return;
-            const dist = isPortrait
-              ? m.position.x - screenCenterCoord
-              : m.position.y - screenCenterCoord;
-            if (Math.abs(dist) < Math.abs(closestOffset)) {
-              closestOffset = dist;
-            }
-          });
-
-          if (
-            Math.abs(closestOffset) > 1.0 &&
-            Math.abs(closestOffset) < oneCycleSpan * 0.5
-          ) {
-            // Déclenchement EN UN SEUL À-COUP
-            if (isPortrait) {
-              tr.targetColumnScrollY += closestOffset;
-            } else {
-              tr.targetColumnScrollY -= closestOffset;
-            }
-            lastTargetScrollYRef.current = tr.targetColumnScrollY;
-            isSnappingRef.current = true;
-            tr.isSnapping = true;
-          }
-        }
-      }
-    } else {
-      quietTimeRef.current = 0;
-      isSnappingRef.current = false;
-      tr.isSnapping = false;
-      lastTargetScrollYRef.current = tr.targetColumnScrollY;
-    }
   });
 
   if (!principalPoint || pool.length === 0) {

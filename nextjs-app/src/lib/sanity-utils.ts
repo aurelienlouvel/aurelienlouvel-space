@@ -8,9 +8,13 @@ export function fileRefToUrl(ref: string | null | undefined): string | null {
 }
 
 /**
- * URL same-origin (via `/api/media`) d'un média Sanity, pour les chargements en
- * mode CORS du canvas /play (textures three.js). Les URLs qui ne sont pas des
- * assets Sanity (vidéo externe, chemin relatif) sont renvoyées telles quelles.
+ * URL same-origin (via `/api/media`) d'une IMAGE Sanity, pour les chargements en
+ * mode CORS du canvas /play (textures three.js).
+ *
+ * Les vidéos ne passent volontairement pas par le proxy : ce sont de gros
+ * fichiers (lecture par ranges, bande passante de fonction Vercel) et un
+ * `<video>` n'a pas besoin d'un détour par le serveur. Toute autre URL
+ * (vidéo, externe, chemin relatif) est renvoyée telle quelle.
  */
 export function playMediaUrl(url: string): string {
   if (!url || !url.startsWith("https://cdn.sanity.io/")) return url;

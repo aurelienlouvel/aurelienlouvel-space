@@ -8,6 +8,7 @@ import {
 import { fileRefToUrl, isVideoRef } from "@/lib/sanity-utils";
 import { formatMonth, calcDuration } from "@/lib/date-utils";
 import { Tag } from "@/components/primitives/Tag";
+import { DateAgo } from "@/components/blocks/DateAgo";
 import { RoleBlock } from "@/components/blocks/RoleBlock";
 import { ProjectMediaBlock } from "@/components/blocks/ProjectMediaBlock";
 import { MatesBlock } from "@/components/blocks/MatesBlock";
@@ -127,22 +128,27 @@ export default async function ProjectPage({
               <HugeiconsIcon icon={Calendar02Icon} size={12} strokeWidth={2} />
               timeline
             </div>
-            <p className="text-lg font-semibold text-stone-700 whitespace-nowrap">
-              {(() => {
-                const start = formatMonth(project.startDate!);
-                const end = project.endDate
-                  ? formatMonth(project.endDate)
-                  : "Present";
-                if (start === end) return start;
-                return (
-                  <>
-                    {start}
-                    <span className="px-2 font-semibold text-stone-400">→</span>
-                    {end}
-                  </>
-                );
-              })()}
-            </p>
+            <DateAgo
+              date={project.endDate ?? project.startDate}
+              ongoing={!project.endDate}
+            >
+              <p className="text-lg font-semibold text-stone-700 whitespace-nowrap">
+                {(() => {
+                  const start = formatMonth(project.startDate!);
+                  const end = project.endDate
+                    ? formatMonth(project.endDate)
+                    : "Present";
+                  if (start === end) return start;
+                  return (
+                    <>
+                      {start}
+                      <span className="px-2 font-semibold text-stone-400">→</span>
+                      {end}
+                    </>
+                  );
+                })()}
+              </p>
+            </DateAgo>
           </div>
         )}
 

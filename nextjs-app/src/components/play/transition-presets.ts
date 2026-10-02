@@ -72,64 +72,51 @@ export type TransitionPresetName = "cinematic" | "snappy" | "dramatic" | "custom
 export type TransitionConfig = {
   preset: TransitionPresetName;
 
-  // ── 0. Hold — hors timeline, sa durée appartient à l'utilisateur ─────────
-  selectDuration: number; // Durée du maintien avant déclenchement (ex: 0.6s)
-  selectZoom: number; // Zoom caméra atteint en fin de hold (× zoom de base)
-  selectScale: number; // Grossissement de la tuile visée (ex: 1.0)
-  selectRepulse: number; // Écartement très discret des voisins pendant le hold (ex: 25)
-  selectTiltMax: number; // Bascule 3D max de la tuile visée vers le point cliqué (rad, ex: 0.09)
-  burstLead: number; // Part finale du hold (0..1) pendant laquelle le burst s'amorce déjà (ex: 0.2)
-  burstLeadDepth: number; // Fraction du burst déjà parcourue quand le hold se valide (ex: 0.04)
-  selectEasing: EasingName;
+  // ── 0. Vague — la charge avant le boom, déclenchée par le clic ───────────
+  waveDuration: number; // Durée de la vague de dégradé avant le boom (s)
+  waveEasing: EasingName; // Courbe de la charge (accélère vers le boom)
+  silenceDrift: number; // Dérive lente du zoom pendant l'attente (ex: 0.06)
+  packShake: number; // Amplitude du tortillement de l'artifact pendant le chargement (rad, ex: 0.05)
+  wiggleSpeed: number; // Vitesse du tortillement (rad/s)
+  breathe: number; // Respiration du scale pendant le chargement (ex: 0.025)
+  loadGrow: number; // Grossissement borné pendant le chargement (ex: 0.1)
+  loadWaveSpeed: number; // Cycles/s de la vague qui boucle pendant le chargement
+  burstRandomness: number; // 0..1 — variation de puissance du burst d'une tuile à l'autre
+  burstAngleJitter: number; // Écart angulaire aléatoire de chaque tuile (rad)
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
-  lock: TrackSpec; // Brackets : pincement, expansion, fondu
+  lock: TrackSpec; // Impact : la carte se détache au boom
   scatter: TrackSpec; // Dispersion et fondu de la mosaïque
   reveal: TrackSpec; // M0 : taille de tuile → taille de colonne
-  hero: TrackSpec; // Caméra : zoom de hold → sommet de l'arc (M0 plein cadre)
-  scroll: TrackSpec; // Rouleau unifié : émergence, 777, atterrissage
-  slide: TrackSpec; // Offset d'entrée des cartes secondaires
-  columnFade: TrackSpec; // Opacité des cartes secondaires
+  hero: TrackSpec; // Caméra : zoom de base → sommet de l'arc (M0 plein cadre)
+  columnFade: TrackSpec; // Les cartes de la pile émergent de derrière la première
   dezoom: TrackSpec; // Caméra : sommet de l'arc → vue détail + cadrage colonne
   exit: TrackSpec; // Retour vers la mosaïque
 
   // ── 2. Amplitudes ────────────────────────────────────────────────────────
-  lockBracketShrink: number; // Rétractation des brackets vers l'intérieur (px, ex: 12)
-  lockPopTilt: number; // Bascule 3D automatique du pop de lock, direction fixe (rad, ex: 0.085)
-  lockPopRoll: number; // Micro-torsion de finition en fin de pop (rad, ex: 0.012)
-  lockBracketTighten: number; // Pincement des brackets vers l'intérieur (px)
-  lockBracketExpand: number; // Expansion vers l'extérieur pendant le fondu (px)
   lockScalePunch: number; // Détachement (scale) de la carte au lock — lift discret, sans rebond (ex: 0.08)
   overlayExitDuration: number; // Durée d'évacuation de la vague de sélection (s)
   scatterDistance: number; // Écartement radial final de la mosaïque (unités monde)
   heroZoom: number; // Sommet de l'arc, en multiple du zoom de détail (ex: 1.05×)
   detailZoom: number; // Zoom de la vue détail stabilisée (× zoom de base)
-  spinMediaCount: number; // Nombre de médias à faire défiler pendant le rouleau
-  spinEasing: EasingName; // Easing dédié pour le rouleau
-  wheelMotionBlur: boolean; // Flou de mouvement sur les cartes pendant le spin / scroll rapide
-  wheelMotionBlurStrength: number; // Multiplicateur d'intensité du flou (ex: 1.0)
-  wheelMotionBlurMax: number; // Plafond maximal de flou en espace UV (ex: 0.08)
-  slideOffset: number; // Amplitude d'entrée des cartes secondaires (unités monde)
-  textRevealAt: number; // Instant d'apparition du panneau de texte (s)
+  navbarLead: number; // Avance du changement de navbar sur la fin du cadrage (s)
+  textLead: number; // Avance de l'apparition du side panel sur la fin du cadrage (s)
   maxMediaWidthRatio: number; // Largeur max autorisée du média (% écran, ex: 0.38)
   maxMediaHeightRatio: number; // Hauteur max autorisée du média (% écran, ex: 0.78)
 
-  // ── 3. Vue détail & Wheel Arc ─────────────────────────────────────────────
+  // ── 3. Vue détail : la pile de cartes ─────────────────────────────────────
   detailColumnRatio: number; // Position horizontale du centre de la colonne
-  arcCurvature: number; // Décalage en arc (px) : centre vers l'intérieur, extrémités vers l'extérieur
-  arcRotation: number; // Rotation des médias vers l'extérieur de l'écran (degrés)
-  snapEnabled: boolean; // Aimantation du média le plus proche au centre à l'arrêt du scroll
-  snapStrength: number; // Vitesse de rappel magnétique
-  snapDelay: number; // Délai d'inactivité avant le déclenchement du snap (s)
-  snapThreshold?: number; // (Optionnel / déprécié)
   desktopMediaWidthRatio: number; // Largeur des médias sur desktop (% écran)
   mobileMediaHeightRatio: number; // Hauteur des médias sur mobile (% écran)
-  mediaGap: number; // Espace entre médias consécutifs (px écran)
-  detailScrollDamping: number; // Amortissement du défilement infini
-  detailScrollSpeed: number; // Multiplicateur de vitesse de défilement
+  detailScrollDamping: number; // Amortissement du passage d'une carte à l'autre
+  stackScale: number; // Échelle de chaque carte de plus dans la pile (ex: 0.9)
+  stackPeek: number; // Décalage vers le haut de chaque carte de la pile (unités monde)
+  stackDepth: number; // Nombre de cartes visibles derrière la première
+  cardExit: number; // Course de la carte qui s'en va, en hauteurs de carte
+  stepCooldown: number; // Délai minimal entre deux cartes à la molette (s)
+  dragPxPerCard: number; // Distance de drag (px) pour passer une carte
 
   // ── 4. Retour ────────────────────────────────────────────────────────────
-  exitSlideOffset: number; // Glissement des secondaires à la sortie (unités monde)
   repulseReturnDelay: number; // Délai avant le retour de la mosaïque (s)
   cameraReturnDelay: number; // Délai avant le recentrage caméra (s)
 
@@ -140,33 +127,31 @@ export type TransitionConfig = {
   landscapeTextMaxWidth: number; // Largeur max du bloc de texte en px (ex: 576)
 
   // ── 6. Wheel en format portrait ───────────────────────────────────────────
-  portraitArcCurvature: number; // Courbure de l'arc en portrait vers le centre de la page (px, ex: 50)
 };
 
 /**
- * La chorégraphie de référence. Le burst n'est pas un temps séparé : il s'amorce
- * dans la queue du hold (cf. `burstLead`) et culmine sur la validation, de sorte
- * que la sélection et l'explosion de la mosaïque sont un seul geste continu.
+ * La chorégraphie de référence : une charge, un coup, un silence.
  *
- * 1. Fin du hold : le monde commence à céder — les voisins dérivent, la mosaïque
- *    s'assombrit à peine, avant même que la sélection ne soit validée.
- * 2. 0.0s - 1.05s : Le burst culmine (dispersion + fondu de la mosaïque), les
- *    brackets se resserrent puis s'effacent, la carte se détache d'un lift 3D
- *    discret, la caméra pousse (hero) et la carte prend sa taille (reveal).
- * 3. 1.3s - 2.0s : Temps de pause contemplatif, carte seule au zoom max.
- * 4. 2.0s - 2.6s : Apparition et glissement des cartes secondaires en dessous.
- * 5. 2.4s - 4.3s : Roulement fluide de la roue (wheel spin) + cadrage colonne.
- * 6. 4.6s : Révélation fluide du panneau de texte.
+ * Le clic lance tout, sans hold. Les pistes ci-dessous sont comptées à partir
+ * du boom (`waveDuration` après le clic).
+ *
+ * -  Avant : la vague de dégradé balaie la tuile en accélérant, l'image se
+ *    déforme sous la crête. Rien d'autre ne bouge.
+ * 1. 0.0s - 0.7s : BOOM. La mosaïque explose (dispersion + fondu en expo-out),
+ *    la caméra file vers le plein cadre, la carte se détache puis prend sa taille.
+ * 2. 0.7s - 1.9s : SILENCE au ralenti. Carte seule, dérive de zoom à peine
+ *    perceptible.
+ * 3. 1.9s - 2.6s : les cartes secondaires apparaissent et glissent en dessous.
+ * 4. 2.3s - 4.2s : roulement de la roue (wheel spin) + cadrage colonne.
+ * Le side panel et la navbar arrivent juste avant la fin du roulement.
  */
 const BASE_TRACKS = {
-  lock: { start: 0.0, duration: 0.5, easing: "linear" },
-  scatter: { start: 0.0, duration: 1.05, easing: "easeOutCubic" },
-  reveal: { start: 0.5, duration: 0.8, easing: "easeInOutCubic" },
-  hero: { start: 0.1, duration: 1.2, easing: "easeInOutCubic" },
-  columnFade: { start: 2.0, duration: 0.5, easing: "easeOutQuad" },
-  slide: { start: 2.0, duration: 0.6, easing: "easeOutCubic" },
-  scroll: { start: 2.4, duration: 1.9, easing: "easeInOutCubic" },
-  dezoom: { start: 2.65, duration: 1.65, easing: "easeInOutCubic" },
+  lock: { start: 0.0, duration: 0.45, easing: "linear" },
+  scatter: { start: 0.8, duration: 0.8, easing: "easeOutExpo" },
+  reveal: { start: 0.0, duration: 0.6, easing: "easeOutQuint" },
+  hero: { start: 0.0, duration: 0.9, easing: "easeInOutCubic" },
+  columnFade: { start: 0.25, duration: 1.1, easing: "easeOutCubic" },
+  dezoom: { start: 0.1, duration: 1.1, easing: "easeInOutCubic" },
   exit: { start: 0.0, duration: 0.6, easing: "easeInOutCubic" },
 } as const satisfies Record<string, TrackSpec>;
 
@@ -201,70 +186,78 @@ export function cloneTransitionConfig(config: TransitionConfig): TransitionConfi
   return clone;
 }
 
+/**
+ * Instant où la timeline attend le chargement : le burst a eu lieu, la vague
+ * n'a pas encore traversé l'artifact. Les pistes `hero` et `scatter` sont
+ * absolues (avant ce point) ; les autres sont comptées après la vague.
+ */
+export function holdTime(config: TransitionConfig): number {
+  return Math.max(
+    config.hero.start + config.hero.duration,
+    config.scatter.start + config.scatter.duration * 0.6,
+  );
+}
+
+/** Instant (absolu) où la vague a fini de traverser l'artifact. */
+export function passEndTime(config: TransitionConfig): number {
+  return holdTime(config) + Math.max(0.05, config.waveDuration);
+}
+
 /** Instant auquel la dernière piste de la séquence d'entrée se termine. */
 export function timelineEnd(config: TransitionConfig): number {
   let end = 0;
-  for (const name of TRACK_NAMES) {
-    if (name === "exit") continue;
+  for (const name of ["lock", "reveal", "columnFade", "dezoom"] as const) {
     const track = config[name];
     end = Math.max(end, track.start + track.duration);
   }
-  end = Math.max(end, config.textRevealAt ?? 0);
-  return Math.max(0.05, end);
+  return passEndTime(config) + Math.max(0.05, end);
+}
+
+/** Instant (absolu) où la caméra a fini de cadrer la pile. */
+export function scrollEndTime(config: TransitionConfig): number {
+  return passEndTime(config) + config.dezoom.start + config.dezoom.duration;
 }
 
 const BASE_AMPLITUDES = {
-  burstLead: 0.2,
-  burstLeadDepth: 0.04,
-  lockBracketShrink: 10,
-  lockPopTilt: 0.085,
-  lockPopRoll: 0.012,
-  lockBracketTighten: 8,
-  lockBracketExpand: 14,
+  waveDuration: 1.1,
+  waveEasing: "easeInOutCubic" as EasingName,
+  silenceDrift: 0.06,
+  packShake: 0.05,
+  wiggleSpeed: 7,
+  breathe: 0.025,
+  loadGrow: 0.1,
+  loadWaveSpeed: 0.9,
+  burstRandomness: 0.6,
+  burstAngleJitter: 0.5,
   lockScalePunch: 0.08,
   overlayExitDuration: 0.35,
   scatterDistance: 2800,
   heroZoom: 1.45,
   detailZoom: 1.8,
-  spinMediaCount: 8,
-  spinEasing: "easeInOutCubic" as EasingName,
-  wheelMotionBlur: true,
-  wheelMotionBlurStrength: 1.0,
-  wheelMotionBlurMax: 0.08,
-  slideOffset: 680,
-  textRevealAt: 4.6,
+  navbarLead: 0.3,
+  textLead: 0.2,
   detailColumnRatio: 0.6,
-  arcCurvature: -16,
-  arcRotation: 2,
-  snapEnabled: true,
-  snapStrength: 6, // Amortissement magnétique doux et progressif (doux vs ancien clamp à 12)
-  snapDelay: 0.15,
-  snapThreshold: 0.05,
   desktopMediaWidthRatio: 0.34,
   mobileMediaHeightRatio: 0.48,
   maxMediaWidthRatio: 0.38,
   maxMediaHeightRatio: 0.74,
-  mediaGap: 32,
   detailScrollDamping: 12,
-  detailScrollSpeed: 1,
-  exitSlideOffset: 350,
+  stackScale: 0.9,
+  stackPeek: 22,
+  stackDepth: 4,
+  cardExit: 0.7,
+  stepCooldown: 0.35,
+  dragPxPerCard: 320,
   repulseReturnDelay: 0.25,
   cameraReturnDelay: 0.0,
   landscapeTextWidthRatio: 0.42,
   landscapeTextRightOffset: 0,
   landscapeTextTopOffset: 0,
   landscapeTextMaxWidth: 576,
-  portraitArcCurvature: 50,
 };
 
 export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   preset: "custom",
-  selectDuration: 0.6,
-  selectZoom: 1.06,
-  selectScale: 1,
-  selectRepulse: 25,
-  selectTiltMax: 0.09,
-  selectEasing: "easeOutQuint",
   ...BASE_AMPLITUDES,
   ...scaleTracks(1),
 };
@@ -274,62 +267,31 @@ export const TRANSITION_PRESETS: Record<
   Omit<TransitionConfig, "preset">
 > = {
   cinematic: {
-    selectDuration: 0.8,
-    selectZoom: 1.15,
-    selectScale: 1.06,
-    selectRepulse: 80,
-    selectTiltMax: 0.11,
-    selectEasing: "easeInQuad",
     ...BASE_AMPLITUDES,
+    waveDuration: 1.3,
     heroZoom: 1.5,
-    textRevealAt: 5.4,
     ...scaleTracks(1.1),
   },
   snappy: {
-    selectDuration: 0.5,
-    selectZoom: 1.18,
-    selectScale: 1.08,
-    selectRepulse: 100,
-    selectTiltMax: 0.08,
-    selectEasing: "easeOutQuad",
     ...BASE_AMPLITUDES,
-    lockBracketTighten: 8,
-    lockBracketExpand: 12,
+    waveDuration: 0.8,
     lockScalePunch: 0.11,
     overlayExitDuration: 0.22,
     heroZoom: 1.35,
-    spinMediaCount: 20,
-    textRevealAt: 3.8,
     detailScrollDamping: 14,
-    detailScrollSpeed: 1.2,
     repulseReturnDelay: 0.1,
-    ...scaleTracks(0.78, {
-      scroll: { start: 2.1, duration: 1.4, easing: "easeInOutCubic" },
-      dezoom: { start: 2.4, duration: 1.15, easing: "easeInOutCubic" },
-    }),
+    ...scaleTracks(0.78),
   },
   dramatic: {
-    selectDuration: 0.9,
-    selectZoom: 1.12,
-    selectScale: 1.04,
-    selectRepulse: 45,
-    selectTiltMax: 0.13,
-    selectEasing: "easeInCubic",
     ...BASE_AMPLITUDES,
-    lockBracketExpand: 16,
+    waveDuration: 1.6,
     lockScalePunch: 0.1,
     overlayExitDuration: 0.4,
     scatterDistance: 3400,
     heroZoom: 1.65,
-    spinMediaCount: 40,
-    slideOffset: 350,
-    textRevealAt: 5.8,
     desktopMediaWidthRatio: 0.36,
     mobileMediaHeightRatio: 0.5,
-    mediaGap: 36,
     detailScrollDamping: 10,
-    detailScrollSpeed: 0.9,
-    exitSlideOffset: 400,
     ...scaleTracks(1.4),
   },
 };
