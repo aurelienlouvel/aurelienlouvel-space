@@ -6,6 +6,7 @@ import { ActionBarProvider } from "@/contexts/ActionBarContext";
 import { ScrollInit } from "@/components/ScrollInit";
 import { BodyTheme } from "@/components/BodyTheme";
 import { AnimatedTitle } from "@/components/AnimatedTitle";
+import { PlayCanvasHost, PlayHostProvider } from "@/components/play/PlayHost";
 
 const neueMontreal = localFont({
   src: "./fonts/PPNeueMontreal-Variable.ttf",
@@ -41,9 +42,13 @@ export default async function RootLayout({
         <BodyTheme />
         <AnimatedTitle />
         <ActionBarProvider>
-          <ScrollInit />
-          {children}
-          <ActionBar />
+          <PlayHostProvider>
+            <ScrollInit />
+            {children}
+            {/* Scène 3D de /play : montée une seule fois, gardée en vie entre les pages. */}
+            <PlayCanvasHost />
+            <ActionBar />
+          </PlayHostProvider>
         </ActionBarProvider>
       </body>
     </html>

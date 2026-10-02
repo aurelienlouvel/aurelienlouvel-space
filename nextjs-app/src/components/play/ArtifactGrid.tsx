@@ -292,29 +292,37 @@ function stepKinematicMeshes(
         }
       }
 
-      // Survol : léger grossissement et inclinaison, amortis. Seulement au repos,
-      // et seulement sur la copie réellement survolée (tuilage 3×3).
-      const hovered =
-        rc.transition.phase === "idle" &&
-        rc.hovered === i &&
-        rc.hoveredPos !== null &&
-        Math.abs(rc.hoveredPos.x - worldX) < 2 &&
-        Math.abs(rc.hoveredPos.y - worldY) < 2;
+      // Survol : léger grossissement + inclinaison amortis, et une vague irisée
+      // qui part du bas gauche. L'état vient du mesh (cf. ArtifactPlane), et
+      // retombe dès qu'une transition démarre.
+      const idle = rc.transition.phase === "idle";
+      if (!idle) mesh.userData.hovered = false;
+      const hoveredNow = idle && mesh.userData.hovered === true;
       const prevHover = (mesh.userData.hov as number | undefined) ?? 0;
       const hov =
-        prevHover + ((hovered ? 1 : 0) - prevHover) * (1 - Math.exp(-delta * hover.speed));
+        prevHover + ((hoveredNow ? 1 : 0) - prevHover) * (1 - Math.exp(-delta * hover.speed));
       mesh.userData.hov = Math.abs(hov) < 0.001 ? 0 : hov;
-      if (!isTarget) scale *= 1 + hover.scale * hov;
+      // Au repos, la tuile « sélectionnée » est une tuile comme les autres : elle se survole aussi.
+      if (idle) scale *= 1 + hover.scale * hov;
       // Le sens de l'inclinaison alterne d'une carte à l'autre, comme posées à la main.
       const hoverTilt =
         (((i * 7 + 3) % 2 === 0 ? 1 : -1) * hover.rotate * Math.PI * hov) / 180;
+      // La vague démarre à l'entrée du curseur et va jusqu'au bout, une seule fois.
+      let wave = (mesh.userData.hw as number | undefined) ?? 0;
+      if (hoveredNow && mesh.userData.wasHover !== true) wave = 0.0001;
+      mesh.userData.wasHover = hoveredNow;
+      if (wave > 0) {
+        wave += delta / Math.max(0.2, hover.waveDuration);
+        if (wave >= 1) wave = 0;
+      }
+      mesh.userData.hw = wave;
 
       mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
       // Contrairement à la bascule X/Y (aplatie par la caméra orthographique,
       // cf. ArtifactPlane.tsx), une rotation Z reste un pur tourni dans le
       // plan de l'écran : parfaitement visible telle quelle, sans warp shader.
-      mesh.rotation.z = isTarget ? frame.tileRoll : hoverTilt;
+      mesh.rotation.z = isTarget && !idle ? frame.tileRoll : hoverTilt;
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
@@ -340,12 +348,9 @@ function stepKinematicMeshes(
             rc.transition.phase === "playing" && rc.transition.selectProgress > 0.001;
           uniforms.uWaveProgress.value = waveOn ? rc.transition.selectProgress : 0;
           uniforms.uWaveExit.value = waveOn ? frame.overlayExit : 0;
-          // Glitch d'ouverture : seulement sur la tuile ouverte, tant que les effets durent.
-          const glitchOn = isTarget && rc.transition.phase === "playing";
-          uniforms.uGlitch.value = glitchOn
-            ? Math.min(1, frame.fx * burst.fxGlitch)
-            : 0;
-          uniforms.uGlitchCols.value = burst.fxDitherCols;
+          uniforms.uHoverWave.value = idle ? wave : 0;
+          uniforms.uHoverWaveAmp.value = hover.waveAmp;
+          uniforms.uHoverWaveWidth.value = hover.waveWidth;
           uniforms.uTime.value = (performance.now() / 1000) % 1000;
         }
       }
@@ -393,7 +398,14 @@ export function ArtifactGrid({
   // Boucle par frame :
   // 1. Tuilage 3×3 infini virtualisé autour de la caméra
   // 2. Déplacement cinématique uniforme et mise à jour des positions des meshes
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
+    // Quand la caméra bouge sous un curseur immobile, R3F ne relance pas le
+    // survol de lui-même : on le force, sinon l'ancienne carte reste « survolée »
+    // et la nouvelle ne l'est pas.
+    if (runtime.current.transition.phase === "idle" && runtime.current.cameraSpeed > 8) {
+      state.events.update?.();
+    }
+
     if (TILE_W > 0 && TILE_H > 0 && runtime.current.transition.phase === "idle") {
       const tx = Math.round(camera.position.x / TILE_W);
       const ty = Math.round(camera.position.y / TILE_H);

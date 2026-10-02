@@ -22,6 +22,8 @@ import { thumbnailRatio } from "@/lib/thumbnail-ratios";
 import {
   attachUniforms,
   clampRadius,
+  CORNER_SMOOTHING,
+  GLSL_SQUIRCLE,
   FRAME_DEFINES,
   GLSL_PIXEL_WIDTH,
   uniformsOf,
@@ -52,6 +54,7 @@ type PoolSlot = {
 type PlaneUniforms = {
   uSize: IUniform<Vector2>;
   uRadius: IUniform<number>;
+  uCornerSmooth: IUniform<number>;
   uMotionBlur: IUniform<number>;
   uMotionBlurDir: IUniform<Vector2>;
 };
@@ -64,11 +67,7 @@ uniform vec2 uMotionBlurDir;
 
 ${GLSL_PIXEL_WIDTH}
 
-/** SDF d'un rectangle arrondi centré sur l'origine, négative à l'intérieur. */
-float sdRoundedRect(vec2 p, vec2 halfSize, float radius) {
-  vec2 q = abs(p) - halfSize + radius;
-  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
-}
+${GLSL_SQUIRCLE}
 `;
 
 const MOTION_BLUR_MAP = /* glsl */ `
@@ -103,6 +102,7 @@ function roundCorners(
   attachUniforms(this, parameters, {
     uSize: { value: new Vector2(1, 1) },
     uRadius: { value: 0 },
+    uCornerSmooth: CORNER_SMOOTHING,
     uMotionBlur: { value: 0 },
     uMotionBlurDir: { value: new Vector2(0, 1) },
   } satisfies PlaneUniforms);
@@ -166,6 +166,14 @@ export function getOrCreateVideoTexture(url: string, colorSpace?: string): Video
 
 const sharedImageTextures = new Map<string, Texture>();
 let globalTextureLoader: TextureLoader | null = null;
+
+/** Texture déjà chargée d'un média (image ou vidéo), pour les effets qui la reprennent en morceaux. */
+export function getSharedTexture(url: string, kind: "image" | "video"): Texture | null {
+  if (!url) return null;
+  return kind === "video"
+    ? (sharedVideoTextures.get(url)?.texture ?? null)
+    : (sharedImageTextures.get(url) ?? null);
+}
 
 export function registerSharedImageTexture(url: string, texture: Texture) {
   if (url && texture) {
@@ -498,6 +506,8 @@ export function SecondaryGalleryPlanes({
 
     const tr = runtime.current.transition;
     const frame = tr.frame;
+    // Aucune carte ne se décompose tant que la boucle ci-dessous ne l'a pas décidé.
+    tr.deckFx.intensity = 0;
 
     if (tr.phase !== "playing" && tr.phase !== "isolated" && tr.phase !== "returning") {
       group.visible = false;
@@ -583,7 +593,10 @@ export function SecondaryGalleryPlanes({
     // Tous les médias sont alignés par le BAS : une carte moins haute que la
     // première laisse quand même voir son bord inférieur, sous la pile.
     const baseBottom = principalPoint.y - heights[0] / 2;
-    const exitTravel = screenH * 0.5 * (cfg.cardExit ?? 0.7);
+    // Traction du deck : la carte du dessus monte, résistante, avant de basculer.
+    const pullShown = tr.phase === "isolated" ? tr.deckPullShown : 0;
+    const liftWorld = (cfg.deckLift ?? 70) / curZoom;
+    let fxBest = 0;
 
     const mainStartW = Math.min(maxW, principalPoint.width * frame.tileScale);
     const mainStartH = Math.min(maxH, principalPoint.height * frame.tileScale);
@@ -610,24 +623,28 @@ export function SecondaryGalleryPlanes({
       let shade = 1;
       let weight = Math.max(0, 1 - Math.abs(d));
 
+      // Pendant la traction, les layers remontent vers la carte du dessus.
+      const dv = d > 0.0001 && pullShown > 0 ? Math.max(0, d - pullShown * 0.4) : d;
+
       if (d >= 0) {
-        const sc = Math.pow(stackScale, d);
+        const sc = Math.pow(stackScale, dv);
         drawW = targetW * sc;
         drawH = targetH * sc;
         // Chaque layer s'enfonce de `peek` sous celui du dessus, bord bas aligné.
-        posY = baseBottom - peek * d + drawH / 2;
+        posY = baseBottom - peek * dv + drawH / 2;
         // Opacité : 1 pour la carte du dessus, `stackOpacity` pour le premier
         // layer, puis `stackOpacityFalloff` à chaque layer suivant.
         const layerOpacity =
-          d <= 1 ? 1 + (stackOpacity - 1) * d : stackOpacity * Math.pow(stackFalloff, d - 1);
-        opacity = layerOpacity * Math.max(0, Math.min(1, depthMax + 0.5 - d));
-        shade = 1 - 0.06 * Math.min(d, 3);
+          dv <= 1 ? 1 + (stackOpacity - 1) * dv : stackOpacity * Math.pow(stackFalloff, dv - 1);
+        opacity = layerOpacity * Math.max(0, Math.min(1, depthMax + 0.5 - dv));
+        shade = 1 - 0.06 * Math.min(dv, 3);
       } else if (d > -1) {
         const u = -d;
-        drawW = targetW * (1 + 0.04 * u);
-        drawH = targetH * (1 + 0.04 * u);
-        posY = baseBottom + drawH / 2 + exitTravel * u * u;
-        opacity = 1 - u;
+        // La carte qui part ne glisse plus : elle se désagrège sur place, en éclats.
+        drawW = targetW * (1 + 0.03 * u);
+        drawH = targetH * (1 + 0.03 * u);
+        posY = baseBottom + drawH / 2;
+        opacity = Math.pow(1 - u, cfg.deckDissolve ?? 1.6);
       } else {
         opacity = 0;
         weight = 0;
@@ -664,6 +681,28 @@ export function SecondaryGalleryPlanes({
       }
 
       weightEntries[i].w = returning ? 0 : weight * (tr.phase === "playing" ? frame.columnOpacity || 1 : 1);
+
+      if (tr.phase === "isolated") {
+        // Traction : la carte du dessus monte d'autant plus qu'elle est proche du premier plan.
+        const near = Math.max(0, 1 - Math.abs(d));
+        posY += pullShown * liftWorld * near;
+        // Éclats : un frémissement pendant la traction, puis la désagrégation
+        // complète au passage (pic au milieu du départ / de l'arrivée de la carte).
+        const passing = d > -1 && d < -0.0001 ? Math.pow(Math.sin(Math.PI * -d), 0.8) : 0;
+        const shimmer = Math.abs(pullShown) * (cfg.deckShimmer ?? 0.5) * near;
+        const fx = Math.max(passing, shimmer);
+        if (fx > fxBest) {
+          fxBest = fx;
+          const f = tr.deckFx;
+          f.intensity = fx;
+          f.cx = posX;
+          f.cy = posY;
+          f.w = drawW;
+          f.h = drawH;
+          f.url = slot.url;
+          f.kind = slot.kind;
+        }
+      }
 
       const visible = opacity > 0.002;
       mesh.visible = visible;

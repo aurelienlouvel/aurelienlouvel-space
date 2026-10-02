@@ -13,7 +13,7 @@ import { motion, AnimatePresence, useMotionValue, animate } from "motion/react";
 import { useActionBar } from "@/contexts/ActionBarContext";
 import { markWorkReturn } from "@/lib/scroll";
 import { cn } from "@/lib/utils";
-import { PixelBurst } from "@/components/primitives/PixelBurst";
+import { PlayPillPixels } from "@/components/nav/PlayPillPixels";
 
 const NAV_LINKS = [
   { href: "/work", label: "work" },
@@ -59,12 +59,17 @@ function NavLink({
   isActive: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
+  // Chaque survol de « play » relance la vague de pixels (le compteur sert de key).
+  const [hoverKey, setHoverKey] = useState(0);
   const fontWeight = isActive ? 600 : hovered ? 520 : undefined;
 
   return (
     <Link
       href={href}
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={() => {
+        setHovered(true);
+        if (href === "/play") setHoverKey((k) => k + 1);
+      }}
       onMouseLeave={() => setHovered(false)}
       className={cn(
         "relative flex h-11 items-center rounded-xl px-3 text-base transition-all",
@@ -81,7 +86,7 @@ function NavLink({
           transition={NAV_PILL_TRANSITION}
         />
       )}
-      <PixelBurst active={hovered} />
+      {href === "/play" && <PlayPillPixels active={isActive} hoverKey={hoverKey} />}
       <span className="relative z-10 inline-grid text-center">
         <span
           aria-hidden="true"

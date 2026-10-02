@@ -87,13 +87,7 @@ export type TransitionConfig = {
   burstSeed: number; // Graine du tirage aléatoire du burst (changer = autre explosion)
   simulatedLoadMs: number; // Debug : délai artificiel ajouté au chargement du pack (ms)
   rewindSpeed: number; // Vitesse du rembobinage quand on annule en cours d'entrée (× temps réel)
-  fxGlitch: number; // 0..1 — dither pixel (cases arrondies aux couleurs de l'image) sur l'artifact pendant l'ouverture
-  fxDitherCols: number; // Nombre de cases du dither sur la largeur de l'artifact
-  fxPixelCount: number; // Nombre de pixels qui jaillissent autour de l'artifact (max 64)
-  fxPixelSize: number; // Taille max d'un pixel (unités monde)
-  fxPixelSpread: number; // Distance max d'éjection au-delà du bord de l'artifact (unités monde)
-  fxPixelSpeed: number; // Cycles de vie des pixels par seconde
-  fxBurstBoost: number; // Surintensité des effets au moment du burst (×, 0 = aucune)
+  fxBurstBoost: number; // Surintensité des éclats au moment du burst (×, 0 = aucune)
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
   lock: TrackSpec; // Impact : la carte se détache au boom
@@ -129,7 +123,14 @@ export type TransitionConfig = {
   panelGradientSpeed: number; // Vitesse de dérive du dégradé du side panel (×)
   panelGlitch: number; // 0..1 — intensité du glitch pixel en bas à droite (0 = coupé)
   cardExit: number; // Course de la carte qui s'en va, en hauteurs de carte
-  stepCooldown: number; // Délai minimal entre deux cartes à la molette (s)
+  stepCooldown: number; // Délai minimal entre deux cartes (s) : verrou après un changement
+  deckPullDistance: number; // Défilement (px de molette) à fournir pour passer à la carte suivante
+  deckResist: number; // Raideur de la résistance : la carte monte beaucoup au début puis de moins en moins (≥ 1)
+  deckLift: number; // Course maximale de la carte pendant la traction (px écran)
+  deckRelease: number; // Vitesse de retour de la carte quand on lâche avant le seuil (par seconde)
+  deckHold: number; // Délai sans geste avant que la carte ne redescende (s)
+  deckShimmer: number; // Éclats qui se décollent pendant la traction (0 = aucun)
+  deckDissolve: number; // Courbe d'évanouissement de la carte qui part (1 = linéaire, 2 = tardive)
   dragPxPerCard: number; // Distance de drag (px) pour passer une carte
 
   // ── 4. Retour ────────────────────────────────────────────────────────────
@@ -249,12 +250,6 @@ const BASE_AMPLITUDES = {
   burstSeed: 1,
   simulatedLoadMs: 0,
   rewindSpeed: 1.6,
-  fxGlitch: 0.5,
-  fxDitherCols: 18,
-  fxPixelCount: 22,
-  fxPixelSize: 18,
-  fxPixelSpread: 120,
-  fxPixelSpeed: 1.3,
   fxBurstBoost: 1,
   lockScalePunch: 0.08,
   overlayExitDuration: 0.35,
@@ -268,17 +263,24 @@ const BASE_AMPLITUDES = {
   mobileMediaHeightRatio: 0.48,
   maxMediaWidthRatio: 0.38,
   maxMediaHeightRatio: 0.74,
-  detailScrollDamping: 12,
+  detailScrollDamping: 8,
   stackScale: 0.9,
   stackPeek: 22,
   stackDepth: 4,
   stackOpacity: 0.55,
   stackOpacityFalloff: 0.55,
-  panelGradientStrength: 0.55,
+  panelGradientStrength: 0.65,
   panelGradientSpeed: 1.8,
   panelGlitch: 0.6,
   cardExit: 0.7,
-  stepCooldown: 0.35,
+  stepCooldown: 0.55,
+  deckPullDistance: 520,
+  deckResist: 2.6,
+  deckLift: 70,
+  deckRelease: 9,
+  deckHold: 0.14,
+  deckShimmer: 0.5,
+  deckDissolve: 1.6,
   dragPxPerCard: 320,
   repulseReturnDelay: 0.25,
   cameraReturnDelay: 0.0,
