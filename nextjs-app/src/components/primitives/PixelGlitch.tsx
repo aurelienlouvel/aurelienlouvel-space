@@ -1,10 +1,24 @@
-const COLS = 12;
-const ROWS = 7;
-const COLORS = ["#0b1a5e", "#1d3fd0", "#4a8cff", "#4a8cff", "#9cccff", "#7c6cff"] as const;
-const SIZES = [0.25, 0.25, 0.375, 0.5] as const;
+const COLS = 16;
+const ROWS = 10;
+/** Pas entre deux pixels (rem). */
+const PITCH = 0.62;
+
+// Matrice de Bayer 4×4 : la trame ordonnée qui donne l'effet « dither ».
+const BAYER = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+] as const;
+
+// Chaque pixel est un dégradé entre deux des trois teintes irisées du panel.
+const GRADIENTS = [
+  "linear-gradient(135deg, var(--pg-c0, #9cccff), var(--pg-c1, #b9a8ff))",
+  "linear-gradient(135deg, var(--pg-c1, #b9a8ff), var(--pg-c2, #8fe0ff))",
+  "linear-gradient(135deg, var(--pg-c2, #8fe0ff), var(--pg-c0, #9cccff))",
+] as const;
 
 function hash01(n: number): number {
-  // Hash entier (pas de Math.sin) : identique à l'octet près sur le serveur et dans le navigateur.
   let h = Math.imul(Math.floor(n * 1000) ^ 0x9e3779b9, 0x85ebca6b);
   h ^= h >>> 13;
   h = Math.imul(h, 0xc2b2ae35);
@@ -12,52 +26,66 @@ function hash01(n: number): number {
   return (h >>> 0) / 4294967296;
 }
 
-type Cell = { id: number; col: number; row: number; size: number; color: string; alpha: number; dur: number; delay: number };
+type Cell = {
+  id: number;
+  col: number;
+  row: number;
+  size: number;
+  gradient: string;
+  alpha: number;
+  dur: number;
+  delay: number;
+};
 
-// Nuage clairsemé, plus dense vers le coin bas droit : une émanation, pas une grille.
+// Densité décroissante depuis le coin bas droit, seuillée par la trame de Bayer.
 const CELLS: Cell[] = [];
 for (let row = 0; row < ROWS; row++) {
   for (let col = 0; col < COLS; col++) {
+    const dx = (COLS - 1 - col) / (COLS - 1);
+    const dy = (ROWS - 1 - row) / (ROWS - 1);
+    const dist = Math.min(1, Math.hypot(dx, dy * 1.15) / 1.2);
+    const density = Math.pow(1 - dist, 1.35);
+    const threshold = (BAYER[row % 4][col % 4] + 0.5) / 16;
+    if (threshold >= density) continue;
     const id = row * COLS + col;
-    const nearCorner = (col / (COLS - 1)) * 0.6 + (row / (ROWS - 1)) * 0.4;
-    if (hash01(id * 3.7) > 0.12 + nearCorner * 0.5) continue;
     CELLS.push({
       id,
       col,
       row,
-      size: SIZES[Math.floor(hash01(id * 5.1) * SIZES.length)],
-      color: COLORS[Math.floor(hash01(id * 7.7) * COLORS.length)],
-      alpha: 0.35 + hash01(id * 9.3) * 0.45,
-      dur: 2.6 + hash01(id * 11.9) * 3.4,
-      delay: hash01(id * 13.1) * 4,
+      // Plus petits en s'éloignant du coin.
+      size: 0.28 + 0.2 * (1 - dist),
+      gradient: GRADIENTS[(col + row) % GRADIENTS.length],
+      alpha: 0.45 + 0.45 * (1 - dist) + hash01(id * 3.3) * 0.1,
+      dur: 3.2 + hash01(id * 5.9) * 4,
+      delay: -hash01(id * 7.7) * 6,
     });
   }
 }
 
 /**
- * Petit nuage de pixels qui clignotent en bas à droite de l'écran, avec un
- * léger décalage horizontal par à-coups (glitch). Purement décoratif et
- * discret : `intensity` (0..1) règle l'opacité globale.
+ * Petit nuage de pixels arrondis, en dégradé irisé, qui palpitent doucement
+ * dans le coin bas droit : une trame de dither de plus en plus clairsemée en
+ * s'éloignant du coin. Purement décoratif ; `intensity` (0..1) règle l'opacité.
  */
 export function PixelGlitch({ intensity = 0.6 }: { intensity?: number }) {
   if (intensity <= 0) return null;
   return (
     <div
       aria-hidden="true"
-      className="pg-field pointer-events-none fixed bottom-4 right-4 z-20"
+      className="pg-field pointer-events-none fixed bottom-3 right-3 z-20"
       style={{ opacity: Math.min(1, intensity) }}
     >
-      <div className="pg-slice relative" style={{ width: `${COLS * 0.75}rem`, height: `${ROWS * 0.75}rem` }}>
+      <div className="relative" style={{ width: `${COLS * PITCH}rem`, height: `${ROWS * PITCH}rem` }}>
         {CELLS.map((c) => (
           <span
             key={c.id}
-            className="pg-dot absolute"
+            className="pg-dot absolute rounded-[30%]"
             style={{
-              right: `${(COLS - 1 - c.col) * 0.75}rem`,
-              bottom: `${(ROWS - 1 - c.row) * 0.75}rem`,
-              width: `${c.size}rem`,
-              height: `${c.size}rem`,
-              backgroundColor: c.color,
+              right: `${(COLS - 1 - c.col) * PITCH}rem`,
+              bottom: `${(ROWS - 1 - c.row) * PITCH}rem`,
+              width: `${c.size + 0.14}rem`,
+              height: `${c.size + 0.14}rem`,
+              backgroundImage: c.gradient,
               ["--pg-a" as string]: c.alpha.toFixed(2),
               ["--pg-d" as string]: `${c.dur.toFixed(2)}s`,
               ["--pg-delay" as string]: `${c.delay.toFixed(2)}s`,

@@ -43,6 +43,7 @@ import {
 } from "./gravity-layout";
 import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types";
 import { PlayLoader } from "./PlayLoader";
+import { CursorTrail } from "./CursorTrail";
 import { PixelEmitter } from "./PixelEmitter";
 import { PixelGlitch } from "@/components/primitives/PixelGlitch";
 import { SelectProgressOverlay } from "./SelectProgressOverlay";
@@ -166,11 +167,30 @@ export type CameraDebugParams = {
   motionBlur: boolean;
   motionBlurStrength: number;
   motionBlurMax: number;
+  /** Dézoom maximal (0..1) quand on se déplace très vite : 0.2 = jusqu'à -20 % de zoom. */
+  speedDezoom: number;
+  /** Vitesse d'écran (px/s) à partir de laquelle le dézoom est complet. */
+  speedDezoomRef: number;
+  /** Intensité (0..1) de la traînée de pixels derrière le curseur — 0 = coupée. */
+  cursorTrail: number;
 };
+
+/** Animation de survol d'une carte de la mosaïque. */
+export type HoverParams = {
+  /** Grossissement ajouté au survol (0.04 = +4 %). */
+  scale: number;
+  /** Rotation maximale au survol (degrés). */
+  rotate: number;
+  /** Vitesse de transition (par seconde). */
+  speed: number;
+};
+
+export const HOVER_DEFAULTS: HoverParams = { scale: 0.045, rotate: 1.4, speed: 10 };
 
 export type PlayDebugState = {
   plane: { radius: number };
   indicator: { fadeSpeed: number; moveSpeed: number };
+  hover: HoverParams;
   camera: CameraDebugParams;
   gravity: GravityParams;
   pan: { dragThreshold: number; velocityWindowMs: number; friction: number };
@@ -212,6 +232,10 @@ export type PlayRuntimeState = {
     /** Phase de la frame précédente, pour détecter les sauts. */
     lastPhase: TransitionPhase;
   };
+  /** Vitesse de la caméra à l'écran (px/s), lissée — alimente le dézoom en mouvement rapide. */
+  cameraSpeed: number;
+  /** Zoom réellement appliqué à la caméra (dézoom compris) : sert à convertir les gestes en monde. */
+  liveZoom: number;
   /** Vecteur de flou de mouvement induit par la caméra (unités proportionnelles écran). */
   cameraBlur: { x: number; y: number };
   indicatorTarget: { x: number; y: number; width: number; height: number };
@@ -594,6 +618,7 @@ function stepCamera(
   onTextReveal?: () => void,
   onReturnComplete?: () => void,
   onNavbarReveal?: () => void,
+  camCfg?: CameraDebugParams,
 ) {
   const effDelta = delta * (studio?.speed ?? 1);
   const tr = rc.transition;
@@ -650,10 +675,17 @@ function stepCamera(
 
   // ── Repos : zoom de base et pan inertiel ────────────────────────────────
   if (tr.phase === "idle") {
-    if (Math.abs(camera.zoom - baseZoom) > 0.0005) {
-      camera.zoom = dampTowards(camera.zoom, baseZoom, 8, effDelta);
+    // Dézoom en mouvement rapide : plus la caméra file vite à l'écran, plus on
+    // recule, puis le zoom revient en douceur à l'arrêt — ça donne de la vitesse.
+    const speedRef = Math.max(200, camCfg?.speedDezoomRef ?? 1800);
+    const speedT = Math.min(1, rc.cameraSpeed / speedRef);
+    const dezoom = (camCfg?.speedDezoom ?? 0) * Math.pow(speedT, 0.85);
+    const targetZoom = baseZoom * (1 - dezoom);
+    if (Math.abs(camera.zoom - targetZoom) > 0.0002) {
+      camera.zoom = dampTowards(camera.zoom, targetZoom, dezoom > 0.001 ? 6 : 4, effDelta);
       camera.updateProjectionMatrix();
     }
+    rc.liveZoom = camera.zoom;
 
     if (rc.camera.mode === "follow") {
       if (velocity.x !== 0 || velocity.y !== 0) {
@@ -756,6 +788,7 @@ function CameraRig({
       onTextReveal,
       onReturnComplete,
       onNavbarReveal,
+      debug.current.camera,
     );
 
     // Vélocité instantanée de la caméra pour le flou de mouvement global
@@ -767,6 +800,14 @@ function CameraRig({
     const camVy = delta > 0 ? (cam.position.y - prevCamPosRef.current.y) / delta : 0;
     prevCamPosRef.current.x = cam.position.x;
     prevCamPosRef.current.y = cam.position.y;
+
+    // Vitesse à l'écran (px/s) : monte vite, retombe plus doucement. Hors repos
+    // (transition en cours) elle reste nulle, pour ne jamais dézoomer pendant l'ouverture.
+    const rcur = runtime.current;
+    const screenSpeed =
+      rcur.transition.phase === "idle" ? Math.hypot(camVx, camVy) * cam.zoom : 0;
+    const speedK = 1 - Math.exp(-delta * (screenSpeed > rcur.cameraSpeed ? 14 : 4));
+    rcur.cameraSpeed += (screenSpeed - rcur.cameraSpeed) * speedK;
 
     const camCfg = debug.current.camera;
     let targetBlurX = 0;
@@ -814,7 +855,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       motionBlur: CAMERA_MOTION_BLUR_ENABLED,
       motionBlurStrength: CAMERA_MOTION_BLUR_STRENGTH,
       motionBlurMax: CAMERA_MOTION_BLUR_MAX,
+      speedDezoom: 0.2,
+      speedDezoomRef: 1800,
+      cursorTrail: 0.6,
     },
+    hover: { ...HOVER_DEFAULTS },
     gravity: { ...GRAVITY_DEFAULTS },
     pan: {
       dragThreshold: DRAG_THRESHOLD,
@@ -834,6 +879,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     hovered: null,
     hoveredPos: null,
     camera: { targetX: 0, targetY: 0, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle" },
+    cameraSpeed: 0,
+    liveZoom: CAMERA_ZOOM,
     cameraBlur: { x: 0, y: 0 },
     indicatorTarget: {
       x: 0,
@@ -1123,6 +1170,9 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   // mélange en continu selon le poids de chaque carte visible.
   const deckWeightsRef = useRef<DeckWeight[]>([]);
   const palettesRef = useRef<Map<string, RGB[]>>(new Map());
+  // Palette du média ouvert, relue chaque frame par les effets de l'ouverture.
+  const primaryPaletteRef = useRef<RGB[] | null>(null);
+  const primaryUrlRef = useRef<string | null>(null);
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
   usePanelGradient(panelEl, deckWeightsRef, palettesRef, debug);
 
@@ -1130,7 +1180,10 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     if (palettesRef.current.has(media.url)) return;
     if (media.kind === "image") {
       paletteFromImageUrl(media.url).then((p) => {
-        if (p) palettesRef.current.set(media.url, p);
+        if (p) {
+          palettesRef.current.set(media.url, p);
+          if (media.url === primaryUrlRef.current) primaryPaletteRef.current = p;
+        }
       });
       return;
     }
@@ -1146,6 +1199,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
   useEffect(() => {
     palettesRef.current = new Map();
+    primaryUrlRef.current = primaryMedia?.url ?? null;
+    primaryPaletteRef.current = null;
     if (primaryMedia) loadPalette({ url: primaryMedia.url, kind: primaryMedia.kind });
   }, [primaryMedia, loadPalette]);
 
@@ -1293,7 +1348,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       // ── Pan : défilement standard au trackpad / molette ─────────────────────
       velocity.current.x = 0;
       velocity.current.y = 0;
-      applyPanWheel(runtime.current, e.deltaX, e.deltaY, debug.current.camera.zoom);
+      applyPanWheel(runtime.current, e.deltaX, e.deltaY, runtime.current.liveZoom);
     }
 
     function onPointerDown(e: PointerEvent) {
@@ -1372,8 +1427,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         }
       }
 
-      const zoom = debug.current.camera.zoom;
-      applyPanPointerMove(runtime.current, dx, dy, zoom);
+      // Zoom réel (dézoom compris) : le contenu suit le doigt 1:1 même en mouvement rapide.
+      applyPanPointerMove(runtime.current, dx, dy, runtime.current.liveZoom);
     }
 
     function onPointerLeaveDocument(e: PointerEvent) {
@@ -1627,7 +1682,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               />
             )}
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
-            <PixelEmitter debug={debug} runtime={runtime} tile={tile} />
+            <PixelEmitter debug={debug} runtime={runtime} tile={tile} paletteRef={primaryPaletteRef} />
             <FisheyeEffect debug={debug} />
           </Canvas>
         )}
@@ -1637,6 +1692,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           grand arrondi en haut à gauche. Fond dégradé teinté par le média au
           centre de la wheel ; les textes en mix-blend-mode multiply en
           héritent. Sur mobile il devient une feuille basse. */}
+      <CursorTrail debug={debug} />
+
       {selectedArtifactDetail && isDetailVisible && (
         <PixelGlitch intensity={debug.current.transition.panelGlitch} />
       )}

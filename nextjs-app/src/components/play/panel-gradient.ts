@@ -64,7 +64,7 @@ export function usePanelGradient(
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const cfg = debug.current.transition;
-      const strength = cfg.panelGradientStrength ?? 0.3;
+      const strength = cfg.panelGradientStrength ?? 0.55;
       const t = (now / 1000) * (cfg.panelGradientSpeed ?? 1);
       const k = 1 - Math.exp(-dt * 5);
 
@@ -77,28 +77,57 @@ export function usePanelGradient(
         if (!pal || next < 0.002) continue;
         for (let i = 0; i < 3; i++) layers[i].push({ w: next, c: pal[i] });
       }
-      // Le dégradé reste léger : les teintes du média sont diluées dans le blanc.
-      const c0 = tint(mix(layers[0], WHITE), strength);
-      const c1 = tint(mix(layers[1], WHITE), strength);
-      const c2 = tint(mix(layers[2], WHITE), strength);
+      // Teintes du média, un peu délavées : le dégradé reste léger.
+      const c0 = tint(mix(layers[0], WHITE), 0.75);
+      const c1 = tint(mix(layers[1], WHITE), 0.75);
+      const c2 = tint(mix(layers[2], WHITE), 0.75);
 
-      const x1 = 50 + 42 * Math.sin(t * 0.37);
-      const y1 = 30 + 28 * Math.cos(t * 0.29 + 1.1);
-      const x2 = 50 + 45 * Math.cos(t * 0.31 + 2.0);
-      const y2 = 72 + 24 * Math.sin(t * 0.43 + 0.4);
-      const x3 = 50 + 38 * Math.sin(t * 0.23 + 4.0);
-      const y3 = 50 + 40 * Math.cos(t * 0.35 + 2.7);
-      const angle = 160 + 25 * Math.sin(t * 0.21);
+      // Irisation : trois pastels qui glissent lentement le long du spectre, mêlés
+      // à moitié aux teintes du média pour rester accordés à ce qu'on regarde.
+      const ph = t * 0.045;
+      const iri = (k: number): RGB => [
+        215 + 40 * Math.cos(2 * Math.PI * (ph + k)),
+        215 + 40 * Math.cos(2 * Math.PI * (ph + k + 0.33)),
+        215 + 40 * Math.cos(2 * Math.PI * (ph + k + 0.67)),
+      ];
+      const blend = (a: RGB, b: RGB): RGB => [
+        a[0] * 0.5 + b[0] * 0.5,
+        a[1] * 0.5 + b[1] * 0.5,
+        a[2] * 0.5 + b[2] * 0.5,
+      ];
+      const k0 = blend(iri(0), c0);
+      const k1 = blend(iri(0.3), c1);
+      const k2 = blend(iri(0.6), c2);
+
+      // Le dégradé vit uniquement dans le coin bas droit, là où se trouve le glitch pixel.
+      const x1 = 100 + 7 * Math.sin(t * 0.37);
+      const y1 = 100 + 6 * Math.cos(t * 0.29 + 1.1);
+      const x2 = 88 + 10 * Math.cos(t * 0.31 + 2.0);
+      const y2 = 100 + 8 * Math.sin(t * 0.43 + 0.4);
+      const x3 = 100 + 9 * Math.sin(t * 0.23 + 4.0);
+      const y3 = 84 + 8 * Math.cos(t * 0.35 + 2.7);
+      const a = Math.min(1, strength);
 
       el.style.backgroundImage = [
-        `radial-gradient(70% 55% at ${x1}% ${y1}%, ${rgb(c2, 0.95)} 0%, transparent 70%)`,
-        `radial-gradient(65% 50% at ${x2}% ${y2}%, ${rgb(c1, 0.9)} 0%, transparent 72%)`,
-        `radial-gradient(55% 45% at ${x3}% ${y3}%, ${rgb(c0, 0.75)} 0%, transparent 70%)`,
-        `linear-gradient(${angle}deg, ${rgb(c0)} 0%, ${rgb(c1)} 55%, rgb(255 255 255) 100%)`,
+        `radial-gradient(58% 34% at ${x1}% ${y1}%, ${rgb(k0, a)} 0%, transparent 72%)`,
+        `radial-gradient(44% 26% at ${x2}% ${y2}%, ${rgb(k1, a * 0.85)} 0%, transparent 74%)`,
+        `radial-gradient(34% 22% at ${x3}% ${y3}%, ${rgb(k2, a * 0.8)} 0%, transparent 76%)`,
       ].join(",");
+
+      // Mêmes couleurs, partagées avec le glitch pixel (cf. PixelGlitch).
+      const root = document.documentElement.style;
+      root.setProperty("--pg-c0", rgb(blend(k0, [90, 120, 255]), 1));
+      root.setProperty("--pg-c1", rgb(blend(k1, [150, 110, 255]), 1));
+      root.setProperty("--pg-c2", rgb(blend(k2, [120, 210, 255]), 1));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      const root = document.documentElement.style;
+      root.removeProperty("--pg-c0");
+      root.removeProperty("--pg-c1");
+      root.removeProperty("--pg-c2");
+    };
   }, [el, weightsRef, palettesRef, debug]);
 }

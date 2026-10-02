@@ -198,6 +198,18 @@ function CameraTab({ state }: { state: PlayDebugRef }) {
         state.current.camera.zoom = v;
       },
     },
+    "Hover carte": folder({
+      hoverScale: num(state.current.hover, "scale", { label: "Grossissement", min: 0, max: 0.2, step: 0.005 }),
+      hoverRotate: num(state.current.hover, "rotate", { label: "Rotation max (deg)", min: 0, max: 8, step: 0.1 }),
+      hoverSpeed: num(state.current.hover, "speed", { label: "Vitesse", min: 2, max: 30, step: 0.5 }),
+    }),
+    "Dezoom en mouvement": folder({
+      speedDezoom: num(state.current.camera, "speedDezoom", { label: "Dezoom max (0.2 = -20 pct)", min: 0, max: 0.6, step: 0.01 }),
+      speedDezoomRef: num(state.current.camera, "speedDezoomRef", { label: "Vitesse pour dezoom complet (px/s)", min: 400, max: 5000, step: 50 }),
+    }),
+    Curseur: folder({
+      cursorTrail: num(state.current.camera, "cursorTrail", { label: "Trainee de pixels (0 = off)", min: 0, max: 1, step: 0.05 }),
+    }),
     "Motion Blur (Camera & Canvas)": folder({
       "Motion blur enabled": {
         value: state.current.camera.motionBlur,
@@ -741,7 +753,8 @@ function TransitionTab({
         loadWaveSpeed: num(tr, "loadWaveSpeed", { label: "Vague en boucle (cycles par s)", min: 0.2, max: 3, step: 0.05 }),
         FX: folder(
           {
-            fxGlitch: num(tr, "fxGlitch", { label: "Glitch de l artifact", min: 0, max: 1, step: 0.01 }),
+            fxGlitch: num(tr, "fxGlitch", { label: "Dither de l artifact", min: 0, max: 1, step: 0.01 }),
+            fxDitherCols: num(tr, "fxDitherCols", { label: "Dither : cases en largeur", min: 6, max: 48, step: 1 }),
             fxPixelCount: num(tr, "fxPixelCount", { label: "Pixels autour (nombre)", min: 0, max: 64, step: 1 }),
             fxPixelSize: num(tr, "fxPixelSize", { label: "Taille max des pixels", min: 4, max: 60, step: 1 }),
             fxPixelSpread: num(tr, "fxPixelSpread", { label: "Portee des pixels", min: 0, max: 400, step: 5 }),

@@ -12,6 +12,7 @@ import {
   type PlayDebugRef,
   type PlayRuntimeRef,
   type PlayRuntimeState,
+  type HoverParams,
 } from "./PlayCanvas";
 import type { LayoutPoint, LayoutTile } from "./layout-types";
 import { ArtifactPlane, type PlaneUniforms } from "./ArtifactPlane";
@@ -163,6 +164,7 @@ function stepKinematicMeshes(
   displacementRef: { current: number },
   delta: number,
   burst: TransitionConfig,
+  hover: HoverParams,
 ) {
   if (!phys.enabled) {
     displacementRef.current = 0;
@@ -290,12 +292,29 @@ function stepKinematicMeshes(
         }
       }
 
+      // Survol : léger grossissement et inclinaison, amortis. Seulement au repos,
+      // et seulement sur la copie réellement survolée (tuilage 3×3).
+      const hovered =
+        rc.transition.phase === "idle" &&
+        rc.hovered === i &&
+        rc.hoveredPos !== null &&
+        Math.abs(rc.hoveredPos.x - worldX) < 2 &&
+        Math.abs(rc.hoveredPos.y - worldY) < 2;
+      const prevHover = (mesh.userData.hov as number | undefined) ?? 0;
+      const hov =
+        prevHover + ((hovered ? 1 : 0) - prevHover) * (1 - Math.exp(-delta * hover.speed));
+      mesh.userData.hov = Math.abs(hov) < 0.001 ? 0 : hov;
+      if (!isTarget) scale *= 1 + hover.scale * hov;
+      // Le sens de l'inclinaison alterne d'une carte à l'autre, comme posées à la main.
+      const hoverTilt =
+        (((i * 7 + 3) % 2 === 0 ? 1 : -1) * hover.rotate * Math.PI * hov) / 180;
+
       mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
       // Contrairement à la bascule X/Y (aplatie par la caméra orthographique,
       // cf. ArtifactPlane.tsx), une rotation Z reste un pur tourni dans le
       // plan de l'écran : parfaitement visible telle quelle, sans warp shader.
-      mesh.rotation.z = isTarget ? frame.tileRoll : 0;
+      mesh.rotation.z = isTarget ? frame.tileRoll : hoverTilt;
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
@@ -326,6 +345,7 @@ function stepKinematicMeshes(
           uniforms.uGlitch.value = glitchOn
             ? Math.min(1, frame.fx * burst.fxGlitch)
             : 0;
+          uniforms.uGlitchCols.value = burst.fxDitherCols;
           uniforms.uTime.value = (performance.now() / 1000) % 1000;
         }
       }
@@ -398,6 +418,7 @@ export function ArtifactGrid({
       displacementRef,
       delta,
       debug.current.transition,
+      debug.current.hover,
     );
   });
 
