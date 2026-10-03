@@ -71,3 +71,16 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   style : select « prism » ; animation : survol / ouverture / carte suivante, avec inspecteur et rejeu).
   Le code vit dans `components/play/debug/`. `window.__play` expose l'état.
 - Le curseur de /play est dessiné par `PlayCursor` (incliné selon le mouvement, grossit au survol, rétrécit au clic).
+
+## Landing prod — page Notion (branche `prod` uniquement)
+
+Sur `prod`, `/` n'est plus le redirect vers `/work` : c'est une page statique qui affiche la page Notion du
+portfolio actuel en plein écran (iframe), avec un bouton « visit the wip site » vers `https://preprod.ore.today`.
+
+- `src/app/page.tsx` : la landing. `NOTION_PAGE_URL` doit être le lien *Share → Publish → Copy web link*
+  de la page Notion (publiée sur le web, sinon l'iframe n'affiche que le login Notion).
+- `next.config.ts` : toute autre page redirige (307) vers `/` ; `_next`, `_vercel` et les fichiers (extension)
+  restent servis. Les routes WIP (`/work`, `/play`, `/info`, `/api`) ne sont donc pas exposées.
+- `ActionBar` se masque sur `/`.
+- C'est le seul écart entre `prod` et `preprod` : pour passer le nouveau site en prod, voir
+  « Branches & déploiement » dans le `CLAUDE.md` racine.
