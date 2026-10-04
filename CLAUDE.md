@@ -29,14 +29,25 @@ cd sanity-studio && pnpm dev     # localhost:3333
 | Branche | Domaine | Contenu |
 |---|---|---|
 | `prod` | ore.today (→ www.ore.today) | Landing : la page Notion du portfolio actuel + un bouton vers la preprod |
-| `preprod` | preprod.ore.today | Le site WIP (Next.js + Sanity) |
+| `preprod` | preprod.ore.today | Le site WIP (Next.js + Sanity), publique mais non indexée |
 
-- **On développe à partir de `preprod`** : branche de feature → PR vers `preprod`.
-- **`prod` = `preprod` + un seul commit** : la landing Notion (voir `nextjs-app/CLAUDE.md` sur `prod`).
-  N'y toucher que pour la landing.
-- **Mise en prod du nouveau site** : `prod` reprend `preprod` (le commit landing disparaît) →
-  `git push origin preprod:prod --force-with-lease`. Pour garder l'historique : `git revert` du commit
-  landing sur `prod`, puis `git merge preprod`.
+**Flux** (pas de branche `dev` : les previews de branche en tiennent lieu) :
+
+1. **Branche de feature** depuis `preprod` : chaque push a sa preview `ore-today-git-<branche>-ore.vercel.app`
+   (publique, partageable tout de suite).
+2. **PR vers `preprod`** : une fois mergée, c'est sur `preprod.ore.today`, l'environnement stable pour tester
+   et montrer à d'autres personnes.
+3. **Validé → `prod`** : `prod` reprend `preprod`.
+
+- **Branche par défaut GitHub = `preprod`** : les PR et les nouvelles branches (sessions Claude comprises) partent de là.
+- **`prod` = `preprod` + la landing Notion** (quelques commits, voir `nextjs-app/CLAUDE.md` sur `prod`).
+  N'y toucher que pour la landing : tant que le nouveau site n'est pas lancé, l'étape 3 est en attente.
+- **Lancement du nouveau site** : `prod` reprend `preprod` (la landing disparaît) →
+  `git push origin preprod:prod --force-with-lease`. Pour garder l'historique : `git revert` des commits
+  landing sur `prod`, puis `git merge preprod`. Ensuite, chaque validation est une promotion `preprod` → `prod`.
+- **SEO** : la preprod envoie `X-Robots-Tag: noindex, nofollow` (règle sur le domaine dans `next.config.ts`,
+  donc sans effet sur la prod). Pas de `robots.txt` `Disallow` : il empêcherait les robots de lire le noindex.
+  Le SEO (titre, description, icônes) vit dans `nextjs-app/src/app/layout.tsx` et la prod le reprend tel quel.
 - **Vercel** : *Production Branch* = `prod` ; le domaine `preprod.ore.today` est lié à la branche
   `preprod` (Settings → Domains). Pas d'alias dans `vercel.json` : il laisserait n'importe quelle branche
   revendiquer `preprod.ore.today`. Chaque branche garde son URL de preview `ore-today-git-<branche>-ore.vercel.app`.
