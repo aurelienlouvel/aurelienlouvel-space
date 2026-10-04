@@ -81,8 +81,16 @@ export type TransitionConfig = {
   breathe: number; // Respiration du scale pendant le chargement (ex: 0.025)
   loadGrow: number; // Grossissement borné pendant le chargement (ex: 0.1)
   loadWaveSpeed: number; // Cycles/s de la vague qui boucle pendant le chargement
-  burstRandomness: number; // 0..1 — variation de puissance du burst d'une tuile à l'autre
+  burstPowerMin: number; // Puissance minimale du burst d'une tuile (× scatterDistance, ex: 0.5)
+  burstPowerMax: number; // Puissance maximale du burst d'une tuile (× scatterDistance, ex: 1.5)
   burstAngleJitter: number; // Écart angulaire aléatoire de chaque tuile (rad)
+  burstSeed: number; // Graine du tirage aléatoire du burst (changer = autre explosion)
+  simulatedLoadMs: number; // Debug : délai artificiel ajouté au chargement du pack (ms)
+  rewindDuration: number; // Durée du rewind de l'ouverture (s) : lent au début, rapide au milieu, lent à la fin
+  rewindEasing: EasingName; // Courbe du rewind (easeInOut = effet cinématique)
+  rewindDeckShare: number; // Part du rewind consacrée à défaire les cartes passées (0..0.8)
+  rewindDeckPerCard: number; // Durée ajoutée par carte à défaire (s)
+  fxBurstBoost: number; // Surintensité des éclats au moment du burst (×, 0 = aucune)
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
   lock: TrackSpec; // Impact : la carte se détache au boom
@@ -97,8 +105,8 @@ export type TransitionConfig = {
   lockScalePunch: number; // Détachement (scale) de la carte au lock — lift discret, sans rebond (ex: 0.08)
   overlayExitDuration: number; // Durée d'évacuation de la vague de sélection (s)
   scatterDistance: number; // Écartement radial final de la mosaïque (unités monde)
-  heroZoom: number; // Sommet de l'arc, en multiple du zoom de détail (ex: 1.05×)
-  detailZoom: number; // Zoom de la vue détail stabilisée (× zoom de base)
+  approachZoom: number; // Zoom ABSOLU en fin d'approche, avant la vague (× zoom de base)
+  detailZoom: number; // Zoom ABSOLU de la vue détail stabilisée (× zoom de base)
   navbarLead: number; // Avance du changement de navbar sur la fin du cadrage (s)
   textLead: number; // Avance de l'apparition du side panel sur la fin du cadrage (s)
   maxMediaWidthRatio: number; // Largeur max autorisée du média (% écran, ex: 0.38)
@@ -111,9 +119,32 @@ export type TransitionConfig = {
   detailScrollDamping: number; // Amortissement du passage d'une carte à l'autre
   stackScale: number; // Échelle de chaque carte de plus dans la pile (ex: 0.9)
   stackPeek: number; // Décalage vers le haut de chaque carte de la pile (unités monde)
-  stackDepth: number; // Nombre de cartes visibles derrière la première
+  stackDepth: number; // Nombre de layers visibles sous la première carte
+  stackOpacity: number; // Opacité du premier layer sous la carte (0..1)
+  stackOpacityFalloff: number; // Facteur d'opacité appliqué à chaque layer suivant (0..1)
+  panelGradientStrength: number; // 0..1 — intensité du dégradé de fond du side panel
+  panelGradientSpeed: number; // Vitesse de dérive du dégradé du side panel (×)
+  panelGlitch: number; // 0..1 — intensité du glitch pixel en bas à droite (0 = coupé)
   cardExit: number; // Course de la carte qui s'en va, en hauteurs de carte
-  stepCooldown: number; // Délai minimal entre deux cartes à la molette (s)
+  stepCooldown: number; // Délai minimal entre deux cartes (s) : verrou après un changement
+  deckPullDistance: number; // Défilement (px de molette) à fournir pour passer à la carte suivante
+  deckResist: number; // Raideur de la résistance : la carte monte beaucoup au début puis de moins en moins (≥ 1)
+  deckLift: number; // Course maximale de la carte pendant la traction (px écran)
+  deckRelease: number; // Vitesse de retour de la carte quand on lâche avant le seuil (par seconde)
+  deckHold: number; // Délai sans geste avant que la carte ne redescende (s)
+  deckShimmer: number; // Éclats qui se décollent pendant la traction (0 = aucun)
+  deckDissolveAmount: number; // 0..1 — part de la carte désagrégée quand elle est tirée au maximum
+  deckCellCols: number; // Nombre de zones (rectangles) de désagrégation sur la largeur de la carte
+  deckCellPixel: number; // 0..1 — pixellisation des zones qui se détachent
+  deckCellIrid: number; // 0..1 — reflet irisé des zones en train de partir
+  deckCellBias: number; // 0..1 — la désagrégation part du bord qui mène (1) plutôt qu'au hasard (0)
+  deckAimMix: number; // 0..1 — part de la visée (curseur / geste) dans la direction de la carte, le reste étant tout droit
+  deckThrow: number; // Distance dont la carte part dans sa direction en se désagrégeant (px écran)
+  deckSpin: number; // Rotation maximale de la carte lancée (degrés), selon sa direction
+  deckTilt: number; // Inclinaison 3D maximale de la carte et des layers selon la souris (degrés, négatif = inverse)
+  deckTiltLayerGain: number; // Inclinaison supplémentaire des layers plus profonds (× par niveau)
+  deckTiltSmooth: number; // Raideur de l'inclinaison (par seconde)
+  deckDissolve: number; // Courbe d'évanouissement de la carte qui part (1 = linéaire, 2 = tardive)
   dragPxPerCard: number; // Distance de drag (px) pour passer une carte
 
   // ── 4. Retour ────────────────────────────────────────────────────────────
@@ -147,7 +178,7 @@ export type TransitionConfig = {
  */
 const BASE_TRACKS = {
   lock: { start: 0.0, duration: 0.45, easing: "linear" },
-  scatter: { start: 0.8, duration: 0.8, easing: "easeOutExpo" },
+  scatter: { start: 0.32, duration: 2, easing: "easeOutExpo" },
   reveal: { start: 0.0, duration: 0.6, easing: "easeOutQuint" },
   hero: { start: 0.0, duration: 0.9, easing: "easeInOutCubic" },
   columnFade: { start: 0.25, duration: 1.1, easing: "easeOutCubic" },
@@ -221,18 +252,26 @@ export function scrollEndTime(config: TransitionConfig): number {
 const BASE_AMPLITUDES = {
   waveDuration: 1.1,
   waveEasing: "easeInOutCubic" as EasingName,
-  silenceDrift: 0.06,
-  packShake: 0.05,
+  silenceDrift: 0.145,
+  packShake: 0.125,
   wiggleSpeed: 7,
   breathe: 0.025,
   loadGrow: 0.1,
   loadWaveSpeed: 0.9,
-  burstRandomness: 0.6,
-  burstAngleJitter: 0.5,
+  burstPowerMin: 0.1,
+  burstPowerMax: 1,
+  burstAngleJitter: 0,
+  burstSeed: 1,
+  simulatedLoadMs: 0,
+  rewindDuration: 1.4,
+  rewindEasing: "easeInOutQuint" as EasingName,
+  rewindDeckShare: 0.4,
+  rewindDeckPerCard: 0.15,
+  fxBurstBoost: 1,
   lockScalePunch: 0.08,
   overlayExitDuration: 0.35,
-  scatterDistance: 2800,
-  heroZoom: 1.45,
+  scatterDistance: 1000,
+  approachZoom: 1.8,
   detailZoom: 1.8,
   navbarLead: 0.3,
   textLead: 0.2,
@@ -241,13 +280,36 @@ const BASE_AMPLITUDES = {
   mobileMediaHeightRatio: 0.48,
   maxMediaWidthRatio: 0.38,
   maxMediaHeightRatio: 0.74,
-  detailScrollDamping: 12,
+  detailScrollDamping: 8,
   stackScale: 0.9,
   stackPeek: 22,
   stackDepth: 4,
+  stackOpacity: 0.55,
+  stackOpacityFalloff: 0.55,
+  panelGradientStrength: 0.65,
+  panelGradientSpeed: 1.8,
+  panelGlitch: 0.6,
   cardExit: 0.7,
-  stepCooldown: 0.35,
-  dragPxPerCard: 320,
+  stepCooldown: 0.55,
+  deckPullDistance: 1030,
+  deckResist: 2.6,
+  deckLift: 135,
+  deckRelease: 9,
+  deckHold: 0.14,
+  deckShimmer: 1,
+  deckDissolveAmount: 0.9,
+  deckCellCols: 5,
+  deckCellPixel: 0.8,
+  deckCellIrid: 0.5,
+  deckCellBias: 0.45,
+  deckAimMix: 0.8,
+  deckThrow: 180,
+  deckSpin: 12,
+  deckTilt: 7,
+  deckTiltLayerGain: 0.35,
+  deckTiltSmooth: 8,
+  deckDissolve: 3.6,
+  dragPxPerCard: 580,
   repulseReturnDelay: 0.25,
   cameraReturnDelay: 0.0,
   landscapeTextWidthRatio: 0.42,
@@ -269,7 +331,7 @@ export const TRANSITION_PRESETS: Record<
   cinematic: {
     ...BASE_AMPLITUDES,
     waveDuration: 1.3,
-    heroZoom: 1.5,
+    approachZoom: 2.7,
     ...scaleTracks(1.1),
   },
   snappy: {
@@ -277,7 +339,7 @@ export const TRANSITION_PRESETS: Record<
     waveDuration: 0.8,
     lockScalePunch: 0.11,
     overlayExitDuration: 0.22,
-    heroZoom: 1.35,
+    approachZoom: 2.4,
     detailScrollDamping: 14,
     repulseReturnDelay: 0.1,
     ...scaleTracks(0.78),
@@ -288,7 +350,7 @@ export const TRANSITION_PRESETS: Record<
     lockScalePunch: 0.1,
     overlayExitDuration: 0.4,
     scatterDistance: 3400,
-    heroZoom: 1.65,
+    approachZoom: 3,
     desktopMediaWidthRatio: 0.36,
     mobileMediaHeightRatio: 0.5,
     detailScrollDamping: 10,

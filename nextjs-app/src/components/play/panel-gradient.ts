@@ -2,6 +2,7 @@
 
 import { useEffect, type MutableRefObject } from "react";
 import type { RGB } from "@/lib/dominant-color";
+import type { PlayDebugRef } from "./PlayCanvas";
 
 export type DeckWeight = { url: string; kind: "image" | "video"; w: number };
 
@@ -29,6 +30,16 @@ function mix(list: { w: number; c: RGB }[], fallback: RGB): RGB {
   ];
 }
 
+/** Éclaircit une couleur vers le blanc : `strength` 1 = couleur pleine, 0 = blanc. */
+function tint(c: RGB, strength: number): RGB {
+  const k = Math.min(1, Math.max(0, strength));
+  return [
+    WHITE[0] + (c[0] - WHITE[0]) * k,
+    WHITE[1] + (c[1] - WHITE[1]) * k,
+    WHITE[2] + (c[2] - WHITE[2]) * k,
+  ];
+}
+
 const rgb = (c: RGB, a = 1) =>
   `rgb(${Math.round(c[0])} ${Math.round(c[1])} ${Math.round(c[2])} / ${a})`;
 
@@ -41,6 +52,7 @@ export function usePanelGradient(
   el: HTMLElement | null,
   weightsRef: MutableRefObject<DeckWeight[]>,
   palettesRef: MutableRefObject<Map<string, RGB[]>>,
+  debug: PlayDebugRef,
 ) {
   useEffect(() => {
     if (!el) return;
@@ -51,7 +63,9 @@ export function usePanelGradient(
     const tick = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      const t = now / 1000;
+      const cfg = debug.current.transition;
+      const strength = cfg.panelGradientStrength ?? 0.55;
+      const t = (now / 1000) * (cfg.panelGradientSpeed ?? 1);
       const k = 1 - Math.exp(-dt * 5);
 
       const layers: { w: number; c: RGB }[][] = [[], [], []];
@@ -63,27 +77,52 @@ export function usePanelGradient(
         if (!pal || next < 0.002) continue;
         for (let i = 0; i < 3; i++) layers[i].push({ w: next, c: pal[i] });
       }
-      const c0 = mix(layers[0], WHITE);
-      const c1 = mix(layers[1], WHITE);
-      const c2 = mix(layers[2], WHITE);
+      // Teintes du média, un peu délavées : le dégradé reste léger.
+      const c0 = tint(mix(layers[0], WHITE), 0.75);
+      const c1 = tint(mix(layers[1], WHITE), 0.75);
+      const c2 = tint(mix(layers[2], WHITE), 0.75);
 
-      const x1 = 50 + 42 * Math.sin(t * 0.37);
-      const y1 = 30 + 28 * Math.cos(t * 0.29 + 1.1);
-      const x2 = 50 + 45 * Math.cos(t * 0.31 + 2.0);
-      const y2 = 72 + 24 * Math.sin(t * 0.43 + 0.4);
-      const x3 = 50 + 38 * Math.sin(t * 0.23 + 4.0);
-      const y3 = 50 + 40 * Math.cos(t * 0.35 + 2.7);
-      const angle = 160 + 25 * Math.sin(t * 0.21);
+      // Irisation : trois pastels qui glissent lentement le long du spectre, mêlés
+      // à moitié aux teintes du média pour rester accordés à ce qu'on regarde.
+      const ph = t * 0.045;
+      const iri = (k: number): RGB => [
+        215 + 40 * Math.cos(2 * Math.PI * (ph + k)),
+        215 + 40 * Math.cos(2 * Math.PI * (ph + k + 0.33)),
+        215 + 40 * Math.cos(2 * Math.PI * (ph + k + 0.67)),
+      ];
+      const blend = (a: RGB, b: RGB): RGB => [
+        a[0] * 0.5 + b[0] * 0.5,
+        a[1] * 0.5 + b[1] * 0.5,
+        a[2] * 0.5 + b[2] * 0.5,
+      ];
+      const k0 = blend(iri(0), c0);
+      const k1 = blend(iri(0.3), c1);
+      const k2 = blend(iri(0.6), c2);
+
+      // Le dégradé occupe le bas du panel et monte le long du bord droit ; le haut
+      // reste blanc. Les halos dérivent lentement autour du coin bas droit.
+      const spread = debug.current.da.panelGradientSpread;
+      const x1 = 100 + 6 * Math.sin(t * 0.37);
+      const y1 = 100 + 5 * Math.cos(t * 0.29 + 1.1);
+      const x2 = 96 + 8 * Math.cos(t * 0.31 + 2.0);
+      const y2 = 66 + 8 * Math.sin(t * 0.43 + 0.4);
+      const x3 = 74 + 9 * Math.sin(t * 0.23 + 4.0);
+      const y3 = 100 + 5 * Math.cos(t * 0.35 + 2.7);
+      const a = Math.min(1, strength);
 
       el.style.backgroundImage = [
-        `radial-gradient(70% 55% at ${x1}% ${y1}%, ${rgb(c2, 0.95)} 0%, transparent 70%)`,
-        `radial-gradient(65% 50% at ${x2}% ${y2}%, ${rgb(c1, 0.9)} 0%, transparent 72%)`,
-        `radial-gradient(55% 45% at ${x3}% ${y3}%, ${rgb(c0, 0.75)} 0%, transparent 70%)`,
-        `linear-gradient(${angle}deg, ${rgb(c0)} 0%, ${rgb(c1)} 55%, rgb(255 255 255) 100%)`,
+        // Voile blanc : garde le haut du panel net, là où vit le texte.
+        "linear-gradient(to bottom, rgb(255 255 255) 0%, rgb(255 255 255 / 0.85) 24%, rgb(255 255 255 / 0) 62%)",
+        `radial-gradient(${88 * spread}% ${62 * spread}% at ${x1}% ${y1}%, ${rgb(k0, a)} 0%, transparent 72%)`,
+        `radial-gradient(${62 * spread}% ${58 * spread}% at ${x2}% ${y2}%, ${rgb(k1, a * 0.85)} 0%, transparent 74%)`,
+        `radial-gradient(${64 * spread}% ${46 * spread}% at ${x3}% ${y3}%, ${rgb(k2, a * 0.8)} 0%, transparent 76%)`,
       ].join(",");
+
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [el, weightsRef, palettesRef]);
+    return () => {
+      cancelAnimationFrame(raf);
+    };
+  }, [el, weightsRef, palettesRef, debug]);
 }

@@ -36,6 +36,33 @@ float pixelWidth(vec2 p) {
 `;
 
 /**
+ * Lissage des coins façon Apple (« squircle ») : 0 = arc de cercle classique,
+ * 1 = très lissé. Un seul objet uniform partagé par tous les shaders arrondis,
+ * donc un réglage du debug les met à jour d'un coup. 0.32 = 32 %.
+ */
+export const CORNER_SMOOTHING: IUniform<number> = { value: 0.32 };
+
+/**
+ * `sdRoundedRect` à coins lissés : la norme L-n (n > 2) remplace la distance
+ * euclidienne dans la zone du coin, ce qui arrondit sans cassure de courbure,
+ * et le rayon s'étend légèrement le long des bords, comme le « corner
+ * smoothing » de Figma. Déclare `uCornerSmooth` : à fournir avec CORNER_SMOOTHING.
+ */
+export const GLSL_SQUIRCLE = /* glsl */ `
+uniform float uCornerSmooth;
+
+float sdRoundedRect(vec2 p, vec2 halfSize, float radius) {
+  float s = clamp(uCornerSmooth, 0.0, 1.0);
+  float n = 2.0 + s * 5.0;
+  float r = min(radius * (1.0 + s * 0.55), min(halfSize.x, halfSize.y));
+  vec2 q = abs(p) - halfSize + r;
+  vec2 qc = max(q, 0.0);
+  float corner = pow(pow(qc.x, n) + pow(qc.y, n), 1.0 / n);
+  return min(max(q.x, q.y), 0.0) + corner - r;
+}
+`;
+
+/**
  * Bascule 3D façon CSS `perspective() rotateX() rotateY()`, appliquée en
  * espace local (plan unitaire -0.5..0.5) avant les matrices de la scène.
  *

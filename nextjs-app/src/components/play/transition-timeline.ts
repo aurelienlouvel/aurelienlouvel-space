@@ -52,10 +52,14 @@ export type TransitionFrame = {
   tileRoll: number;
   /** 0..1 — M0 : taille de tuile → taille de colonne. */
   reveal: number;
+  /** 0..1 — part de la rotation « posée à la main » conservée par la tuile visée (0 = bien droite). */
+  rest: number;
   /** 0..1 — les cartes de la pile émergent de derrière la première. */
   columnOpacity: number;
   /** 0..1 — avancement de la vague de charge, avant le boom. */
   waveProgress: number;
+  /** 0..1+ — intensité des effets (glitch, pixels) autour de l'artifact, dès le clic jusqu'à la fin de la vague. */
+  fx: number;
   /** 0..1 — évacuation de la vague de l'overlay de sélection. */
   overlayExit: number;
   /** Le panneau de détail doit-il être monté. */
@@ -75,8 +79,10 @@ export function createTransitionFrame(): TransitionFrame {
     tileTiltY: 0,
     tileRoll: 0,
     reveal: 0,
+    rest: 1,
     columnOpacity: 0,
     waveProgress: 0,
+    fx: 0,
     overlayExit: 0,
     textRevealed: false,
     navbarRevealed: false,
@@ -94,6 +100,8 @@ export type TransitionClock = {
   loop: number;
   /** La timeline attend que le pack soit téléchargé. */
   holding: boolean;
+  /** Annulation en cours d'entrée : `t` recule, le film se déroule à l'envers. */
+  rewinding?: boolean;
   /** Si le retour part d'une entrée interrompue : le frame au moment de l'annulation. */
   returnFrom: TransitionFrame | null;
 };
@@ -129,8 +137,10 @@ function sampleIdle(frame: TransitionFrame) {
   frame.tileTiltY = 0;
   frame.tileRoll = 0;
   frame.reveal = 0;
+  frame.rest = 1;
   frame.columnOpacity = 0;
   frame.waveProgress = 0;
+  frame.fx = 0;
   frame.overlayExit = 0;
   frame.textRevealed = false;
   frame.navbarRevealed = false;
@@ -149,18 +159,21 @@ function samplePlaying(
 
   // ── 1. Approche : la caméra file vers l'artifact (zoom du hero) ─────────
   const heroT = trackAt(config.hero, t);
-  const heroZoom = config.detailZoom * (config.heroZoom ?? 1.05);
+  // La tuile se redresse pendant l'approche.
+  frame.rest = 1 - heroT;
   const wait = Math.min(1, Math.max(0, (t - config.hero.start - config.hero.duration) / 1.5));
   const drift = (config.silenceDrift ?? 0) * evaluateEasing("easeOutQuad", wait);
-  const climbing = (1 + (heroZoom - 1) * heroT) * (1 + drift);
+  const climbing = (1 + (config.approachZoom - 1) * heroT) * (1 + drift);
 
   // ── 2. Burst : la mosaïque explose, absolu dans la timeline ─────────────
   const burstT = trackAt(config.scatter, t);
   frame.scatter = config.scatterDistance * burstT;
   frame.mosaicOpacity = 1 - burstT;
 
-  // ── 3. Tortillement de l'artifact, de l'approche jusqu'à la fin de la vague ─
-  const wiggleIn = smoothstep((t - config.scatter.start) / 0.35);
+  // ── 3. Tortillement de l'artifact, du clic jusqu'à la fin de la vague ───────
+  // Il démarre au clic, pas au burst : l'approche, le burst et le tortillement
+  // se jouent en même temps au lieu de se passer le relais.
+  const wiggleIn = smoothstep(t / 0.35);
   const wiggleOut = 1 - smoothstep((t - hold - waveDuration * 0.6) / (waveDuration * 0.4 + 0.001));
   const env = wiggleIn * wiggleOut;
   const w = clock.wall * (config.wiggleSpeed ?? 7);
@@ -168,9 +181,14 @@ function samplePlaying(
   frame.tileRoll = env * amp * (Math.sin(w) + 0.5 * Math.sin(w * 1.7 + 1.3));
   frame.tileTiltX = env * amp * 0.8 * Math.sin(w * 1.3 + 0.6);
   frame.tileTiltY = env * amp * 0.8 * Math.cos(w * 0.9);
-  const grow = (config.loadGrow ?? 0.1) * (1 - Math.exp(-Math.max(0, clock.wall - config.scatter.start) * 1.1));
+  const grow = (config.loadGrow ?? 0.1) * (1 - Math.exp(-Math.max(0, clock.wall) * 1.1));
   const breathe = (config.breathe ?? 0.025) * (0.5 + 0.5 * Math.sin(clock.wall * 3.1));
   frame.tileScale = 1 + env * (grow + breathe);
+
+  // Effets visuels (glitch, pixels) : même enveloppe que le tortillement, avec
+  // un pic au moment où la mosaïque explose.
+  const burstPulse = Math.sin(Math.PI * Math.min(1, Math.max(0, (t - config.scatter.start) / 0.9)));
+  frame.fx = env * (1 + (config.fxBurstBoost ?? 0) * burstPulse);
 
   // ── 4. Vague : boucle pendant l'attente, puis traverse l'artifact ───────
   if (clock.holding) {
@@ -219,8 +237,10 @@ function sampleIsolated(config: TransitionConfig, frame: TransitionFrame) {
   frame.tileTiltY = 0;
   frame.tileRoll = 0;
   frame.reveal = 1;
+  frame.rest = 0;
   frame.columnOpacity = 1;
   frame.waveProgress = 1;
+  frame.fx = 0;
   frame.overlayExit = 1;
   frame.textRevealed = true;
   frame.navbarRevealed = true;
@@ -256,8 +276,10 @@ function sampleReturning(
     tileTiltY: 0,
     tileRoll: 0,
     reveal: 1,
+    rest: 0,
     columnOpacity: 1,
     waveProgress: 1,
+    fx: 0,
     overlayExit: 1,
     textRevealed: false,
     navbarRevealed: false,
@@ -272,11 +294,75 @@ function sampleReturning(
   frame.tileTiltY = src.tileTiltY * (1 - exitT);
   frame.tileRoll = src.tileRoll * (1 - exitT);
   frame.reveal = src.reveal * (1 - exitT);
+  frame.rest = src.rest + (1 - src.rest) * exitT;
   frame.columnOpacity = src.columnOpacity * (1 - exitT);
   frame.waveProgress = src.waveProgress * (1 - exitT);
+  frame.fx = src.fx * (1 - exitT);
   frame.overlayExit = 1;
   frame.textRevealed = false;
   frame.navbarRevealed = false;
+}
+
+/** Les étapes du film, dans l'ordre de la chorégraphie voulue. */
+export type StageId =
+  | "idle"
+  | "approach"
+  | "burst"
+  | "wait"
+  | "wave"
+  | "cascade"
+  | "panel"
+  | "detail"
+  | "returning";
+
+export const STAGE_LABELS: Record<StageId, string> = {
+  idle: "Repos",
+  approach: "1 · Approche",
+  burst: "2 · Burst",
+  wait: "3 · Attente (chargement)",
+  wave: "4 · Vague",
+  cascade: "5 · Cascade",
+  panel: "6 · Panneau",
+  detail: "Vue détail",
+  returning: "Retour",
+};
+
+/**
+ * Bornes (en secondes de timeline) des étapes d'entrée. Sert à la fois au
+ * calcul de l'étape courante et à la barre de timeline du debug.
+ */
+export function stageBounds(config: TransitionConfig) {
+  const hold = holdTime(config);
+  const passEnd = passEndTime(config);
+  const end = timelineEnd(config);
+  const panelStart = Math.min(
+    end,
+    Math.max(passEnd, scrollEndTime(config) - (config.textLead ?? 0.2)),
+  );
+  const burstStart = Math.min(hold, Math.max(0, config.scatter.start));
+  return { burstStart, hold, passEnd, panelStart, end };
+}
+
+/** Étape logique en cours, pour l'affichage du debug. */
+export function currentStage(
+  config: TransitionConfig,
+  clock: Pick<TransitionClock, "phase" | "t" | "holding">,
+): StageId {
+  switch (clock.phase) {
+    case "idle":
+      return "idle";
+    case "isolated":
+      return "detail";
+    case "returning":
+      return "returning";
+  }
+  const b = stageBounds(config);
+  if (clock.holding) return "wait";
+  if (clock.t < b.burstStart) return "approach";
+  if (clock.t < b.hold) return "burst";
+  if (clock.t < b.passEnd) return "wave";
+  if (clock.t < b.panelStart) return "cascade";
+  return "panel";
 }
 
 /** Remplit `frame` avec l'état de la transition à l'instant décrit par `clock`. */

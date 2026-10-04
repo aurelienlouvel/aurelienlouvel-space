@@ -29,7 +29,7 @@ import { DateAgo } from "@/components/blocks/DateAgo";
 import { paletteFromImageUrl, paletteFromVideo, type RGB } from "@/lib/dominant-color";
 import { usePanelGradient, type DeckWeight } from "./panel-gradient";
 import { getSharedVideoElement } from "./SecondaryGalleryPlanes";
-import { ArtifactGrid, setAppCursor } from "./ArtifactGrid";
+import { ArtifactGrid } from "./ArtifactGrid";
 import {
   SecondaryGalleryPlanes,
 } from "./SecondaryGalleryPlanes";
@@ -43,6 +43,11 @@ import {
 } from "./gravity-layout";
 import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types";
 import { PlayLoader } from "./PlayLoader";
+import { CursorTrail } from "./CursorTrail";
+import { PlayCursor } from "./PlayCursor";
+import { ShardField, SHARD_DEFAULTS, type ShardParams, type ShardSource } from "./ShardField";
+import { CORNER_SMOOTHING } from "./rounded-frame";
+import { PanelPixels } from "./PanelPixels";
 import { SelectProgressOverlay } from "./SelectProgressOverlay";
 import {
   type TransitionConfig,
@@ -50,6 +55,7 @@ import {
   cloneTransitionConfig,
   timelineEnd,
   holdTime,
+  evaluateEasing,
 } from "./transition-presets";
 import {
   createTransitionFrame,
@@ -130,19 +136,19 @@ export type SelectOverlayParams = {
 };
 
 export const OVERLAY_DEFAULTS: SelectOverlayParams = {
-  direction: "tl-to-br",
+  direction: "bl-to-tr",
   crestSoftness: 0.24,
-  waveAmplitude: 0.06,
+  waveAmplitude: 0.15,
   waveFrequency: 6,
   waveSpeed: 2.6,
   iridescence: 0.64,
   baseOpacity: 0.64,
-  glowIntensity: 0.6,
-  zoomBlur: 0.45,
-  zoomPunch: 0.35,
-  bulge: 0.8,
-  lensWidth: 0.3,
-  lensTrail: 0.35,
+  glowIntensity: 1,
+  zoomBlur: 0.8,
+  zoomPunch: 0.48,
+  bulge: 0.4,
+  lensWidth: 0.4,
+  lensTrail: 0,
 };
 
 export type AnimationStudioParams = {
@@ -164,11 +170,144 @@ export type CameraDebugParams = {
   motionBlur: boolean;
   motionBlurStrength: number;
   motionBlurMax: number;
+  /** Dézoom maximal (0..1) quand on se déplace très vite : 0.2 = jusqu'à -20 % de zoom. */
+  speedDezoom: number;
+  /** Vitesse d'écran (px/s) à partir de laquelle le dézoom est complet. */
+  speedDezoomRef: number;
+  /** Réactivité du dézoom (par seconde) : plus haut = le zoom colle au mouvement. */
+  speedDezoomResponse: number;
+  /** Intensité (0..1) de la traînée de pixels derrière le curseur — 0 = coupée. */
+  cursorTrail: number;
+  /** Durée de vie d'un pixel de la traînée (ms) — plus court = traînée plus courte. */
+  cursorTrailLife: number;
+  /** Raideur du suivi du pan (par seconde) : plus haut = la caméra colle au geste. */
+  followSpeed: number;
+  /** Vitesse de recentrage de la caméra (flèches, sélection). */
+  settleSpeed: number;
+  /** Multiplicateur de la molette en pan. */
+  wheelSpeed: number;
+};
+
+/** Le curseur de /play est dessiné (CursorTrail/PlayCursor) : taille, rotation, échelle. */
+export type CursorParams = {
+  /** Curseur personnalisé actif (sinon le curseur natif du navigateur). */
+  enabled: boolean;
+  /** Taille de la flèche (px). */
+  size: number;
+  /** Inclinaison maximale selon la direction du mouvement (degrés). */
+  rotate: number;
+  /** Vitesse (px/s) à partir de laquelle l'inclinaison est maximale. */
+  rotateSpeedRef: number;
+  /** Raideur de l'inclinaison (par seconde). */
+  rotateSmooth: number;
+  /** Échelle au survol d'un artifact. */
+  hoverScale: number;
+  /** Échelle pendant le clic. */
+  pressScale: number;
+  /** Vitesse des changements d'échelle (par seconde). */
+  scaleSpeed: number;
+};
+
+export const CURSOR_DEFAULTS: CursorParams = {
+  enabled: true,
+  size: 56,
+  rotate: 28,
+  rotateSpeedRef: 1400,
+  rotateSmooth: 14,
+  hoverScale: 1.35,
+  pressScale: 0.78,
+  scaleSpeed: 16,
+};
+
+/** Fond du canvas : de petits points qui donnent l'impression d'un plan de travail. */
+export type BackgroundParams = {
+  dots: boolean;
+  /** Diamètre d'un point (px). */
+  dotSize: number;
+  /** Écart entre deux points (unités monde). */
+  dotSpacing: number;
+  /** Opacité des points (0..1). */
+  dotOpacity: number;
+  /** Couleur des points. */
+  dotColor: string;
+  /** Suivi de la caméra : 1 = collés au plan, < 1 = plus profonds (parallaxe). */
+  parallax: number;
+};
+
+export const BACKGROUND_DEFAULTS: BackgroundParams = {
+  dots: true,
+  dotSize: 1.6,
+  dotSpacing: 44,
+  dotOpacity: 0.16,
+  dotColor: "#1b2a4a",
+  parallax: 1,
+};
+
+/** Animation de survol d'une carte de la mosaïque. */
+export type HoverParams = {
+  /** Grossissement ajouté au survol (0.04 = +4 %). */
+  scale: number;
+  /** Rotation maximale au survol (degrés). */
+  rotate: number;
+  /** Vitesse de transition (par seconde). */
+  speed: number;
+  /** Intensité de la vague irisée du bas gauche (0 = coupée). */
+  waveAmp: number;
+  /** Largeur de la bande de la vague (fraction de la carte). */
+  waveWidth: number;
+  /** Durée de la traversée (s). */
+  waveDuration: number;
+};
+
+export const HOVER_DEFAULTS: HoverParams = {
+  scale: 0.045,
+  rotate: 1.4,
+  speed: 10,
+  waveAmp: 0.8,
+  waveWidth: 0.18,
+  waveDuration: 0.75,
+};
+
+/** Réglages de la DA « Prism » (cf. lib/da.ts) qui ne sont pas rendus par le canvas. */
+export type DaParams = {
+  /** Opacité des pixels de la pastille « play » dans la navigation (0 = coupés). */
+  navPixels: number;
+  /** Durée d'un passage du champ de pixels de la pastille « play » active (s) : plus grand = plus chill. */
+  navDriftPeriod: number;
+  /** Durée de la vague de survol de la pastille « play » (s). */
+  navHoverDuration: number;
+  /** Étalement de la vague de survol de gauche à droite (s). */
+  navHoverSpread: number;
+  /** Taille des rectangles du coin bas droit du side panel (×). */
+  panelPixelScale: number;
+  /** Étendue du dégradé du side panel (×). */
+  panelGradientSpread: number;
+};
+
+export const DA_DEFAULTS: DaParams = {
+  navPixels: 2,
+  navDriftPeriod: 14,
+  navHoverDuration: 1.1,
+  navHoverSpread: 0.55,
+  panelPixelScale: 2.5,
+  panelGradientSpread: 1.8,
 };
 
 export type PlayDebugState = {
-  plane: { radius: number };
+  plane: {
+    radius: number;
+    cornerSmoothing: number;
+    /** Rotation aléatoire maximale (±degrés) de chaque artifact au repos. */
+    rotationRange: number;
+  };
   indicator: { fadeSpeed: number; moveSpeed: number };
+  hover: HoverParams;
+  shards: ShardParams;
+  da: DaParams;
+  cursor: CursorParams;
+  background: BackgroundParams;
+  /** Style visuel actif (une DA complète : « prism » pour l'instant). */
+  style: { name: string };
   camera: CameraDebugParams;
   gravity: GravityParams;
   pan: { dragThreshold: number; velocityWindowMs: number; friction: number };
@@ -210,6 +349,16 @@ export type PlayRuntimeState = {
     /** Phase de la frame précédente, pour détecter les sauts. */
     lastPhase: TransitionPhase;
   };
+  /** Dernière position connue du pointeur (px écran). */
+  pointer: { x: number; y: number };
+  /** Vitesse de la caméra à l'écran (px/s), lissée — alimente le dézoom en mouvement rapide. */
+  cameraSpeed: number;
+  /** Zoom réellement appliqué à la caméra (dézoom compris) : sert à convertir les gestes en monde. */
+  liveZoom: number;
+  /** Survol le plus avancé de la frame (0..1) et progression de sa vague — pour l'inspecteur du debug. */
+  hoverInfo: { hov: number; wave: number };
+  /** Debug : survol forcé de la carte sélectionnée jusqu'à cet instant (ms, performance.now). */
+  debugHoverUntil: number;
   /** Vecteur de flou de mouvement induit par la caméra (unités proportionnelles écran). */
   cameraBlur: { x: number; y: number };
   indicatorTarget: { x: number; y: number; width: number; height: number };
@@ -246,10 +395,43 @@ export type PlayRuntimeState = {
     loop: number;
     /** La timeline attend le téléchargement. */
     holding: boolean;
+    /** Annulation en cours d'entrée : `t` recule jusqu'à 0 (vrai rewind). */
+    rewinding: boolean;
     /** La vague a traversé l'artifact (ou le pack était déjà prêt). */
     passed: boolean;
     /** Cycle de boucle auquel on libère l'attente une fois prêt. */
     releaseAt: number | null;
+    /** Traction du deck : cumul brut signé (|1| = seuil de changement de carte). */
+    deckPullRaw: number;
+    /** Traction affichée (courbe de résistance appliquée, lissée), signée. */
+    deckPullShown: number;
+    /** Instant (ms) du dernier geste de défilement. */
+    deckInputAt: number;
+    /** Gestes ignorés jusqu'à cet instant (ms) : verrou après un changement de carte. */
+    deckLockUntil: number;
+    /** Direction (monde, unitaire) dans laquelle la carte du dessus part : curseur / geste + tout droit. */
+    deckAim: { x: number; y: number };
+    /** `deckAim` figé au moment du changement de carte : la carte qui part garde ce cap. */
+    deckAimCommit: { x: number; y: number };
+    /** Vecteur de drag cumulé depuis le début du geste (px écran). */
+    deckDrag: { x: number; y: number };
+    /** Rewind : avancement 0..1 (avant courbe), état d'où il part (t de la timeline, position du deck). */
+    rewindU: number;
+    rewindFromT: number;
+    rewindFromDeck: number;
+    /** Debug : traction du deck maintenue à cette valeur (null = libre). */
+    deckFreeze: number | null;
+    /** Carte du deck qui se décompose en éclats à cet instant (une seule à la fois). */
+    deckFx: {
+      intensity: number;
+      spread?: number;
+      cx: number;
+      cy: number;
+      w: number;
+      h: number;
+      url: string;
+      kind: "image" | "video";
+    };
     /** Frame figé au moment d'une annulation en cours d'entrée. */
     returnFrom: TransitionFrame | null;
     /** Échantillon de la frame courante, partagé par tous les `useFrame`. */
@@ -285,6 +467,11 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
   rc.transition.wall = 0;
   rc.transition.loop = 0;
   rc.transition.holding = false;
+  rc.transition.rewinding = false;
+  rc.transition.rewindU = 0;
+  rc.transition.deckPullRaw = 0;
+  rc.transition.deckPullShown = 0;
+  rc.transition.deckLockUntil = 0;
   rc.transition.passed = false;
   rc.transition.releaseAt = null;
   rc.transition.returnFrom = null;
@@ -297,24 +484,36 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
 
 export function applyResetTransition(rc: PlayRuntimeState) {
   rc.transition.isSnapping = false;
-  setAppCursor("auto");
   rc.hovered = null;
   rc.hoveredPos = null;
 
-  // Depuis la vue détail (ou n'importe où dans la timeline d'entrée), on ne
-  // coupe pas : on bascule sur la timeline de sortie, qui repart de zéro.
-  // On ne modifie pas targetColumnScrollY ici pour éviter tout spin arrière.
+  // Depuis la vue détail ou n'importe où dans la timeline d'entrée : un vrai
+  // rewind. Le temps recule en courbe cinématique (lent, rapide, lent) ; si des
+  // cartes ont été passées, elles sont d'abord défaites (une à une, en sens
+  // inverse), puis l'ouverture se rejoue à l'envers.
   if (rc.transition.phase === "playing" || rc.transition.phase === "isolated") {
-    // Annulée en cours d'entrée : le retour rembobine depuis l'état exact.
-    rc.transition.returnFrom =
-      rc.transition.phase === "playing" ? { ...rc.transition.frame } : null;
-    rc.transition.holding = false;
-    rc.transition.phase = "returning";
+    const tr = rc.transition;
+    tr.holding = false;
+    tr.releaseAt = null;
+    tr.rewinding = true;
+    tr.rewindU = 0;
+    tr.rewindFromT = tr.t;
+    tr.rewindFromDeck = tr.phase === "isolated" ? tr.columnScrollY : 0;
+    tr.targetColumnScrollY = tr.columnScrollY;
+    tr.deckPullRaw = 0;
+    tr.deckPullShown = 0;
+    tr.deckFreeze = null;
+    // Pas de carte à défaire : on entre directement dans le rewind de l'ouverture.
+    if (tr.phase === "isolated" && Math.abs(tr.rewindFromDeck) <= 0.02) {
+      tr.phase = "playing";
+      tr.columnScrollY = 0;
+      tr.targetColumnScrollY = 0;
+    }
     rc.camera.mode = "settle";
-    rewindTransition(rc);
     return;
   }
 
+  rc.transition.rewinding = false;
   rc.transition.targetColumnScrollY = 0;
   rc.transition.phase = "idle";
   rc.transition.targetIndex = -1;
@@ -380,7 +579,9 @@ function applyArrowNavigation(
 }
 
 // ── Ouverture — image ────────────────────────────────────────────────────
-const PLANE_RADIUS = 32;
+const PLANE_RADIUS = 45;
+/** Lissage des coins façon Apple (0..1) : 32 % par défaut. */
+const CORNER_SMOOTHING_DEFAULT = 0.2;
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
 const INDICATOR_FADE_SPEED = 26;
@@ -402,7 +603,7 @@ const DEFAULT_NEIGHBOR_K = 6;
 // ── Ouverture — pan ───────────────────────────────────────────────────────
 const DRAG_THRESHOLD = 6;
 const VELOCITY_WINDOW_MS = 80;
-const INERTIA_FRICTION = -2.5;
+const INERTIA_FRICTION = -6;
 const VELOCITY_EPSILON = 0.0001;
 
 /** Texture tirée au double de la largeur affichée, pour les écrans retina. */
@@ -501,6 +702,40 @@ function framingOffsetY(
  * Avance l'horloge et gère les seuls changements de phase qui subsistent.
  * Aucun mouvement ici : le mouvement est entièrement décrit par la timeline.
  */
+/**
+ * Un pas de rewind. Une seule courbe (`rewindEasing`, par défaut easeInOutQuint :
+ * départ lent, milieu rapide, arrivée lente) conduit tout le retour : d'abord le
+ * deck revient à la première carte, puis la timeline d'ouverture recule jusqu'à 0.
+ * Le deck repasse par chaque position entière, donc chaque passage de carte est
+ * rejoué à l'envers, avec ses éclats.
+ */
+function advanceRewind(
+  tr: PlayRuntimeState["transition"],
+  config: TransitionConfig,
+  dt: number,
+) {
+  tr.wall += dt;
+  const hasDeck = Math.abs(tr.rewindFromDeck) > 0.02;
+  const cards = Math.min(4, Math.abs(Math.round(tr.rewindFromDeck)));
+  const total = Math.max(0.2, config.rewindDuration + cards * config.rewindDeckPerCard);
+  tr.rewindU = Math.min(1, tr.rewindU + dt / total);
+  const eased = evaluateEasing(config.rewindEasing, tr.rewindU);
+  const share = hasDeck ? Math.min(0.8, Math.max(0.05, config.rewindDeckShare)) : 0;
+  const deckP = share > 0 ? Math.min(1, eased / share) : 1;
+  const openP = Math.min(1, Math.max(0, (eased - share) / (1 - share)));
+
+  if (hasDeck) {
+    tr.columnScrollY = tr.rewindFromDeck * (1 - deckP);
+    tr.targetColumnScrollY = tr.columnScrollY;
+  }
+  if (tr.phase === "isolated" && deckP >= 1) {
+    tr.phase = "playing";
+    tr.columnScrollY = 0;
+    tr.targetColumnScrollY = 0;
+  }
+  if (tr.phase === "playing") tr.t = tr.rewindFromT * (1 - openP);
+}
+
 function advanceClock(
   rc: PlayRuntimeState,
   config: TransitionConfig,
@@ -508,6 +743,11 @@ function advanceClock(
   studio?: AnimationStudioParams,
 ) {
   const tr = rc.transition;
+
+  if (tr.rewinding && (tr.phase === "playing" || tr.phase === "isolated")) {
+    advanceRewind(tr, config, effDelta);
+    return;
+  }
 
   if (tr.phase === "playing") {
     const end = timelineEnd(config);
@@ -561,6 +801,42 @@ function advanceClock(
   }
 }
 
+/** Courbe de résistance : monte vite au début, de plus en plus lentement vers le seuil. */
+function resistCurve(x: number, power: number): number {
+  const t = Math.min(1, Math.max(0, x));
+  return 1 - Math.pow(1 - t, Math.max(1, power));
+}
+
+/**
+ * Traction du deck : le geste s'accumule dans `deckPullRaw`, la carte suit la
+ * courbe de résistance, retombe si on lâche avant le seuil, et au seuil elle
+ * part (changement de carte). Retourne le sens du changement (-1, 0, 1).
+ */
+function stepDeckPull(tr: PlayRuntimeState["transition"], config: TransitionConfig, dt: number): number {
+  const now = performance.now();
+  let committed = 0;
+  if (tr.deckFreeze !== null) tr.deckPullRaw = tr.deckFreeze;
+  if (Math.abs(tr.deckPullRaw) >= 1) {
+    committed = Math.sign(tr.deckPullRaw);
+    tr.deckAimCommit.x = tr.deckAim.x;
+    tr.deckAimCommit.y = tr.deckAim.y;
+    tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + committed;
+    tr.deckPullRaw = 0;
+    tr.deckLockUntil = now + config.stepCooldown * 1000;
+  } else if (
+    tr.deckFreeze === null &&
+    Math.abs(tr.deckPullRaw) > 0.0005 &&
+    now - tr.deckInputAt > config.deckHold * 1000
+  ) {
+    // Geste relâché avant le seuil : la carte redescend.
+    tr.deckPullRaw = dampTowards(tr.deckPullRaw, 0, config.deckRelease, dt);
+  }
+  const target = Math.sign(tr.deckPullRaw) * resistCurve(Math.abs(tr.deckPullRaw), config.deckResist);
+  tr.deckPullShown = dampTowards(tr.deckPullShown, target, 22, dt);
+  if (Math.abs(tr.deckPullShown) < 0.0005) tr.deckPullShown = 0;
+  return committed;
+}
+
 function stepCamera(
   camera: OrthographicCamera,
   rc: PlayRuntimeState,
@@ -574,6 +850,7 @@ function stepCamera(
   onTextReveal?: () => void,
   onReturnComplete?: () => void,
   onNavbarReveal?: () => void,
+  camCfg?: CameraDebugParams,
 ) {
   const effDelta = delta * (studio?.speed ?? 1);
   const tr = rc.transition;
@@ -594,7 +871,8 @@ function stepCamera(
   }
 
   // ── Défilement libre de la colonne (vue détail) ─────────────────────────
-  if (tr.phase === "isolated") {
+  if (tr.phase === "isolated" && !tr.rewinding) {
+    stepDeckPull(tr, config, effDelta);
     tr.columnScrollY = dampTowards(
       tr.columnScrollY,
       tr.targetColumnScrollY,
@@ -630,10 +908,19 @@ function stepCamera(
 
   // ── Repos : zoom de base et pan inertiel ────────────────────────────────
   if (tr.phase === "idle") {
-    if (Math.abs(camera.zoom - baseZoom) > 0.0005) {
-      camera.zoom = dampTowards(camera.zoom, baseZoom, 8, effDelta);
+    // Dézoom en mouvement rapide : plus la caméra file vite à l'écran, plus on
+    // recule, puis le zoom revient en douceur à l'arrêt — ça donne de la vitesse.
+    const speedRef = Math.max(200, camCfg?.speedDezoomRef ?? 1800);
+    const speedT = Math.min(1, rc.cameraSpeed / speedRef);
+    const dezoom = (camCfg?.speedDezoom ?? 0) * Math.pow(speedT, 0.85);
+    const targetZoom = baseZoom * (1 - dezoom);
+    if (Math.abs(camera.zoom - targetZoom) > 0.0002) {
+      // Le zoom colle à la vitesse de la caméra : il revient exactement au rythme
+      // où le mouvement s'éteint, sans second délai.
+      camera.zoom = dampTowards(camera.zoom, targetZoom, camCfg?.speedDezoomResponse ?? 16, effDelta);
       camera.updateProjectionMatrix();
     }
+    rc.liveZoom = camera.zoom;
 
     if (rc.camera.mode === "follow") {
       if (velocity.x !== 0 || velocity.y !== 0) {
@@ -648,12 +935,14 @@ function stepCamera(
         }
       }
       // Lissage léger : les deltas discrets de la molette ne sautent plus d'une frame à l'autre.
-      camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, 22, effDelta);
-      camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, 22, effDelta);
+      const follow = camCfg?.followSpeed ?? 22;
+      camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, follow, effDelta);
+      camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, follow, effDelta);
       return;
     }
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, CAMERA_SETTLE_SPEED, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, CAMERA_SETTLE_SPEED, effDelta);
+    const settle = camCfg?.settleSpeed ?? CAMERA_SETTLE_SPEED;
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, settle, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, settle, effDelta);
     return;
   }
 
@@ -671,7 +960,12 @@ function stepCamera(
   camera.position.y = curveY + rc.camera.settleY;
 
   const exitEnd = config.exit.start + config.exit.duration + config.cameraReturnDelay;
-  if (tr.phase === "returning" && tr.t >= exitEnd) {
+  const returned =
+    (tr.phase === "returning" && tr.t >= exitEnd) ||
+    (tr.phase === "playing" && tr.rewinding && tr.rewindU >= 1);
+  if (returned) {
+    tr.rewinding = false;
+    tr.rewindU = 0;
     // La courbe a déjà ramené la caméra au repos : on se contente de recaler
     // la cible du pan sur ce que la courbe vient de produire.
     camera.zoom = baseZoom;
@@ -696,6 +990,61 @@ function stepCamera(
   }
 }
 
+const positiveMod = (n: number, m: number) => ((n % m) + m) % m;
+
+/** `#rrggbb` → [r, g, b] (repli : encre bleutée). */
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return [27, 42, 74];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * Fond de points : une trame CSS ancrée dans le monde, qui suit la caméra
+ * (position et zoom), comme un plan de travail sur lequel les artifacts sont
+ * posés. Elle s'estompe avec la mosaïque quand un artifact s'ouvre.
+ */
+function updateBackgroundDots(
+  surface: HTMLElement | null,
+  bg: BackgroundParams,
+  camera: OrthographicCamera,
+  size: { width: number; height: number },
+  fade: number,
+  cache: { current: { image: string; size: string; position: string } },
+) {
+  if (!surface) return;
+  const opacity = bg.dotOpacity * fade;
+  if (!bg.dots || opacity < 0.003) {
+    if (cache.current.image !== "none") {
+      surface.style.backgroundImage = "none";
+      cache.current.image = "none";
+    }
+    return;
+  }
+  const spacing = Math.max(8, bg.dotSpacing * camera.zoom);
+  const ox = positiveMod(size.width / 2 - camera.position.x * camera.zoom * bg.parallax, spacing) - spacing / 2;
+  const oy = positiveMod(size.height / 2 + camera.position.y * camera.zoom * bg.parallax, spacing) - spacing / 2;
+  const [r, g, b] = hexToRgb(bg.dotColor);
+  const radius = Math.max(0.3, bg.dotSize / 2);
+  const solid = `rgb(${r} ${g} ${b} / ${opacity.toFixed(3)})`;
+  const image = `radial-gradient(circle at 50% 50%, ${solid} 0, ${solid} ${radius}px, rgb(${r} ${g} ${b} / 0) ${radius + 0.8}px)`;
+  const sizeCss = `${spacing.toFixed(2)}px ${spacing.toFixed(2)}px`;
+  const positionCss = `${ox.toFixed(2)}px ${oy.toFixed(2)}px`;
+  if (cache.current.image !== image) {
+    surface.style.backgroundImage = image;
+    cache.current.image = image;
+  }
+  if (cache.current.size !== sizeCss) {
+    surface.style.backgroundSize = sizeCss;
+    cache.current.size = sizeCss;
+  }
+  if (cache.current.position !== positionCss) {
+    surface.style.backgroundPosition = positionCss;
+    cache.current.position = positionCss;
+  }
+}
+
 function CameraRig({
   debug,
   runtime,
@@ -713,11 +1062,41 @@ function CameraRig({
 }) {
   const prevCamPosRef = useRef({ x: 0, y: 0, initialized: false });
   const blurSmoothedRef = useRef({ x: 0, y: 0 });
+  const bgCacheRef = useRef({ image: "", size: "", position: "" });
 
   // Priorité -1 : l'échantillonnage de la timeline doit précéder tous les autres
   // `useFrame`, qui lisent le frame qu'il vient de remplir. Une priorité négative
   // ordonne sans basculer r3f en rendu manuel (seul un `> 0` le ferait).
   useFrame((state, delta) => {
+    // Lissage des coins : un seul uniform partagé par tous les shaders, plus la
+    // variable CSS qui règle l'exposant des coins DOM (corner-shape).
+    const cornerSmoothing = debug.current.plane.cornerSmoothing;
+    if (CORNER_SMOOTHING.value !== cornerSmoothing) {
+      CORNER_SMOOTHING.value = cornerSmoothing;
+      document.documentElement.style.setProperty(
+        "--da-corner-k",
+        (1 + Math.min(1, cornerSmoothing / 0.6)).toFixed(3),
+      );
+    }
+
+    // DA : opacité des pixels de la nav et taille des rectangles du panel (variables CSS).
+    const da = debug.current.da;
+    const rootStyle = document.documentElement.style;
+    if (rootStyle.getPropertyValue("--da-nav-a") !== String(da.navPixels)) {
+      rootStyle.setProperty("--da-nav-a", String(da.navPixels));
+    }
+    if (rootStyle.getPropertyValue("--pg-scale") !== String(da.panelPixelScale)) {
+      rootStyle.setProperty("--pg-scale", String(da.panelPixelScale));
+    }
+    const navVars: [string, string][] = [
+      ["--da-period", `${da.navDriftPeriod}s`],
+      ["--da-hover-dur", `${da.navHoverDuration}s`],
+      ["--da-hover-spread", `${da.navHoverSpread}s`],
+    ];
+    for (const [name, value] of navVars) {
+      if (rootStyle.getPropertyValue(name) !== value) rootStyle.setProperty(name, value);
+    }
+
     const cam = state.camera as OrthographicCamera;
     stepCamera(
       cam,
@@ -732,6 +1111,16 @@ function CameraRig({
       onTextReveal,
       onReturnComplete,
       onNavbarReveal,
+      debug.current.camera,
+    );
+
+    updateBackgroundDots(
+      document.getElementById("play-surface"),
+      debug.current.background,
+      cam,
+      state.size,
+      runtime.current.transition.frame.mosaicOpacity,
+      bgCacheRef,
     );
 
     // Vélocité instantanée de la caméra pour le flou de mouvement global
@@ -743,6 +1132,16 @@ function CameraRig({
     const camVy = delta > 0 ? (cam.position.y - prevCamPosRef.current.y) / delta : 0;
     prevCamPosRef.current.x = cam.position.x;
     prevCamPosRef.current.y = cam.position.y;
+
+    // Vitesse à l'écran (px/s) : monte vite, retombe plus doucement. Hors repos
+    // (transition en cours) elle reste nulle, pour ne jamais dézoomer pendant l'ouverture.
+    const rcur = runtime.current;
+    const camCfg2 = debug.current.camera;
+    const screenSpeed =
+      rcur.transition.phase === "idle" ? Math.hypot(camVx, camVy) * cam.zoom : 0;
+    const response = camCfg2.speedDezoomResponse ?? 16;
+    const speedK = 1 - Math.exp(-delta * (screenSpeed > rcur.cameraSpeed ? response * 1.6 : response * 0.7));
+    rcur.cameraSpeed += (screenSpeed - rcur.cameraSpeed) * speedK;
 
     const camCfg = debug.current.camera;
     let targetBlurX = 0;
@@ -781,16 +1180,45 @@ function CameraRig({
   return null;
 }
 
-export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
+export function PlayCanvas({
+  artifacts,
+  active = true,
+}: {
+  artifacts: PlayArtifact[];
+  /**
+   * /play est la page affichée. Inactif, le canvas reste monté (la scène 3D
+   * n'est jamais recréée) mais invisible, sans rendu et sans écouteurs.
+   */
+  active?: boolean;
+}) {
+  const activeRef = useRef(active);
   const debug = useRef<PlayDebugState>({
-    plane: { radius: PLANE_RADIUS },
+    plane: {
+      radius: PLANE_RADIUS,
+      cornerSmoothing: CORNER_SMOOTHING_DEFAULT,
+      rotationRange: 3,
+    },
     indicator: { fadeSpeed: INDICATOR_FADE_SPEED, moveSpeed: INDICATOR_MOVE_SPEED },
     camera: {
       zoom: CAMERA_ZOOM,
       motionBlur: CAMERA_MOTION_BLUR_ENABLED,
       motionBlurStrength: CAMERA_MOTION_BLUR_STRENGTH,
       motionBlurMax: CAMERA_MOTION_BLUR_MAX,
+      speedDezoom: 0.2,
+      speedDezoomRef: 1800,
+      speedDezoomResponse: 16,
+      cursorTrail: 0.2,
+      cursorTrailLife: 160,
+      followSpeed: 22,
+      settleSpeed: 8,
+      wheelSpeed: 1,
     },
+    cursor: { ...CURSOR_DEFAULTS },
+    background: { ...BACKGROUND_DEFAULTS },
+    style: { name: "prism" },
+    hover: { ...HOVER_DEFAULTS },
+    shards: { ...SHARD_DEFAULTS },
+    da: { ...DA_DEFAULTS },
     gravity: { ...GRAVITY_DEFAULTS },
     pan: {
       dragThreshold: DRAG_THRESHOLD,
@@ -810,6 +1238,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     hovered: null,
     hoveredPos: null,
     camera: { targetX: 0, targetY: 0, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle" },
+    pointer: { x: 0, y: 0 },
+    cameraSpeed: 0,
+    liveZoom: CAMERA_ZOOM,
+    hoverInfo: { hov: 0, wave: 0 },
+    debugHoverUntil: 0,
     cameraBlur: { x: 0, y: 0 },
     indicatorTarget: {
       x: 0,
@@ -837,6 +1270,19 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       wall: 0,
       loop: 0,
       holding: false,
+      rewinding: false,
+      deckPullRaw: 0,
+      deckPullShown: 0,
+      deckInputAt: 0,
+      deckLockUntil: 0,
+      deckAim: { x: 0, y: 1 },
+      deckAimCommit: { x: 0, y: 1 },
+      deckDrag: { x: 0, y: 0 },
+      rewindU: 0,
+      rewindFromT: 0,
+      rewindFromDeck: 0,
+      deckFreeze: null,
+      deckFx: { intensity: 0, cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
       passed: false,
       releaseAt: null,
       returnFrom: null,
@@ -852,11 +1298,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   }));
   const handleLayoutChange = useCallback(() => {
     setGravityParams({ ...debug.current.gravity });
-  }, []);
-
-  const handleReplayLock = useCallback(() => {
-    const rc = runtime.current;
-    startPlayback(rc, rc.selected >= 0 ? rc.selected : 0);
   }, []);
 
   const handleResetTransition = useCallback(() => {
@@ -899,6 +1340,15 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     window.addEventListener("hashchange", checkHash);
     return () => window.removeEventListener("hashchange", checkHash);
   }, []);
+
+  // Avec #debug, expose l'état à la console (window.__play) pour inspecter ou piloter la scène.
+  useEffect(() => {
+    if (!showDebug) return;
+    Object.assign(window, { __play: { runtime: runtime.current, debug: debug.current } });
+    return () => {
+      Reflect.deleteProperty(window, "__play");
+    };
+  }, [showDebug]);
 
   const [dynamicRatios, setDynamicRatios] = useState<Record<string, number>>({});
 
@@ -965,8 +1415,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       const token = ++selectionToken.current;
       if (artifact?.slug) {
         setApiStatus("fetching");
+        const startedAt = performance.now();
         preloadArtifact(artifact.slug)
-          .then((data) => {
+          .then(async (data) => {
+            // Debug : rallonge artificiellement le chargement pour observer l'attente.
+            const extra =
+              debug.current.transition.simulatedLoadMs - (performance.now() - startedAt);
+            if (extra > 0) await new Promise((resolve) => setTimeout(resolve, extra));
             if (token !== selectionToken.current) return;
             if (data) {
               setSelectedArtifactDetail(data);
@@ -996,6 +1451,40 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
   const { setProject, clearProject } = useActionBar();
 
+  // Quitter /play : on referme tout sans animation (le rendu est en pause, une
+  // animation de retour ne pourrait pas se jouer) pour retrouver /play au repos.
+  useEffect(() => {
+    activeRef.current = active;
+    if (active) return;
+    selectionToken.current++;
+    const rc = runtime.current;
+    rc.transition.phase = "idle";
+    rc.transition.t = 0;
+    rc.transition.rewinding = false;
+    rc.transition.holding = false;
+    rc.transition.targetIndex = -1;
+    rc.transition.columnScrollY = 0;
+    rc.transition.targetColumnScrollY = 0;
+    rc.transition.deckPullRaw = 0;
+    rc.transition.deckPullShown = 0;
+    rc.repulsor.active = false;
+    rc.repulsor.pointIndex = -1;
+    rc.hovered = null;
+    rc.hoveredPos = null;
+    rc.camera.lastPhase = "idle";
+    rc.camera.settleX = 0;
+    rc.camera.settleY = 0;
+    rc.camera.settleZoom = 1;
+    rc.cameraSpeed = 0;
+    setIsDetailVisible(false);
+    setIsNavbarVisible(false);
+    setSelectedArtifactDetail(null);
+    setPrincipalPoint(null);
+    setSelectedArtifactIndex(null);
+    setApiStatus("idle");
+    clearProject();
+    }, [active, clearProject]);
+
   const handleCloseDetail = useCallback(() => {
     selectionToken.current++;
     setIsDetailVisible(false);
@@ -1023,7 +1512,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   const selectedLink = selectedArtifactDetail?.link ?? null;
 
   useEffect(() => {
-    if (selectedTitle && runtime.current.transition.phase !== "returning") {
+    if (active && selectedTitle && runtime.current.transition.phase !== "returning") {
       setProject({ title: selectedTitle, redirectUrl: selectedLink, onBack: handleCloseDetail });
     } else {
       clearProject();
@@ -1031,7 +1520,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     return () => {
       clearProject();
     };
-  }, [selectedTitle, selectedLink, setProject, clearProject, handleCloseDetail]);
+  }, [active, selectedTitle, selectedLink, setProject, clearProject, handleCloseDetail]);
 
   const handleSimulateSelect = useCallback(() => {
     const rc = runtime.current;
@@ -1098,14 +1587,47 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   // mélange en continu selon le poids de chaque carte visible.
   const deckWeightsRef = useRef<DeckWeight[]>([]);
   const palettesRef = useRef<Map<string, RGB[]>>(new Map());
+  // Palette du média ouvert, relue chaque frame par les effets de l'ouverture.
+  const primaryPaletteRef = useRef<RGB[] | null>(null);
+  const primaryUrlRef = useRef<string | null>(null);
+  const primaryKindRef = useRef<"image" | "video">("image");
+
+  // Éclats du deck : la carte qui part (ou qu'on tire) se décompose en morceaux.
+  const deckShardSource = useCallback((): ShardSource | null => {
+    const tr = runtime.current.transition;
+    if (tr.phase !== "isolated" || tr.deckFx.intensity < 0.01) return null;
+    return tr.deckFx;
+  }, []);
+
+  // Éclats de l'ouverture : la tuile ouverte se sépare en morceaux, du clic à la fin de la vague.
+  const openShardSource = useCallback((): ShardSource | null => {
+    const rc = runtime.current;
+    const tr = rc.transition;
+    const url = primaryUrlRef.current;
+    if (tr.phase !== "playing" || !url || !tile) return null;
+    const point = tile.points[tr.targetIndex >= 0 ? tr.targetIndex : rc.selected];
+    if (!point) return null;
+    return {
+      intensity: tr.frame.fx,
+      cx: rc.indicatorTarget.x,
+      cy: rc.indicatorTarget.y,
+      w: point.width * tr.frame.tileScale,
+      h: point.height * tr.frame.tileScale,
+      url,
+      kind: primaryKindRef.current,
+    };
+  }, [tile]);
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
-  usePanelGradient(panelEl, deckWeightsRef, palettesRef);
+  usePanelGradient(panelEl, deckWeightsRef, palettesRef, debug);
 
   const loadPalette = useCallback((media: { url: string; kind: "image" | "video" }) => {
     if (palettesRef.current.has(media.url)) return;
     if (media.kind === "image") {
       paletteFromImageUrl(media.url).then((p) => {
-        if (p) palettesRef.current.set(media.url, p);
+        if (p) {
+          palettesRef.current.set(media.url, p);
+          if (media.url === primaryUrlRef.current) primaryPaletteRef.current = p;
+        }
       });
       return;
     }
@@ -1121,6 +1643,9 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
 
   useEffect(() => {
     palettesRef.current = new Map();
+    primaryUrlRef.current = primaryMedia?.url ?? null;
+    primaryKindRef.current = primaryMedia?.kind ?? "image";
+    primaryPaletteRef.current = null;
     if (primaryMedia) loadPalette({ url: primaryMedia.url, kind: primaryMedia.kind });
   }, [primaryMedia, loadPalette]);
 
@@ -1234,11 +1759,17 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     let lastX = 0;
     let lastY = 0;
     const recent: { x: number; y: number; t: number }[] = [];
-    let wheelAcc = 0;
-    let lastWheelAt = 0;
-    let lastStepAt = 0;
+
+    // Position du pointeur, pour viser la carte et l'incliner (même hors drag).
+    function trackPointer(e: PointerEvent) {
+      if (!activeRef.current) return;
+      runtime.current.pointer.x = e.clientX;
+      runtime.current.pointer.y = e.clientY;
+    }
 
     function onWheel(e: WheelEvent) {
+      // Hors /play, la molette appartient aux autres pages.
+      if (!activeRef.current) return;
       e.preventDefault();
 
       // Le contrôle du zoom est interdit à l'utilisateur (pinch trackpad Mac ou Cmd+scroll)
@@ -1252,26 +1783,30 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           ? e.deltaY
           : (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
         const now = performance.now();
-        if (now - lastWheelAt > 160) wheelAcc = 0;
-        lastWheelAt = now;
-        wheelAcc += deltaVal;
-        const cooldown = (debug.current.transition.stepCooldown ?? 0.35) * 1000;
-        if (Math.abs(wheelAcc) >= 36 && now - lastStepAt >= cooldown) {
-          const tr = runtime.current.transition;
-          tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + Math.sign(wheelAcc);
-          lastStepAt = now;
-          wheelAcc = 0;
-        }
+        const tr = runtime.current.transition;
+        // Pendant un rewind, les gestes ne conduisent plus rien.
+        if (tr.rewinding) return;
+        // Après un changement de carte, les gestes (et l'inertie du trackpad) sont ignorés un instant.
+        if (now < tr.deckLockUntil) return;
+        // Chaque cran fait monter la carte : le seuil s'atteint en cumulant `deckPullDistance` px.
+        tr.deckPullRaw += deltaVal / Math.max(80, debug.current.transition.deckPullDistance);
+        tr.deckInputAt = now;
         return;
       }
 
       // ── Pan : défilement standard au trackpad / molette ─────────────────────
       velocity.current.x = 0;
       velocity.current.y = 0;
-      applyPanWheel(runtime.current, e.deltaX, e.deltaY, debug.current.camera.zoom);
+      applyPanWheel(
+        runtime.current,
+        e.deltaX * debug.current.camera.wheelSpeed,
+        e.deltaY * debug.current.camera.wheelSpeed,
+        runtime.current.liveZoom,
+      );
     }
 
     function onPointerDown(e: PointerEvent) {
+      if (!activeRef.current) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
       const curPhase = runtime.current.transition.phase;
       if (
@@ -1297,6 +1832,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onPointerMove(e: PointerEvent) {
+      if (!activeRef.current) return;
       const curPhase = runtime.current.transition.phase;
       if (
         curPhase === "playing" ||
@@ -1309,7 +1845,6 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           const threshold = debug.current.pan.dragThreshold;
           if (Math.abs(e.clientX - startX) >= threshold || Math.abs(e.clientY - startY) >= threshold) {
             dragMoved.current = true;
-            setAppCursor("grabbing");
           }
         }
         const dx = e.clientX - lastX;
@@ -1319,8 +1854,14 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         const isDesktopLayout = window.innerWidth >= 1024 && window.innerWidth >= window.innerHeight;
         const moveDelta = isDesktopLayout ? dy : dx;
         const pxPerCard = debug.current.transition.dragPxPerCard ?? 320;
-        if (dragMoved.current) {
-          runtime.current.transition.targetColumnScrollY -= moveDelta / pxPerCard;
+        const trd = runtime.current.transition;
+        if (dragMoved.current && !trd.rewinding && performance.now() >= trd.deckLockUntil) {
+          // Glisser vers le haut = carte suivante, avec la même résistance que la molette.
+          trd.deckPullRaw -= moveDelta / pxPerCard;
+          trd.deckInputAt = performance.now();
+          // Le geste donne aussi sa direction à la carte (elle suit le doigt).
+          trd.deckDrag.x += dx;
+          trd.deckDrag.y += dy;
         }
         return;
       }
@@ -1340,22 +1881,20 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           return;
         }
         dragMoved.current = true;
-        setAppCursor("grabbing");
         if (runtime.current.hovered !== null) {
           runtime.current.hovered = null;
           runtime.current.hoveredPos = null;
         }
       }
 
-      const zoom = debug.current.camera.zoom;
-      applyPanPointerMove(runtime.current, dx, dy, zoom);
+      // Zoom réel (dézoom compris) : le contenu suit le doigt 1:1 même en mouvement rapide.
+      applyPanPointerMove(runtime.current, dx, dy, runtime.current.liveZoom);
     }
 
     function onPointerLeaveDocument(e: PointerEvent) {
       if (!e.relatedTarget && runtime.current.hovered !== null) {
         runtime.current.hovered = null;
         runtime.current.hoveredPos = null;
-        setAppCursor("auto");
       }
     }
 
@@ -1363,25 +1902,21 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       if (runtime.current.hovered !== null) {
         runtime.current.hovered = null;
         runtime.current.hoveredPos = null;
-        setAppCursor("auto");
       }
     }
 
     function onPointerUp() {
+      if (!activeRef.current) return;
       const curPhase = runtime.current.transition.phase;
       if (
         curPhase === "isolated" ||
         curPhase === "playing" ||
         curPhase === "returning"
       ) {
-        if (curPhase === "isolated" && dragging && dragMoved.current) {
-          // Fin du drag : la carte la plus proche vient se poser au premier plan.
-          const tr = runtime.current.transition;
-          tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY);
-        }
         dragging = false;
         dragMoved.current = false;
-        setAppCursor("auto");
+        runtime.current.transition.deckDrag.x = 0;
+        runtime.current.transition.deckDrag.y = 0;
         return;
       }
       if (dragging && dragMoved.current && recent.length >= 2) {
@@ -1395,19 +1930,11 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
       }
       dragging = false;
       dragMoved.current = false;
-      if (curPhase === "idle") {
-        if (runtime.current.hovered !== null) {
-          setAppCursor("pointer");
-        } else {
-          setAppCursor("auto");
-        }
-      } else {
-        setAppCursor("auto");
-      }
     }
 
     window.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", trackPointer);
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
@@ -1416,6 +1943,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     return () => {
       window.removeEventListener("wheel", onWheel);
       window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", trackPointer);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
@@ -1439,6 +1967,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
     }
 
     function onKeyDown(e: KeyboardEvent) {
+      if (!activeRef.current) return;
       if (
         e.target instanceof HTMLElement &&
         (e.target.tagName === "INPUT" ||
@@ -1533,7 +2062,12 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
   }, [tile, isDetailVisible, handleCloseDetail, handleStartSelect]);
 
   return (
-    <div data-lenis-prevent className="fixed inset-0 bg-white">
+    <div
+      id="play-surface"
+      data-lenis-prevent
+      aria-hidden={!active}
+      className={`fixed inset-0 bg-white ${active ? "" : "invisible pointer-events-none"}`}
+    >
       <PlayLoader loaded={loaded} total={total} isReady={isReady} />
 
       <div
@@ -1543,6 +2077,9 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         {isCalculated && tile && tile.points.length > 0 && (
           <Canvas
             flat
+            // Hors /play : plus aucune frame, mais la scène (contexte WebGL,
+            // textures, layout) reste intacte pour le retour.
+            frameloop={active ? "always" : "never"}
             orthographic
             dpr={[1, 1.5]}
             camera={{ position: [0, 0, 100], zoom: CAMERA_ZOOM, near: 0.1, far: 1000 }}
@@ -1571,7 +2108,7 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               };
             }}
           >
-            {showDebug && <Stats className="!top-4 !left-4" />}
+            {showDebug && active && <Stats className="!top-4 !left-4" />}
             <CameraRig
               debug={debug}
               runtime={runtime}
@@ -1602,6 +2139,8 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
               />
             )}
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
+            <ShardField debug={debug} source={openShardSource} paletteRef={primaryPaletteRef} />
+            <ShardField debug={debug} source={deckShardSource} paletteRef={primaryPaletteRef} seedOffset={7} />
             <FisheyeEffect debug={debug} />
           </Canvas>
         )}
@@ -1611,6 +2150,13 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
           grand arrondi en haut à gauche. Fond dégradé teinté par le média au
           centre de la wheel ; les textes en mix-blend-mode multiply en
           héritent. Sur mobile il devient une feuille basse. */}
+      {active && <PlayCursor debug={debug} runtime={runtime} />}
+      {active && <CursorTrail debug={debug} />}
+
+      {selectedArtifactDetail && isDetailVisible && (
+        <PanelPixels intensity={debug.current.transition.panelGlitch} />
+      )}
+
       <AnimatePresence mode="wait">
         {selectedArtifactDetail && isDetailVisible && (
           <motion.aside
@@ -1724,18 +2270,14 @@ export function PlayCanvas({ artifacts }: { artifacts: PlayArtifact[] }) {
         )}
       </AnimatePresence>
 
-      {showDebug && (
+      {showDebug && active && (
         <PlayDebug
           state={debug}
           stats={tile?.stats}
           onLayoutChange={handleLayoutChange}
-          onReplayLock={handleReplayLock}
           onSimulateSelect={handleSimulateSelect}
           onResetTransition={handleResetTransition}
           runtime={runtime}
-          selectedArtifact={selectedArtifactDetail}
-          apiStatus={apiStatus}
-          onCloseDetail={handleCloseDetail}
           onTextLayoutChange={handleTextLayoutChange}
         />
       )}

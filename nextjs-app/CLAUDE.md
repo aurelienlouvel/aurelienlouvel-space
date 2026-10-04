@@ -59,3 +59,15 @@ Le cleanup (retour en mode nav) se fait automatiquement au unmount.
 const projects = await client.fetch<ProjectListItem[]>(projectsListQuery);
 const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { slug });
 ```
+
+### /play — DA « Prism » et scène persistante
+- DA commune (loader, nav, side panel, curseur, éclats) : `src/lib/da.ts` — rectangles de verre
+  translucides, dégradés, bords fondus, spectre pastel, coins lissés à 32 % (`CORNER_SMOOTHING`
+  côté shaders, `--da-corner-k` côté CSS).
+- La scène 3D vit dans le layout (`components/play/PlayHost.tsx`) : montée à la première visite de
+  `/play`, puis gardée en vie (invisible, `frameloop="never"`) ; la page `/play` ne fait que lui passer
+  les artifacts via `<PlayMount>`. `html[data-play]` active les curseurs 56px de `/public/cursors/lg`.
+- Réglages visuels : `/play#debug`, 5 onglets (global : caméra + curseur ; media ; canvas : layout + fond de points ;
+  style : select « prism » ; animation : survol / ouverture / carte suivante, avec inspecteur et rejeu).
+  Le code vit dans `components/play/debug/`. `window.__play` expose l'état.
+- Le curseur de /play est dessiné par `PlayCursor` (incliné selon le mouvement, grossit au survol, rétrécit au clic).

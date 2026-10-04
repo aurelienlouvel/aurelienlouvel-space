@@ -21,7 +21,9 @@ import {
   CARD_TILT_GLSL,
   clampRadius,
   FRAME_DEFINES,
+  CORNER_SMOOTHING,
   GLSL_PIXEL_WIDTH,
+  GLSL_SQUIRCLE,
   uniformsOf,
 } from "./rounded-frame";
 import {
@@ -32,6 +34,7 @@ import {
 export type PlaneUniforms = {
   uSize: IUniform<Vector2>;
   uRadius: IUniform<number>;
+  uCornerSmooth: IUniform<number>;
   uMotionBlur: IUniform<Vector2>;
   uCardTilt: IUniform<Vector2>;
   uWaveProgress: IUniform<number>;
@@ -45,6 +48,10 @@ export type PlaneUniforms = {
   uWaveBulge: IUniform<number>;
   uWaveWidth: IUniform<number>;
   uWaveTrail: IUniform<number>;
+  uHoverWave: IUniform<number>;
+  uHoverWaveAmp: IUniform<number>;
+  uHoverWaveWidth: IUniform<number>;
+  uTime: IUniform<number>;
 };
 
 /**
@@ -79,6 +86,12 @@ uniform float uWavePunch;
 uniform float uWaveBulge;
 uniform float uWaveWidth;
 uniform float uWaveTrail;
+
+// Vague de survol (cf. plus bas).
+uniform float uHoverWave;
+uniform float uHoverWaveAmp;
+uniform float uHoverWaveWidth;
+uniform float uTime;
 
 /**
  * Déplacement UV des pixels sous la crête de la vague : une lentille qui pousse
@@ -121,11 +134,7 @@ float waveDistortion(vec2 uv) {
 
 ${GLSL_PIXEL_WIDTH}
 
-/** SDF d'un rectangle arrondi centré sur l'origine, négative à l'intérieur. */
-float sdRoundedRect(vec2 p, vec2 halfSize, float radius) {
-  vec2 q = abs(p) - halfSize + radius;
-  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
-}
+${GLSL_SQUIRCLE}
 `;
 
 const CARD_TILT_APPLY = /* glsl */ `
@@ -155,6 +164,26 @@ const MOTION_BLUR_MAP = /* glsl */ `
       wsum += w;
     }
     sampledDiffuseColor = acc / wsum;
+  }
+  // Vague de survol : une bande irisée qui traverse la carte du bas gauche vers
+  // le haut droit (même famille de couleurs que la vague de sélection), suivie
+  // d'une traîne douce. uHoverWave = 0 : éteinte ; 0..1 : progression.
+  if (uHoverWave > 0.001) {
+    float along = (vUv.x + vUv.y) * 0.5;
+    float across = vUv.x - vUv.y;
+    float crest = mix(-0.25, 1.3, uHoverWave) + sin(across * 6.0 + uTime * 3.0) * 0.035;
+    float dw = along - crest;
+    float w = max(uHoverWaveWidth, 0.03);
+    float band = exp(-(dw * dw) / (w * w));
+    float tail = dw < 0.0 ? exp(dw / (w * 3.5)) * 0.35 : 0.0;
+    float fade = 1.0 - smoothstep(0.82, 1.0, uHoverWave);
+    float amount = (band + tail) * fade * uHoverWaveAmp;
+    vec3 spec = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + along * 0.8 + uTime * 0.2));
+    sampledDiffuseColor.rgb = mix(
+      sampledDiffuseColor.rgb,
+      sampledDiffuseColor.rgb * (0.7 + 0.6 * spec) + 0.1 * spec,
+      clamp(amount, 0.0, 1.0)
+    );
   }
   float blurLen = length(uMotionBlur);
   if (blurLen > 0.0008) {
@@ -189,6 +218,7 @@ function roundCorners(
   attachUniforms(this, parameters, {
     uSize: { value: new Vector2(1, 1) },
     uRadius: { value: 0 },
+    uCornerSmooth: CORNER_SMOOTHING,
     uMotionBlur: { value: new Vector2(0, 0) },
     uCardTilt: { value: new Vector2(0, 0) },
     uWaveProgress: { value: 0 },
@@ -202,6 +232,10 @@ function roundCorners(
     uWaveBulge: { value: 0 },
     uWaveWidth: { value: 0.28 },
     uWaveTrail: { value: 0 },
+    uHoverWave: { value: 0 },
+    uHoverWaveAmp: { value: 0.8 },
+    uHoverWaveWidth: { value: 0.18 },
+    uTime: { value: 0 },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
     .replace("#include <common>", `#include <common>\n${ROUNDING_PARS}`)
@@ -220,7 +254,16 @@ function roundCorners(
  * matériaux qui injectent du code.
  */
 function roundCornersCacheKey() {
-  return "play-artifact-grid-motion-blur-lens";
+  return "play-artifact-grid-motion-blur-lens-hover";
+}
+
+/**
+ * L'état de survol vit sur le mesh lui-même (userData), lu par `ArtifactGrid` :
+ * c'est la copie réellement sous le curseur, sans comparer de positions monde
+ * (qui dérivent avec le tuilage 3×3 et la caméra).
+ */
+function setMeshHovered(mesh: Mesh | null, hovered: boolean) {
+  if (mesh) mesh.userData.hovered = hovered;
 }
 
 type ArtifactPlaneProps = {
@@ -370,10 +413,12 @@ function ArtifactPlaneMesh({
       scale={[width, height, 1]}
       onPointerEnter={(e) => {
         e.stopPropagation();
+        setMeshHovered(localMeshRef.current, true);
         onHoverChange(true, worldPosition());
       }}
       onPointerLeave={(e) => {
         e.stopPropagation();
+        setMeshHovered(localMeshRef.current, false);
         onHoverChange(false, worldPosition());
       }}
       onClick={(e) => {

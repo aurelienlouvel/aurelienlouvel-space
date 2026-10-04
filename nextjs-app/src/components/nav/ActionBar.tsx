@@ -13,12 +13,12 @@ import { motion, AnimatePresence, useMotionValue, animate } from "motion/react";
 import { useActionBar } from "@/contexts/ActionBarContext";
 import { markWorkReturn } from "@/lib/scroll";
 import { cn } from "@/lib/utils";
-import { ScrambleText } from "@/components/primitives/ScrambleText";
+import { PlayPillPixels } from "@/components/nav/PlayPillPixels";
 
 const NAV_LINKS = [
-  { href: "/work", label: "work", scramble: false },
-  { href: "/play", label: "play", scramble: true },
-  { href: "/info", label: "info", scramble: false },
+  { href: "/work", label: "work" },
+  { href: "/play", label: "play" },
+  { href: "/info", label: "info" },
 ] as const;
 
 const NAV_PILL_LAYOUT_ID = "action-bar-nav-pill";
@@ -53,26 +53,23 @@ function NavLink({
   href,
   label,
   isActive,
-  scramble,
 }: {
   href: string;
   label: string;
   isActive: boolean;
-  scramble: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
-  const fontWeight = scramble
-    ? undefined
-    : isActive
-      ? 600
-      : hovered
-        ? 520
-        : undefined;
+  // Chaque survol de « play » relance la vague de pixels (le compteur sert de key).
+  const [hoverKey, setHoverKey] = useState(0);
+  const fontWeight = isActive ? 600 : hovered ? 520 : undefined;
 
   return (
     <Link
       href={href}
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={() => {
+        setHovered(true);
+        if (href === "/play") setHoverKey((k) => k + 1);
+      }}
       onMouseLeave={() => setHovered(false)}
       className={cn(
         "relative flex h-11 items-center rounded-xl px-3 text-base transition-all",
@@ -89,30 +86,25 @@ function NavLink({
           transition={NAV_PILL_TRANSITION}
         />
       )}
-      {scramble ? (
-        <span className="relative z-10">
-          <ScrambleText text={label} active={hovered || isActive} />
+      {href === "/play" && <PlayPillPixels active={isActive} hoverKey={hoverKey} />}
+      <span className="relative z-10 inline-grid text-center">
+        <span
+          aria-hidden="true"
+          className="invisible col-start-1 row-start-1"
+          style={{ fontWeight: 600, fontVariationSettings: "'wght' 600" }}
+        >
+          {label}
         </span>
-      ) : (
-        <span className="relative z-10 inline-grid text-center">
-          <span
-            aria-hidden="true"
-            className="invisible col-start-1 row-start-1"
-            style={{ fontWeight: 600, fontVariationSettings: "'wght' 600" }}
-          >
-            {label}
-          </span>
-          <span
-            className="col-start-1 row-start-1 transition-[font-variation-settings] duration-100 ease-out"
-            style={{
-              fontWeight: fontWeight ?? 480,
-              fontVariationSettings: `'wght' ${fontWeight ?? 480}`,
-            }}
-          >
-            {label}
-          </span>
+        <span
+          className="col-start-1 row-start-1 transition-[font-variation-settings] duration-100 ease-out"
+          style={{
+            fontWeight: fontWeight ?? 480,
+            fontVariationSettings: `'wght' ${fontWeight ?? 480}`,
+          }}
+        >
+          {label}
         </span>
-      )}
+      </span>
     </Link>
   );
 }
@@ -230,13 +222,12 @@ export function ActionBar() {
               {sep}
 
               <nav className="flex items-center" aria-label="Main">
-                {NAV_LINKS.map(({ href, label, scramble }) => (
+                {NAV_LINKS.map(({ href, label }) => (
                   <NavLink
                     key={href}
                     href={href}
                     label={label}
                     isActive={pathname.startsWith(href)}
-                    scramble={scramble}
                   />
                 ))}
               </nav>

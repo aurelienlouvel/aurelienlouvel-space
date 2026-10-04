@@ -4,7 +4,6 @@ import { Component, Suspense, useEffect, useRef, type ReactNode, type RefObject 
 import { useFrame, useThree } from "@react-three/fiber";
 import { Group, Mesh, type MeshBasicMaterial } from "three";
 import type { MediaKind } from "./artifact-media";
-import { CURSOR_GRABBING, CURSOR_POINTER } from "@/lib/cursors";
 import { dampTowards } from "./damp";
 import {
   startPlayback,
@@ -12,10 +11,13 @@ import {
   type PlayDebugRef,
   type PlayRuntimeRef,
   type PlayRuntimeState,
+  type HoverParams,
 } from "./PlayCanvas";
 import type { LayoutPoint, LayoutTile } from "./layout-types";
 import { ArtifactPlane, type PlaneUniforms } from "./ArtifactPlane";
 import { uniformsOf } from "./rounded-frame";
+import type { TransitionConfig } from "./transition-presets";
+import { restRotation } from "./rest-rotation";
 
 /**
  * Isole un plane : si son média ne charge pas (404, CORS, réseau…), seul ce
@@ -54,25 +56,6 @@ class PlaneBoundary extends Component<
 const COPIES = 9;
 
 /**
- * Pose le curseur sur le body et le canvas. « auto » et « default » retirent
- * le style inline : c'est alors le curseur par défaut du site (globals.css).
- */
-export function setAppCursor(cursor: "pointer" | "auto" | "default" | "grabbing") {
-  if (typeof document === "undefined") return;
-  const value =
-    cursor === "pointer" ? CURSOR_POINTER : cursor === "grabbing" ? CURSOR_GRABBING : "";
-  const canvas = document.querySelector("canvas");
-  for (const el of [document.body, canvas]) {
-    if (!el) continue;
-    if (value) {
-      if (el.style.cursor !== value) el.style.cursor = value;
-    } else if (el.style.cursor) {
-      el.style.removeProperty("cursor");
-    }
-  }
-}
-
-/**
  * Applique un changement de survol à l'état runtime déjà déréférencé (`rc`
  * n'est pas une ref/prop, fonction top-level pour respecter `react-hooks/immutability`).
  */
@@ -86,23 +69,16 @@ function applyHover(
   hovering: boolean,
   isDragging?: boolean,
 ) {
-  if (rc.transition.phase !== "idle") {
-    setAppCursor("auto");
-    return;
-  }
+  if (rc.transition.phase !== "idle") return;
   if (hovering) {
     if (isDragging) return;
     rc.hovered = pointIndex;
     rc.hoveredPos = { x: world.x, y: world.y, width, height };
     rc.indicatorTarget = { x: world.x, y: world.y, width, height };
-    setAppCursor("pointer");
   } else {
     if (rc.hovered === pointIndex) {
       rc.hovered = null;
       rc.hoveredPos = null;
-      if (!isDragging) {
-        setAppCursor("auto");
-      }
       const origPt = points[rc.selected];
       if (origPt) {
         rc.indicatorTarget = {
@@ -161,7 +137,9 @@ function stepKinematicMeshes(
   meshRefs: (Mesh | null)[][],
   displacementRef: { current: number },
   delta: number,
-  burst: { burstRandomness?: number; burstAngleJitter?: number },
+  burst: TransitionConfig,
+  hover: HoverParams,
+  rotationRange: number,
 ) {
   if (!phys.enabled) {
     displacementRef.current = 0;
@@ -182,6 +160,8 @@ function stepKinematicMeshes(
   // Tout vient de la timeline : la mosaïque ne recalcule aucune progression et
   // ne connaît plus les phases. `displacementRef` ne sert qu'au repos, où le
   // retour à zéro reste amorti (il n'y a alors pas de courbe pour le décrire).
+  rc.hoverInfo.hov = 0;
+  rc.hoverInfo.wave = 0;
   const frame = rc.transition.frame;
   const targetIdx = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : rc.selected;
   const targetPt = targetIdx >= 0 ? points[targetIdx] : null;
@@ -273,12 +253,13 @@ function stepKinematicMeshes(
         if (dist > 0.001) {
           // Burst organique : chaque tuile a sa propre puissance et dévie un peu de la radiale.
           const tc = rc.transition.targetIndex >= 0 ? rc.transition.targetIndex : 0;
-          const h1 = hash01(i * 127.1 + k * 311.7 + tc * 17.3);
-          const h2 = hash01(i * 269.5 + k * 183.3 + tc * 7.1);
-          const rnd = burst.burstRandomness ?? 0;
-          const jitter = burst.burstAngleJitter ?? 0;
-          const power = Math.max(0.15, 1 + (h1 - 0.5) * 2 * rnd * 0.8);
-          const ang = (h2 - 0.5) * 2 * jitter * Math.min(1, rnd + 0.001) ;
+          const seed = (burst.burstSeed ?? 0) * 91.7;
+          const h1 = hash01(i * 127.1 + k * 311.7 + tc * 17.3 + seed);
+          const h2 = hash01(i * 269.5 + k * 183.3 + tc * 7.1 + seed);
+          const pMin = burst.burstPowerMin ?? 1;
+          const pMax = Math.max(pMin, burst.burstPowerMax ?? 1);
+          const power = pMin + (pMax - pMin) * h1;
+          const ang = (h2 - 0.5) * 2 * (burst.burstAngleJitter ?? 0);
           const cs = Math.cos(ang);
           const sn = Math.sin(ang);
           const ux = rx / dist;
@@ -288,12 +269,45 @@ function stepKinematicMeshes(
         }
       }
 
+      // Survol : léger grossissement + inclinaison amortis, et une vague irisée
+      // qui part du bas gauche. L'état vient du mesh (cf. ArtifactPlane), et
+      // retombe dès qu'une transition démarre.
+      const idle = rc.transition.phase === "idle";
+      if (!idle) mesh.userData.hovered = false;
+      // « Rejouer le survol » (debug) force le survol de la carte sélectionnée un instant.
+      const forced = idle && rc.debugHoverUntil > performance.now() && i === rc.selected;
+      const hoveredNow = idle && (mesh.userData.hovered === true || forced);
+      const prevHover = (mesh.userData.hov as number | undefined) ?? 0;
+      const hov =
+        prevHover + ((hoveredNow ? 1 : 0) - prevHover) * (1 - Math.exp(-delta * hover.speed));
+      mesh.userData.hov = Math.abs(hov) < 0.001 ? 0 : hov;
+      // Au repos, la tuile « sélectionnée » est une tuile comme les autres : elle se survole aussi.
+      if (idle) scale *= 1 + hover.scale * hov;
+      // Le sens de l'inclinaison alterne d'une carte à l'autre, comme posées à la main.
+      const hoverTilt =
+        (((i * 7 + 3) % 2 === 0 ? 1 : -1) * hover.rotate * Math.PI * hov) / 180;
+      // La vague démarre à l'entrée du curseur et va jusqu'au bout, une seule fois.
+      let wave = (mesh.userData.hw as number | undefined) ?? 0;
+      if (hoveredNow && mesh.userData.wasHover !== true) wave = 0.0001;
+      mesh.userData.wasHover = hoveredNow;
+      if (wave > 0) {
+        wave += delta / Math.max(0.2, hover.waveDuration);
+        if (wave >= 1) wave = 0;
+      }
+      mesh.userData.hw = wave;
+      if (hov > rc.hoverInfo.hov) {
+        rc.hoverInfo.hov = hov;
+        rc.hoverInfo.wave = wave;
+      }
+
       mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
       // Contrairement à la bascule X/Y (aplatie par la caméra orthographique,
       // cf. ArtifactPlane.tsx), une rotation Z reste un pur tourni dans le
       // plan de l'écran : parfaitement visible telle quelle, sans warp shader.
-      mesh.rotation.z = isTarget ? frame.tileRoll : 0;
+      // Rotation « posée à la main » au repos ; la tuile qui s'ouvre se redresse (frame.rest).
+      const restRot = restRotation(i, rotationRange) * (isTarget && !idle ? frame.rest : 1);
+      mesh.rotation.z = (isTarget && !idle ? frame.tileRoll : hoverTilt) + restRot;
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
@@ -319,6 +333,10 @@ function stepKinematicMeshes(
             rc.transition.phase === "playing" && rc.transition.selectProgress > 0.001;
           uniforms.uWaveProgress.value = waveOn ? rc.transition.selectProgress : 0;
           uniforms.uWaveExit.value = waveOn ? frame.overlayExit : 0;
+          uniforms.uHoverWave.value = idle ? wave : 0;
+          uniforms.uHoverWaveAmp.value = hover.waveAmp;
+          uniforms.uHoverWaveWidth.value = hover.waveWidth;
+          uniforms.uTime.value = (performance.now() / 1000) % 1000;
         }
       }
     }
@@ -365,7 +383,14 @@ export function ArtifactGrid({
   // Boucle par frame :
   // 1. Tuilage 3×3 infini virtualisé autour de la caméra
   // 2. Déplacement cinématique uniforme et mise à jour des positions des meshes
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
+    // Quand la caméra bouge sous un curseur immobile, R3F ne relance pas le
+    // survol de lui-même : on le force, sinon l'ancienne carte reste « survolée »
+    // et la nouvelle ne l'est pas.
+    if (runtime.current.transition.phase === "idle" && runtime.current.cameraSpeed > 8) {
+      state.events.update?.();
+    }
+
     if (TILE_W > 0 && TILE_H > 0 && runtime.current.transition.phase === "idle") {
       const tx = Math.round(camera.position.x / TILE_W);
       const ty = Math.round(camera.position.y / TILE_H);
@@ -390,6 +415,8 @@ export function ArtifactGrid({
       displacementRef,
       delta,
       debug.current.transition,
+      debug.current.hover,
+      debug.current.plane.rotationRange,
     );
   });
 
@@ -400,10 +427,7 @@ export function ArtifactGrid({
     height: number,
     hovering: boolean,
   ) {
-    if (hovering && dragMoved.current) {
-      setAppCursor("grabbing");
-      return;
-    }
+    if (hovering && dragMoved.current) return;
     applyHover(
       runtime.current,
       points,
