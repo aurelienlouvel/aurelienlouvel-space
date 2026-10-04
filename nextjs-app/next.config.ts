@@ -37,16 +37,10 @@ const nextConfig: NextConfig = {
         // Le staging (staging.oré.space) est public (on le partage) mais ne
         // doit pas être indexé. Conditionné au domaine : la règle peut suivre
         // le code jusqu'à `production` sans effet. Le Host arrive en punycode
-        // (oré → xn--or-cja). `preprod.ore.today`, l'ancien domaine du staging,
-        // sera à retirer une fois qu'il redirige. Pas de robots.txt
-        // `Disallow` : il empêcherait les robots de lire ce noindex.
+        // (oré → xn--or-cja). Pas de robots.txt `Disallow` : il empêcherait
+        // les robots de lire ce noindex.
         source: "/:path*",
-        has: [
-          {
-            type: "host",
-            value: "^(staging\\.xn--or-cja\\.space|preprod\\.ore\\.today)$",
-          },
-        ],
+        has: [{ type: "host", value: "^staging\\.xn--or-cja\\.space$" }],
         headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
       },
     ];
