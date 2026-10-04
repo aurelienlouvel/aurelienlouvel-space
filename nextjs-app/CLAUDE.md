@@ -75,8 +75,8 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
 ## Landing — page Notion (branche `production` uniquement)
 
 Sur `production`, `/` n'est plus le redirect vers `/work` : c'est une page statique qui affiche la page Notion du
-portfolio actuel en plein écran (iframe), avec un bouton « visit the wip site » vers `https://preprod.ore.today`
-(le domaine du staging).
+portfolio actuel en plein écran (iframe), avec un bouton « visit the wip site » vers
+`https://staging.xn--or-cja.space` (`staging.oré.space`, le domaine du staging).
 
 - `src/app/page.tsx` : la landing. `NOTION_EMBED_URL` est le lien d'embed de la page Notion publiée
   (`https://<workspace>.notion.site/ebd/<id>`), tel que fourni par Notion.
