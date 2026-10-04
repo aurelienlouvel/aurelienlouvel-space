@@ -21,12 +21,19 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Le staging (preprod.ore.today) est public (on le partage) mais ne
+        // Le staging (staging.oré.space) est public (on le partage) mais ne
         // doit pas être indexé. Conditionné au domaine : la règle peut suivre
-        // le code jusqu'à `production` sans effet. Pas de robots.txt
+        // le code jusqu'à `production` sans effet. Le Host arrive en punycode
+        // (oré → xn--or-cja). `preprod.ore.today`, l'ancien domaine du staging,
+        // sera à retirer une fois qu'il redirige. Pas de robots.txt
         // `Disallow` : il empêcherait les robots de lire ce noindex.
         source: "/:path*",
-        has: [{ type: "host", value: "^preprod\\.ore\\.today$" }],
+        has: [
+          {
+            type: "host",
+            value: "^(staging\\.xn--or-cja\\.space|preprod\\.ore\\.today)$",
+          },
+        ],
         headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
       },
     ];
