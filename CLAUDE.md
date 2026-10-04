@@ -61,7 +61,8 @@ de toute feature.
 - **Lancement du nouveau site** : sur `production`, `git merge --no-commit staging`, puis
   `git checkout staging -- <fichiers de la landing>` (liste dans `nextjs-app/CLAUDE.md`) et `git commit` : la
   landing disparaît, l'historique reste. Ensuite, chaque validation est une promotion `staging` → `production`
-  ordinaire.
+  ordinaire, et `production` a le même contenu que `staging` : l'étape 5 se fait alors depuis `production`
+  (c'est le schéma de release classique) et les règles propres à la landing sortent de ce fichier.
 - **SEO** : le staging envoie `X-Robots-Tag: noindex, nofollow` (règle sur le domaine `staging.oré.space` dans
   `next.config.ts`, donc sans effet sur `production`). Pas de `robots.txt` `Disallow` : il empêcherait les
   robots de lire le noindex. Le SEO (titre, description, icônes) vit dans `nextjs-app/src/app/layout.tsx` et
