@@ -1,33 +1,31 @@
-import type { Metadata } from "next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CursorMagicSelection04Icon } from "@hugeicons/core-free-icons";
 
-// Page Notion du portfolio actuel. À remplacer par le lien Share → Publish →
-// Copy web link (notion.site) si l'iframe n'affiche pas la page : elle doit
-// être publiée sur le web, sinon Notion n'affiche que son écran de connexion.
-const NOTION_PAGE_URL =
-  "https://www.notion.so/224ca43dc6968061b974c3c6ab95f29c";
+// Embed Notion du portfolio actuel : le lien d'embed de la page publiée
+// (`…notion.site/ebd/<id>`), tel que fourni par Notion.
+const NOTION_EMBED_URL =
+  "https://aurelienlouvel-ore.notion.site/ebd//224ca43dc6968061b974c3c6ab95f29c";
 
 // Site WIP (la preprod), cible du bouton.
 const WIP_SITE_URL = "https://preprod.ore.today";
 
-// Reprend le titre et la description de la page Notion, pour que l'onglet et
-// les aperçus de lien restent ceux du portfolio actuel.
-export const metadata: Metadata = {
-  title: "oré ˖ ࣪⊹ product designer",
-  description: "product designer — paris, france",
-};
+// Pas de `metadata` ici : le SEO (titre, description, icônes) est celui du
+// layout, le même que sur la preprod.
 
 /**
  * Landing de prod : la page Notion du portfolio actuel en plein écran, et un
  * bouton flottant (même pastille que l'ActionBar) vers le site WIP. Statique :
  * rien ici ne dépend de la requête.
+ *
+ * DA : `--da-corner-k` règle l'exposant des coins lissés (règle globale de
+ * globals.css, `corner-shape: superellipse(k)`). 1.33 = celui de /play, au lieu
+ * du repli de la feuille de style (1.53) qui s'applique quand /play n'est pas montée.
  */
 export default function RootPage() {
   return (
-    <main className="fixed inset-0 bg-white">
+    <main className="fixed inset-0 bg-white [--da-corner-k:1.33]">
       <iframe
-        src={NOTION_PAGE_URL}
+        src={NOTION_EMBED_URL}
         title="oré — portfolio"
         className="block size-full border-0"
         allow="fullscreen; clipboard-write; autoplay; picture-in-picture"
