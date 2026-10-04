@@ -33,14 +33,14 @@ de toute feature.
 | Branche | Rôle | Domaine | Contenu |
 |---|---|---|---|
 | `main` | Base des features (branche par défaut GitHub) | | Le site tel que promu en production, sans la landing |
-| `development` | Intégration | `ore-today-git-development-ore.vercel.app` | Les features validées, avant le test d'ensemble |
+| `development` | Intégration | `aurelienlouvel-space-git-development-ore.vercel.app` | Les features validées, avant le test d'ensemble |
 | `staging` | Pré-production | staging.aurelienlouvel.space (publique, non indexée) | Le site WIP (Next.js + Sanity), stable pour tester et montrer à d'autres personnes |
 | `production` | Live | aurelienlouvel.space (`oré.space` et `ore.today` y redirigent) | Landing : la page Notion du portfolio actuel + un bouton vers le staging |
 
 **Flux** :
 
 1. **Branche de feature** créée depuis `main` : chaque push a sa preview
-   `ore-today-git-<branche>-ore.vercel.app` (publique, partageable tout de suite).
+   `aurelienlouvel-space-git-<branche>-ore.vercel.app` (publique, partageable tout de suite).
 2. **PR vers `development`** (pas vers `main`, que GitHub propose par défaut) quand la feature est prête.
 3. **Promotion `development` → `staging`** quand l'ensemble est bon à tester et à montrer : merge, et c'est
    sur `staging.aurelienlouvel.space`.
@@ -70,7 +70,7 @@ de toute feature.
 - **Vercel** : *Production Branch* = `production` ; `staging.aurelienlouvel.space` est lié à la branche
   `staging` (Settings → Domains). Pas d'alias dans `vercel.json` : il laisserait n'importe quelle branche
   revendiquer un domaine. Chaque branche, `development` comprise, garde son URL de preview
-  `ore-today-git-<branche>-ore.vercel.app`.
+  `aurelienlouvel-space-git-<branche>-ore.vercel.app`.
 - **Domaines** : `aurelienlouvel.space` est le domaine principal. Lui et `oré.space` sont enregistrés chez
   Spaceship (renouvellement manuel à surveiller : le prix saute dès la 2ᵉ année), et leur DNS est chez Vercel
   (nameservers `ns1.vercel-dns.com` et `ns2.vercel-dns.com`). Les autres domaines redirigent (308) :
