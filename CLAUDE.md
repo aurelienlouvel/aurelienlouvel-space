@@ -73,8 +73,9 @@ de toute feature.
 - **Domaines** : `oré.space` est enregistré chez Spaceship (renouvellement manuel à surveiller : le prix saute
   dès la 2ᵉ année) et son DNS est chez Vercel (nameservers `ns1.vercel-dns.com` et `ns2.vercel-dns.com`). Dans
   Vercel et dans le code il s'écrit en punycode, `xn--or-cja.space` : c'est ce que le navigateur envoie dans
-  l'en-tête Host. Les anciens `ore.today`, `www.ore.today` et `preprod.ore.today` redirigent (308) vers les
-  nouveaux domaines ; `ore.today` reste chez Vercel jusqu'au 1ᵉʳ mars 2027, sans renouvellement automatique.
+  l'en-tête Host. Les anciens domaines redirigent (308) : `ore.today` et `www.ore.today` vers `oré.space`,
+  `staging.ore.today` vers `staging.oré.space` (`preprod.ore.today` n'existe plus). `ore.today` reste chez
+  Vercel jusqu'au 1ᵉʳ mars 2027, sans renouvellement automatique.
 
 ## Commits
 
