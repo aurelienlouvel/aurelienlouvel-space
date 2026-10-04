@@ -27,33 +27,37 @@ cd sanity-studio && pnpm dev     # localhost:3333
 ## Branches & déploiement
 
 **Environment branching** : une branche longue durée par environnement, et les changements passent de l'une
-à l'autre par **merge** : `development` → `staging` → `production`.
+à l'autre par **merge** : `development` → `staging` → `production`. `main`, la branche par défaut, est la base
+de toute feature.
 
-| Branche | Environnement | Domaine | Contenu |
+| Branche | Rôle | Domaine | Contenu |
 |---|---|---|---|
-| `development` | Intégration (branche par défaut GitHub) | `ore-today-git-development-ore.vercel.app` | Le travail en cours : toutes les features atterrissent ici |
+| `main` | Base des features (branche par défaut GitHub) | | Le site tel que promu en production, sans la landing |
+| `development` | Intégration | `ore-today-git-development-ore.vercel.app` | Les features validées, avant le test d'ensemble |
 | `staging` | Pré-production | staging.oré.space (publique, non indexée) | Le site WIP (Next.js + Sanity), stable pour tester et montrer à d'autres personnes |
 | `production` | Live | oré.space (`www.` et `ore.today` y redirigent) | Landing : la page Notion du portfolio actuel + un bouton vers le staging |
 
 **Flux** :
 
-1. **Branche de feature** créée depuis `development` : chaque push a sa preview
+1. **Branche de feature** créée depuis `main` : chaque push a sa preview
    `ore-today-git-<branche>-ore.vercel.app` (publique, partageable tout de suite).
-2. **PR vers `development`** quand la feature est prête.
+2. **PR vers `development`** (pas vers `main`, que GitHub propose par défaut) quand la feature est prête.
 3. **Promotion `development` → `staging`** quand l'ensemble est bon à tester et à montrer : merge, et c'est
    sur `staging.oré.space`.
 4. **Promotion `staging` → `production`** une fois validé : merge, et c'est sur `oré.space`.
+5. **`main` rattrape la release** : merge de `staging` dans `main` juste après l'étape 4.
 
 - **Une promotion est un merge commit** (`git merge --no-ff`, ou « Create a merge commit » sur GitHub), jamais
   un squash ni un rebase : les branches divergeraient et chaque promotion suivante re-conflicterait. Le flux est
-  à sens unique : pas de commit direct sur `staging` ni `production` (sauf la landing, ci-dessous) ; un hotfix
-  suit le même chemin, en accéléré.
-- **Branche par défaut GitHub = `development`** : les PR et les nouvelles branches (sessions Claude comprises)
-  partent de là.
+  à sens unique : pas de commit direct sur `main`, `staging` ni `production` (sauf la landing, ci-dessous) ; un
+  hotfix suit le même chemin, en accéléré.
+- **Branche par défaut GitHub = `main`** : les nouvelles branches (sessions Claude comprises) partent de là, et
+  c'est voulu. `main` ne reçoit que `staging` après une release (étape 5), jamais `production` ni `development`.
 - **Landing** : tant que le nouveau site n'est pas lancé, `production` = `staging` + la page Notion (quelques
   commits propres à `production`, voir `nextjs-app/CLAUDE.md` sur `production`). Les autres routes y redirigent
-  vers `/` : promouvoir `staging` n'y change rien de visible. Ces commits ne remontent jamais, et on ne touche à
-  `production` que pour la landing.
+  vers `/` : promouvoir `staging` n'y change rien de visible. Ces commits ne remontent jamais, ni vers `staging`
+  ni vers `main` (sinon la base des features aurait la landing), et on ne touche à `production` que pour la
+  landing.
 - **Lancement du nouveau site** : sur `production`, `git merge --no-commit staging`, puis
   `git checkout staging -- <fichiers de la landing>` (liste dans `nextjs-app/CLAUDE.md`) et `git commit` : la
   landing disparaît, l'historique reste. Ensuite, chaque validation est une promotion `staging` → `production`
