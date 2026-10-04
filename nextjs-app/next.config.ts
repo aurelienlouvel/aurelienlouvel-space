@@ -30,6 +30,19 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async headers() {
+    return [
+      {
+        // Le staging (preprod.ore.today) est public (on le partage) mais ne
+        // doit pas être indexé. Conditionné au domaine : la règle peut suivre
+        // le code jusqu'à `production` sans effet. Pas de robots.txt
+        // `Disallow` : il empêcherait les robots de lire ce noindex.
+        source: "/:path*",
+        has: [{ type: "host", value: "^preprod\\.ore\\.today$" }],
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
