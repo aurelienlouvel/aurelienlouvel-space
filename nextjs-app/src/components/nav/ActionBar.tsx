@@ -111,7 +111,7 @@ function NavLink({
 
 export function ActionBar() {
   const pathname = usePathname();
-  // La landing de prod (page Notion plein écran, `/`) n'a pas de nav.
+  // La landing de production (page Notion plein écran, `/`) n'a pas de nav.
   if (pathname === "/") return null;
   return <ActionBarContent />;
 }

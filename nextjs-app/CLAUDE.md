@@ -72,18 +72,21 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   Le code vit dans `components/play/debug/`. `window.__play` expose l'état.
 - Le curseur de /play est dessiné par `PlayCursor` (incliné selon le mouvement, grossit au survol, rétrécit au clic).
 
-## Landing prod — page Notion (branche `prod` uniquement)
+## Landing — page Notion (branche `production` uniquement)
 
-Sur `prod`, `/` n'est plus le redirect vers `/work` : c'est une page statique qui affiche la page Notion du
-portfolio actuel en plein écran (iframe), avec un bouton « visit the wip site » vers `https://preprod.ore.today`.
+Sur `production`, `/` n'est plus le redirect vers `/work` : c'est une page statique qui affiche la page Notion du
+portfolio actuel en plein écran (iframe), avec un bouton « visit the wip site » vers `https://preprod.ore.today`
+(le domaine du staging).
 
 - `src/app/page.tsx` : la landing. `NOTION_EMBED_URL` est le lien d'embed de la page Notion publiée
   (`https://<workspace>.notion.site/ebd/<id>`), tel que fourni par Notion.
-- SEO : pas de `metadata` dans la page, on garde celui du layout (titre, description, icônes), identique à la preprod.
+- SEO : pas de `metadata` dans la page, on garde celui du layout (titre, description, icônes), identique au staging.
 - DA : la page fixe `--da-corner-k: 1.33`, donc des coins `corner-shape: superellipse(1.33)` via la règle
   globale de `globals.css` (celle de /play ; le repli de la feuille de style est 1.53).
 - `next.config.ts` : toute autre page redirige (307) vers `/` ; `_next`, `_vercel` et les fichiers (extension)
   restent servis. Les routes WIP (`/work`, `/play`, `/info`, `/api`) ne sont donc pas exposées.
 - `ActionBar` se masque sur `/`.
-- C'est le seul écart entre `prod` et `preprod` : pour passer le nouveau site en prod, voir
-  « Branches & déploiement » dans le `CLAUDE.md` racine.
+- C'est le seul écart entre `production` et `staging`, limité à ces fichiers (chemins depuis la racine du repo) :
+  `nextjs-app/src/app/page.tsx`, `nextjs-app/src/components/nav/ActionBar.tsx`, le bloc `redirects()` de
+  `nextjs-app/next.config.ts` et cette section de `nextjs-app/CLAUDE.md`. Ils ne remontent jamais vers `staging`.
+  Pour lancer le nouveau site (la landing disparaît), voir « Branches & déploiement » dans le `CLAUDE.md` racine.

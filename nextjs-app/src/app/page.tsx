@@ -6,15 +6,15 @@ import { CursorMagicSelection04Icon } from "@hugeicons/core-free-icons";
 const NOTION_EMBED_URL =
   "https://aurelienlouvel-ore.notion.site/ebd//224ca43dc6968061b974c3c6ab95f29c";
 
-// Site WIP (la preprod), cible du bouton.
+// Site WIP (le staging, preprod.ore.today), cible du bouton.
 const WIP_SITE_URL = "https://preprod.ore.today";
 
 // Pas de `metadata` ici : le SEO (titre, description, icônes) est celui du
-// layout, le même que sur la preprod.
+// layout, le même que sur le staging.
 
 /**
- * Landing de prod : la page Notion du portfolio actuel en plein écran, et un
- * bouton flottant (même pastille que l'ActionBar) vers le site WIP. Statique :
+ * Landing de production : la page Notion du portfolio actuel en plein écran, et
+ * un bouton flottant (même pastille que l'ActionBar) vers le site WIP. Statique :
  * rien ici ne dépend de la requête.
  *
  * DA : `--da-corner-k` règle l'exposant des coins lissés (règle globale de
