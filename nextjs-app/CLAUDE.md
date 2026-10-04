@@ -77,8 +77,11 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
 Sur `prod`, `/` n'est plus le redirect vers `/work` : c'est une page statique qui affiche la page Notion du
 portfolio actuel en plein écran (iframe), avec un bouton « visit the wip site » vers `https://preprod.ore.today`.
 
-- `src/app/page.tsx` : la landing. `NOTION_PAGE_URL` doit être le lien *Share → Publish → Copy web link*
-  de la page Notion (publiée sur le web, sinon l'iframe n'affiche que le login Notion).
+- `src/app/page.tsx` : la landing. `NOTION_EMBED_URL` est le lien d'embed de la page Notion publiée
+  (`https://<workspace>.notion.site/ebd/<id>`), tel que fourni par Notion.
+- SEO : pas de `metadata` dans la page, on garde celui du layout (titre, description, icônes), identique à la preprod.
+- DA : la page fixe `--da-corner-k: 1.33`, donc des coins `corner-shape: superellipse(1.33)` via la règle
+  globale de `globals.css` (celle de /play ; le repli de la feuille de style est 1.53).
 - `next.config.ts` : toute autre page redirige (307) vers `/` ; `_next`, `_vercel` et les fichiers (extension)
   restent servis. Les routes WIP (`/work`, `/play`, `/info`, `/api`) ne sont donc pas exposées.
 - `ActionBar` se masque sur `/`.
