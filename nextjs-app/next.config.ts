@@ -21,13 +21,12 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Le staging (staging.oré.space) est public (on le partage) mais ne
-        // doit pas être indexé. Conditionné au domaine : la règle peut suivre
-        // le code jusqu'à `production` sans effet. Le Host arrive en punycode
-        // (oré → xn--or-cja). Pas de robots.txt `Disallow` : il empêcherait
-        // les robots de lire ce noindex.
+        // Le staging (staging.aurelienlouvel.space) est public (on le partage)
+        // mais ne doit pas être indexé. Conditionné au domaine : la règle peut
+        // suivre le code jusqu'à `production` sans effet. Pas de robots.txt
+        // `Disallow` : il empêcherait les robots de lire ce noindex.
         source: "/:path*",
-        has: [{ type: "host", value: "^staging\\.xn--or-cja\\.space$" }],
+        has: [{ type: "host", value: "^staging\\.aurelienlouvel\\.space$" }],
         headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
       },
     ];
