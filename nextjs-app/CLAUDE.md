@@ -82,6 +82,13 @@ volontairement les contrôles que Notion affiche lui-même à cet endroit (« ·
 
 - `src/app/page.tsx` : la landing. `NOTION_EMBED_URL` est le lien d'embed de la page Notion publiée
   (`https://<workspace>.notion.site/ebd/<id>`), tel que fourni par Notion.
+- Thème : `scheme-light` (`color-scheme: light`) sur l'`<iframe>` demande un thème clair à Notion. Il suit sinon le
+  thème du système du visiteur (`prefers-color-scheme`, réglage « system » par défaut) et n'a pas de paramètre d'URL
+  pour le forcer (`?theme=light` est sans effet) ; la page parente ne peut pas écrire dans son stockage (autre
+  origine). Le levier dépend donc du navigateur, qui donne le `color-scheme` de l'iframe comme préférence à la page
+  embarquée, cross-origin compris : testé sur Chromium (mode sombre émulé), annoncé par Firefox 105+ (bugs Mozilla
+  1782595 et 1782596) et Safari 27 (notes de version) mais non testé, sans effet sur Safari 26 et moins (testé avec
+  le moteur de Safari 26.4) : un visiteur en mode sombre y voit Notion sombre.
 - SEO : pas de `metadata` dans la page, on garde celui du layout (titre, description, icônes), identique au staging.
 - DA : la page fixe `--da-corner-k: 1.16` (≈ 10 % de lissage), donc des coins `corner-shape: superellipse(1.16)`
   via la règle globale de `globals.css`. Échelle : k = 1 + lissage / 0.6, soit 1 = arc de cercle (0 %), 1.33 ≈ 20 %

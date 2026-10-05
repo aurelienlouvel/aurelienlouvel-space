@@ -19,6 +19,13 @@ const WIP_SITE_URL = "https://staging.aurelienlouvel.space";
  * volontairement les contrôles que Notion affiche à cet endroit (« ··· » et « Get
  * Notion free »). Statique : rien ici ne dépend de la requête.
  *
+ * Thème : Notion suit le thème du système du visiteur (`prefers-color-scheme`) et
+ * ne propose pas de paramètre d'URL pour le forcer. `scheme-light`
+ * (`color-scheme: light`) sur l'iframe lui fait voir un thème clair, cross-origin
+ * compris, là où le navigateur le gère : Chromium (testé) ; Firefox 105+ et Safari
+ * 27+ l'annoncent (non testés). Safari 26 et moins l'ignore (testé sur 26.4) : un
+ * visiteur en mode sombre y voit Notion sombre.
+ *
  * DA : `--da-corner-k` règle l'exposant des coins lissés (règle globale de
  * globals.css, `corner-shape: superellipse(k)`), avec k = 1 + lissage / 0.6 :
  * 1 = arc de cercle (0 %), 1.16 ≈ 10 %, 1.33 ≈ 20 % (celui de /play), 1.53 ≈ 32 %
@@ -31,7 +38,7 @@ export default function RootPage() {
       <iframe
         src={NOTION_EMBED_URL}
         title="oré — portfolio"
-        className="block size-full border-0"
+        className="block size-full border-0 scheme-light"
         allow="fullscreen; clipboard-write; autoplay; picture-in-picture"
       />
 
