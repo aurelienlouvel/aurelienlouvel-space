@@ -14,8 +14,9 @@ const WIP_SITE_URL = "https://staging.aurelienlouvel.space";
 
 /**
  * Landing de production : la page Notion du portfolio actuel en plein écran, et
- * un bouton flottant (même pastille que l'ActionBar) vers le site WIP. Statique :
- * rien ici ne dépend de la requête.
+ * une pastille (la même que l'ActionBar) vers le site WIP, fixée en haut à droite
+ * et collée au coin : seul son coin bas gauche est arrondi. Statique : rien ici
+ * ne dépend de la requête.
  *
  * DA : `--da-corner-k` règle l'exposant des coins lissés (règle globale de
  * globals.css, `corner-shape: superellipse(k)`). 1.33 = celui de /play, au lieu
@@ -31,20 +32,18 @@ export default function RootPage() {
         allow="fullscreen; clipboard-write; autoplay; picture-in-picture"
       />
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-12 z-50 flex justify-center px-3">
-        <div className="pointer-events-auto flex h-16 items-center rounded-3xl border border-border/60 bg-white px-2 shadow-md">
-          <a
-            href={WIP_SITE_URL}
-            className="flex h-10 items-center gap-1.5 rounded-xl bg-main-50 px-3 text-base font-medium text-main-500 outline-none transition-transform duration-200 ease-out focus-visible:ring-3 focus-visible:ring-main-500/30 motion-safe:hover:-rotate-[1.5deg] motion-safe:hover:scale-[0.95] motion-safe:active:-rotate-2 motion-safe:active:scale-[0.87]"
-          >
-            <HugeiconsIcon
-              icon={CursorMagicSelection04Icon}
-              size={15}
-              strokeWidth={2}
-            />
-            visit the wip site
-          </a>
-        </div>
+      <div className="fixed right-0 top-0 z-50 flex h-16 items-center rounded-bl-3xl border-b border-l border-border/60 bg-white px-2 shadow-md">
+        <a
+          href={WIP_SITE_URL}
+          className="flex h-10 items-center gap-1.5 rounded-xl bg-main-50 px-3 text-base font-medium text-main-500 outline-none transition-transform duration-200 ease-out focus-visible:ring-3 focus-visible:ring-main-500/30 motion-safe:hover:-rotate-[1.5deg] motion-safe:hover:scale-[0.95] motion-safe:active:-rotate-2 motion-safe:active:scale-[0.87]"
+        >
+          <HugeiconsIcon
+            icon={CursorMagicSelection04Icon}
+            size={15}
+            strokeWidth={2}
+          />
+          visit the wip site
+        </a>
       </div>
     </main>
   );

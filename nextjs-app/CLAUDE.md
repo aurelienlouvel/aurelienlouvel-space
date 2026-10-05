@@ -76,7 +76,9 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
 
 Sur `production`, `/` n'est plus le redirect vers `/work` : c'est une page statique qui affiche la page Notion du
 portfolio actuel en plein écran (iframe), avec un bouton « visit the wip site » vers
-`https://staging.aurelienlouvel.space` (le domaine du staging).
+`https://staging.aurelienlouvel.space` (le domaine du staging). Le bouton est dans une pastille fixée en haut à
+droite (`fixed right-0 top-0`), collée au coin, sans marge : seul son coin bas gauche est arrondi. Elle recouvre
+les contrôles que Notion affiche lui-même à cet endroit (« ··· » et « Get Notion free »).
 
 - `src/app/page.tsx` : la landing. `NOTION_EMBED_URL` est le lien d'embed de la page Notion publiée
   (`https://<workspace>.notion.site/ebd/<id>`), tel que fourni par Notion.
