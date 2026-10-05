@@ -5,7 +5,7 @@ Monorepo contenant deux apps indépendantes :
 | App | Dossier | URL |
 |---|---|---|
 | Site Next.js | `nextjs-app/` | Vercel |
-| Sanity Studio | `sanity-studio/` | ore.sanity.studio |
+| Sanity Studio | `sanity-studio/` | aurelienlouvel.sanity.studio |
 
 ## Lancer le projet
 
