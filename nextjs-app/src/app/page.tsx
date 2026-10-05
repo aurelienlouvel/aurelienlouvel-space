@@ -19,12 +19,14 @@ const WIP_SITE_URL = "https://staging.aurelienlouvel.space";
  * ne dépend de la requête.
  *
  * DA : `--da-corner-k` règle l'exposant des coins lissés (règle globale de
- * globals.css, `corner-shape: superellipse(k)`). 1.33 = celui de /play, au lieu
- * du repli de la feuille de style (1.53) qui s'applique quand /play n'est pas montée.
+ * globals.css, `corner-shape: superellipse(k)`), avec k = 1 + lissage / 0.6 :
+ * 1 = arc de cercle (0 %), 1.17 ≈ 10 %, 1.33 ≈ 20 % (celui de /play), 1.53 ≈ 32 %
+ * (le repli de la feuille de style, quand la variable n'est pas posée). La landing
+ * prend 1.17, plus discret que /play.
  */
 export default function RootPage() {
   return (
-    <main className="fixed inset-0 bg-white [--da-corner-k:1.33]">
+    <main className="fixed inset-0 bg-white [--da-corner-k:1.17]">
       <iframe
         src={NOTION_EMBED_URL}
         title="oré — portfolio"

@@ -83,8 +83,9 @@ les contrôles que Notion affiche lui-même à cet endroit (« ··· » et « G
 - `src/app/page.tsx` : la landing. `NOTION_EMBED_URL` est le lien d'embed de la page Notion publiée
   (`https://<workspace>.notion.site/ebd/<id>`), tel que fourni par Notion.
 - SEO : pas de `metadata` dans la page, on garde celui du layout (titre, description, icônes), identique au staging.
-- DA : la page fixe `--da-corner-k: 1.33`, donc des coins `corner-shape: superellipse(1.33)` via la règle
-  globale de `globals.css` (celle de /play ; le repli de la feuille de style est 1.53).
+- DA : la page fixe `--da-corner-k: 1.17` (≈ 10 % de lissage), donc des coins `corner-shape: superellipse(1.17)`
+  via la règle globale de `globals.css`. Échelle : k = 1 + lissage / 0.6, soit 1 = arc de cercle (0 %), 1.33 ≈ 20 %
+  (celui de /play), 1.53 ≈ 32 % (le repli de la feuille de style).
 - `next.config.ts` : toute autre page redirige (307) vers `/` ; `_next`, `_vercel` et les fichiers (extension)
   restent servis. Les routes WIP (`/work`, `/play`, `/info`, `/api`) ne sont donc pas exposées.
 - `ActionBar` se masque sur `/`.
