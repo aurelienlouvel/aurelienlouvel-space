@@ -1,0 +1,81 @@
+# Garde-fou du flux de branches (voir « Branches & déploiement » dans CLAUDE.md).
+#
+# Toute PR vers main, development, staging ou production doit suivre le flux, sinon elle est fermée avec un
+# commentaire et ce check échoue. Le ruleset `protect-flow-branches` rend le check obligatoire sur main, staging
+# et production : une PR refusée n'y est donc jamais mergeable.
+#
+# Déclencheur `pull_request` (et non `pull_request_target`) : c'est le workflow de la PR qui tourne, donc une
+# promotion l'embarque avec elle, et une PR qui ne l'a pas reste bloquée faute de check plutôt que de passer.
+# Limite assumée : une PR peut modifier ce fichier. C'est un garde-fou contre les accidents (PR #8), pas contre
+# quelqu'un qui a les droits d'écriture.
+name: branch-flow
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+    branches: [main, development, staging, production]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  branch-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check that the PR follows the branch flow
+        # Les valeurs de l'événement passent par l'environnement, jamais par une interpolation dans le script :
+        # un nom de branche ne peut pas y injecter de code.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -eu
+
+          # Clé « base:head » (« : » est interdit dans un nom de branche, donc sans ambiguïté). Les refus
+          # viennent avant le cas général de development, et tout chemin non listé est refusé.
+          reason=""
+          if [ "$HEAD_REPO" != "$REPO" ]; then
+            reason="la branche source vient d'un fork ($HEAD_REPO), seules les branches de ce dépôt sont acceptées"
+          else
+            case "$BASE:$HEAD" in
+              development:main | development:staging | development:production | development:landing/*)
+                reason="rien ne remonte vers development depuis $HEAD" ;;
+              development:*) ;;
+              staging:development) ;;
+              production:staging | production:landing/*) ;;
+              main:staging) ;;
+              *) reason="ce chemin n'existe pas dans le flux" ;;
+            esac
+          fi
+
+          if [ -z "$reason" ]; then
+            echo "OK : $HEAD → $BASE suit le flux."
+            exit 0
+          fi
+
+          echo "::error title=branch-flow::$HEAD → $BASE refusée : $reason"
+          comment_file=$(mktemp)
+          {
+            printf '🚫 La PR `%s` → `%s` est refusée par le garde-fou `branch-flow` : %s.\n\n' "$HEAD" "$BASE" "$reason"
+            cat <<'EOF'
+          Chemins autorisés (voir « Branches & déploiement » dans `CLAUDE.md`) :
+
+          - une feature (créée depuis `main`) → `development`
+          - `development` → `staging`
+          - `staging` → `production`
+          - `staging` → `main` (la release rattrape `main`)
+          - `landing/<sujet>` → `production` (changement de la landing, et d'elle seule)
+
+          Ouvre une nouvelle PR avec la bonne base. Ne clique pas sur « Update branch » : il fusionne la base dans
+          la branche source.
+          EOF
+          } > "$comment_file"
+          gh pr close "$PR_NUMBER" --repo "$REPO" --comment "$(cat "$comment_file")" \
+            || echo "::warning::Fermeture de la PR impossible (fork ou permissions) ; le check échoue quand même."
+          exit 1

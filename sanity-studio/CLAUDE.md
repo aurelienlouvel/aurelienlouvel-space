@@ -1,12 +1,12 @@
 # oré — Sanity Studio
 
-Studio déployé sur **ore.sanity.studio** · projectId `87awwrcu` · dataset `production`
+Studio déployé sur **aurelienlouvel.sanity.studio** · projectId `87awwrcu` · dataset `production`
 
 ## Lancer / déployer
 
 ```bash
 pnpm dev                                                    # localhost:3333
-node_modules/.bin/sanity build && node_modules/.bin/sanity deploy --no-build --url ore -y   # → ore.sanity.studio
+node_modules/.bin/sanity build && node_modules/.bin/sanity deploy --no-build --url aurelienlouvel -y   # → aurelienlouvel.sanity.studio
 ```
 
 > ⚠️ Ne pas utiliser `pnpm sanity deploy` — pnpm v11 bloque le build script d'esbuild (ERR_PNPM_IGNORED_BUILDS). Appeler le binaire directement bypasse ce check.
