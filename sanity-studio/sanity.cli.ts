@@ -7,6 +7,6 @@ export default defineCliConfig({
   },
   deployment: {
     autoUpdates: true,
-    appId: 'n204609911mffjbdowbq1s7a',
+    appId: 'd3cbrwbc8not9kornszepleb',
   }
 })
