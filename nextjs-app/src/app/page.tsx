@@ -15,18 +15,19 @@ const WIP_SITE_URL = "https://staging.aurelienlouvel.space";
 /**
  * Landing de production : la page Notion du portfolio actuel en plein écran, et
  * une pastille (la même que l'ActionBar) vers le site WIP, fixée en haut à droite
- * et collée au coin : seul son coin bas gauche est arrondi. Statique : rien ici
- * ne dépend de la requête.
+ * et collée au coin : seul son coin bas gauche est arrondi. Elle recouvre
+ * volontairement les contrôles que Notion affiche à cet endroit (« ··· » et « Get
+ * Notion free »). Statique : rien ici ne dépend de la requête.
  *
  * DA : `--da-corner-k` règle l'exposant des coins lissés (règle globale de
  * globals.css, `corner-shape: superellipse(k)`), avec k = 1 + lissage / 0.6 :
- * 1 = arc de cercle (0 %), 1.17 ≈ 10 %, 1.33 ≈ 20 % (celui de /play), 1.53 ≈ 32 %
+ * 1 = arc de cercle (0 %), 1.16 ≈ 10 %, 1.33 ≈ 20 % (celui de /play), 1.53 ≈ 32 %
  * (le repli de la feuille de style, quand la variable n'est pas posée). La landing
- * prend 1.17, plus discret que /play.
+ * prend 1.16, plus discret que /play.
  */
 export default function RootPage() {
   return (
-    <main className="fixed inset-0 bg-white [--da-corner-k:1.17]">
+    <main className="fixed inset-0 bg-white [--da-corner-k:1.16]">
       <iframe
         src={NOTION_EMBED_URL}
         title="oré — portfolio"
