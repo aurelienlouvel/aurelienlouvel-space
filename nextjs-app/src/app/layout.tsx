@@ -15,6 +15,10 @@ const neueMontreal = localFont({
 });
 
 export const metadata: Metadata = {
+  // The apex is the primary domain (www and the old domains redirect to it):
+  // link previews (opengraph-image.png) must cite it, not the host Next would
+  // otherwise guess from Vercel's env vars.
+  metadataBase: new URL("https://aurelienlouvel.space"),
   title: "oré ˖ ࣪⊹) product designer",
   description: "aurélien louvel's internet space",
   icons: {

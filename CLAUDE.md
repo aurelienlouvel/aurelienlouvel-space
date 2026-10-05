@@ -35,7 +35,7 @@ de toute feature.
 | `main` | Base des features (branche par défaut GitHub) | | Le site tel que promu en production, sans la landing |
 | `development` | Intégration | `aurelienlouvel-space-git-development-ore.vercel.app` | Les features validées, avant le test d'ensemble |
 | `staging` | Pré-production | staging.aurelienlouvel.space (publique, non indexée) | Le site WIP (Next.js + Sanity), stable pour tester et montrer à d'autres personnes |
-| `production` | Live | www.aurelienlouvel.space (`aurelienlouvel.space`, `oré.space` et `ore.today` y redirigent) | Landing : la page Notion du portfolio actuel + un bouton vers le staging |
+| `production` | Live | aurelienlouvel.space (`www.aurelienlouvel.space`, `oré.space` et `ore.today` y redirigent) | Landing : la page Notion du portfolio actuel + un bouton vers le staging |
 
 **Flux** :
 
@@ -44,7 +44,7 @@ de toute feature.
 2. **PR vers `development`** (pas vers `main`, que GitHub propose par défaut) quand la feature est prête.
 3. **Promotion `development` → `staging`** quand l'ensemble est bon à tester et à montrer : merge, et c'est
    sur `staging.aurelienlouvel.space`.
-4. **Promotion `staging` → `production`** une fois validé : merge, et c'est sur `www.aurelienlouvel.space`.
+4. **Promotion `staging` → `production`** une fois validé : merge, et c'est sur `aurelienlouvel.space`.
 5. **`main` rattrape la release** : merge de `staging` dans `main` juste après l'étape 4.
 
 - **Une promotion est un merge commit** (`git merge --no-ff`, ou « Create a merge commit » sur GitHub), jamais
@@ -68,8 +68,9 @@ de toute feature.
   propres à la landing sortent de ce fichier.
 - **SEO** : le staging envoie `X-Robots-Tag: noindex, nofollow` (règle sur le domaine
   `staging.aurelienlouvel.space` dans `next.config.ts`, donc sans effet sur `production`). Pas de `robots.txt`
-  `Disallow` : il empêcherait les robots de lire le noindex. Le SEO (titre, description, icônes) vit dans
-  `nextjs-app/src/app/layout.tsx` et `production` le reprend tel quel.
+  `Disallow` : il empêcherait les robots de lire le noindex. Le SEO (titre, description, icônes, `metadataBase`)
+  vit dans `nextjs-app/src/app/layout.tsx`, l'aperçu de lien (OpenGraph, X) dans
+  `nextjs-app/src/app/opengraph-image.png`, et `production` les reprend tels quels.
 - **Garde-fous GitHub** : le workflow `branch-flow` (`.github/workflows/branch-flow.yml`) ferme toute PR qui sort
   du flux : `development` ← une feature, `staging` ← `development`, `production` ← `staging` ou
   `landing/<sujet>`, `main` ← `staging`. Le ruleset `protect-flow-branches` (Settings → Rules) protège `main`,
@@ -84,14 +85,15 @@ de toute feature.
   `staging` (Settings → Domains). Pas d'alias dans `vercel.json` : il laisserait n'importe quelle branche
   revendiquer un domaine. Chaque branche, `development` comprise, garde son URL de preview
   `aurelienlouvel-space-git-<branche>-ore.vercel.app`.
-- **Domaines** : `www.aurelienlouvel.space` est le domaine principal, celui qui sert le site.
-  `aurelienlouvel.space` (l'apex) et `oré.space` sont enregistrés chez Spaceship (renouvellement manuel à
-  surveiller : le prix saute dès la 2ᵉ année), et leur DNS est chez Vercel (nameservers `ns1.vercel-dns.com` et
-  `ns2.vercel-dns.com`). Les autres domaines redirigent (308, réglé dans Vercel → Settings → Domains, pas dans
-  le code) : `aurelienlouvel.space`, `oré.space`, `www.oré.space`, `ore.today` et `www.ore.today` vers
-  `www.aurelienlouvel.space`, `staging.oré.space` et `staging.ore.today` vers `staging.aurelienlouvel.space`.
-  Dans Vercel, `oré.space` s'écrit en punycode, `xn--or-cja.space` (c'est ce que le navigateur envoie dans
-  l'en-tête Host). `ore.today` reste chez Vercel jusqu'au 1ᵉʳ mars 2027, sans renouvellement automatique.
+- **Domaines** : `aurelienlouvel.space` (l'apex) est le domaine principal, celui qui sert le site et que citent
+  les aperçus de lien (`metadataBase` dans `layout.tsx`). Il est enregistré chez Spaceship, comme `oré.space`
+  (renouvellement manuel à surveiller : le prix saute dès la 2ᵉ année), et leur DNS est chez Vercel
+  (nameservers `ns1.vercel-dns.com` et `ns2.vercel-dns.com`). Les autres domaines redirigent (308, réglé dans
+  Vercel → Settings → Domains, pas dans le code) : `www.aurelienlouvel.space`, `oré.space`, `www.oré.space`,
+  `ore.today` et `www.ore.today` vers `aurelienlouvel.space` ; `staging.oré.space`, `staging.ore.today`,
+  `preprod.ore.today` et `www.preprod.ore.today` vers `staging.aurelienlouvel.space`. Dans Vercel,
+  `oré.space` s'écrit en punycode, `xn--or-cja.space` (c'est ce que le navigateur envoie dans l'en-tête Host).
+  `ore.today` reste chez Vercel jusqu'au 1ᵉʳ mars 2027, sans renouvellement automatique.
 
 ## Commits
 
