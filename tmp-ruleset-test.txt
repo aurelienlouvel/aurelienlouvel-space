@@ -1,2 +1,3 @@
 throwaway test for the protect-flow-branches ruleset
 c3
+c2
