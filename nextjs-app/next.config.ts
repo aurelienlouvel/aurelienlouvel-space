@@ -18,19 +18,6 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  async redirects() {
-    return [
-      {
-        // Production = la landing seule : toute page autre que la racine y
-        // renvoie, les routes WIP (/work, /play, /info, /api) ne sont pas
-        // exposées. `_next`, `_vercel` et les fichiers (extension) restent
-        // servis.
-        source: "/:path((?!_next/|_vercel/|.*\\..*).+)",
-        destination: "/",
-        permanent: false,
-      },
-    ];
-  },
   async headers() {
     return [
       {
