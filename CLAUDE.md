@@ -77,8 +77,9 @@ de toute feature.
   « Create a merge commit », avec le check `branch-flow` obligatoire ; aucun contournement, pas même pour le
   propriétaire (en cas d'urgence, désactiver le ruleset dans Settings → Rules, puis le réactiver). Sur une PR de
   promotion, ne jamais cliquer « Update branch » (il fusionne la base dans la branche source : c'est ainsi que
-  `main` s'est retrouvé dans `production` avec la PR #8) ni suivre le bandeau « Compare & pull request » de
-  `production` ou `staging`.
+  `main` s'est retrouvé dans `production` avec la PR #8). GitHub le refuse quand la source est protégée
+  (`staging`), mais pas pour `development`, qu'aucun ruleset ne couvre : vigilance sur la PR `development` →
+  `staging`. Ne pas suivre non plus le bandeau « Compare & pull request » de `production` ou `staging`.
 - **Vercel** : *Production Branch* = `production` ; `staging.aurelienlouvel.space` est lié à la branche
   `staging` (Settings → Domains). Pas d'alias dans `vercel.json` : il laisserait n'importe quelle branche
   revendiquer un domaine. Chaque branche, `development` comprise, garde son URL de preview
