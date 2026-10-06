@@ -14,6 +14,7 @@ import {
   type WebGLProgramParametersWithUniforms,
 } from "three";
 import type { MediaKind } from "./artifact-media";
+import { CardShadow } from "./CardShadow";
 import type { PlayDebugRef, PlayRuntimeRef } from "./PlayCanvas";
 import { getDirectionCode } from "./SelectProgressOverlay";
 import {
@@ -443,6 +444,7 @@ function ArtifactPlaneMesh({
         onBeforeCompile={roundCorners}
         customProgramCacheKey={roundCornersCacheKey}
       />
+      <CardShadow debug={debug} runtime={runtime} />
     </mesh>
   );
 }

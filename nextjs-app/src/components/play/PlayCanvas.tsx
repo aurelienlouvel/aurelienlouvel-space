@@ -51,6 +51,7 @@ import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types"
 import { PlayLoader } from "./PlayLoader";
 import { CursorTrail } from "./CursorTrail";
 import { PlayCursor } from "./PlayCursor";
+import { SHADOW_DEFAULTS, type ShadowParams } from "./CardShadow";
 import { ShardField, SHARD_DEFAULTS, type ShardParams, type ShardSource } from "./ShardField";
 import { CORNER_SMOOTHING } from "./rounded-frame";
 import { PanelPixels } from "./PanelPixels";
@@ -279,7 +280,7 @@ export type HoverParams = {
 
 export const HOVER_DEFAULTS: HoverParams = {
   scale: 0.045,
-  rotate: 1.4,
+  rotate: 0,
   speed: 10,
   waveAmp: 0.8,
   waveWidth: 0.18,
@@ -324,6 +325,8 @@ export type PlayDebugState = {
   da: DaParams;
   cursor: CursorParams;
   background: BackgroundParams;
+  /** Ombre portée des cartes de la mosaïque (cf. CardShadow.tsx). */
+  shadow: ShadowParams;
   /** Style visuel actif (une DA complète : « prism » pour l'instant). */
   style: { name: string };
   camera: CameraDebugParams;
@@ -1255,7 +1258,7 @@ export function PlayCanvas({
     plane: {
       radius: PLANE_RADIUS,
       cornerSmoothing: CORNER_SMOOTHING_DEFAULT,
-      rotationRange: 3,
+      rotationRange: 0,
     },
     indicator: { fadeSpeed: INDICATOR_FADE_SPEED, moveSpeed: INDICATOR_MOVE_SPEED },
     camera: {
@@ -1275,6 +1278,7 @@ export function PlayCanvas({
     },
     cursor: { ...CURSOR_DEFAULTS },
     background: { ...BACKGROUND_DEFAULTS },
+    shadow: { ...SHADOW_DEFAULTS },
     style: { name: "prism" },
     hover: { ...HOVER_DEFAULTS },
     shards: { ...SHARD_DEFAULTS },
