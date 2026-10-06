@@ -17,6 +17,7 @@ import { Canvas, events, useFrame } from "@react-three/fiber";
 import { Stats, useTexture } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
 import { useActionBar } from "@/contexts/ActionBarContext";
+import { DA_RADIUS, daIridGain } from "@/lib/da";
 import { preloadArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
 import { fileRefToUrl, playMediaUrl } from "@/lib/sanity-utils";
@@ -27,7 +28,7 @@ import { formatMonth } from "@/lib/date-utils";
 import { RoleBlock } from "@/components/blocks/RoleBlock";
 import { DateAgo } from "@/components/blocks/DateAgo";
 import { paletteFromImageUrl, paletteFromVideo, type RGB } from "@/lib/dominant-color";
-import { usePanelGradient, type DeckWeight } from "./panel-gradient";
+import { PANEL_FALLBACK, usePanelGradient, type DeckWeight } from "./panel-gradient";
 import { getSharedVideoElement } from "./SecondaryGalleryPlanes";
 import { ArtifactGrid } from "./ArtifactGrid";
 import {
@@ -52,9 +53,15 @@ import { PlayLoader } from "./PlayLoader";
 import { CursorTrail } from "./CursorTrail";
 import { PlayCursor } from "./PlayCursor";
 import { SHADOW_DEFAULTS, type ShadowParams } from "./CardShadow";
-import { ShardField, SHARD_DEFAULTS, type ShardParams, type ShardSource } from "./ShardField";
+import {
+  AMBIENT_RENDER_ORDER,
+  ShardField,
+  SHARD_DEFAULTS,
+  type ShardParams,
+  type ShardSource,
+} from "./ShardField";
 import { CORNER_SMOOTHING } from "./rounded-frame";
-import { PanelPixels } from "./PanelPixels";
+import { PanelPixels, PANEL_PIXEL_DENSITY } from "./PanelPixels";
 import { SelectProgressOverlay } from "./SelectProgressOverlay";
 import {
   type TransitionConfig,
@@ -148,11 +155,11 @@ export const OVERLAY_DEFAULTS: SelectOverlayParams = {
   waveAmplitude: 0.15,
   waveFrequency: 6,
   waveSpeed: 2.6,
-  iridescence: 0.64,
+  iridescence: 1,
   baseOpacity: 0.64,
   glowIntensity: 1,
-  zoomBlur: 0.8,
-  zoomPunch: 0.48,
+  zoomBlur: 1.2,
+  zoomPunch: 0.8,
   bulge: 0.4,
   lensWidth: 0.4,
   lensTrail: 0,
@@ -228,11 +235,11 @@ export type CursorParams = {
 export const CURSOR_DEFAULTS: CursorParams = {
   enabled: true,
   size: 56,
-  rotate: 28,
-  tiltSpeedRef: 900,
-  tiltVertical: -0.3,
-  tiltFrequency: 45,
-  tiltDamping: 0.8,
+  rotate: 23,
+  tiltSpeedRef: 200,
+  tiltVertical: -1,
+  tiltFrequency: 60,
+  tiltDamping: 1.4,
   hoverScale: 1.35,
   pressScale: 0.78,
   scaleSpeed: 16,
@@ -255,10 +262,10 @@ export type BackgroundParams = {
 
 export const BACKGROUND_DEFAULTS: BackgroundParams = {
   dots: true,
-  dotSize: 1.6,
-  dotSpacing: 44,
-  dotOpacity: 0.16,
-  dotColor: "#1b2a4a",
+  dotSize: 3.2,
+  dotSpacing: 64,
+  dotOpacity: 0.04,
+  dotColor: "#000000",
   parallax: 1,
 };
 
@@ -270,46 +277,105 @@ export type HoverParams = {
   rotate: number;
   /** Vitesse de transition (par seconde). */
   speed: number;
-  /** Intensité de la vague irisée du bas gauche (0 = coupée). */
+  /** Intensité de la bande blanche de la vague, qui éclaircit la carte (0 = coupée). */
   waveAmp: number;
   /** Largeur de la bande de la vague (fraction de la carte). */
   waveWidth: number;
   /** Durée de la traversée (s). */
   waveDuration: number;
+  /** Éclat lumineux au cœur de la bande (0 = juste un voile blanc). */
+  waveGlow: number;
+  /** Irisation de la bande (0 = blanc pur, 1 = reflets pastel bien marqués, qui glissent avec elle). */
+  waveIrid: number;
 };
 
 export const HOVER_DEFAULTS: HoverParams = {
   scale: 0.045,
   rotate: 0,
   speed: 10,
-  waveAmp: 0.8,
-  waveWidth: 0.18,
-  waveDuration: 0.75,
+  waveAmp: 0.75,
+  waveWidth: 0.6,
+  waveDuration: 0.6,
+  waveGlow: 1.2,
+  waveIrid: 0.5,
 };
 
-/** Réglages de la DA « Prism » (cf. lib/da.ts) qui ne sont pas rendus par le canvas. */
+/**
+ * Réglages de la DA « Pixels » (cf. lib/da.ts). Les carrés de l'interface (nav, side
+ * panel, loader) les reçoivent en variables CSS sur `:root` ; le curseur et les éclats
+ * du canvas lisent le rayon ici.
+ */
 export type DaParams = {
-  /** Opacité des pixels de la pastille « play » dans la navigation (0 = coupés). */
-  navPixels: number;
+  /** Rayon des coins de tous les pixels, en fraction de leur côté (0 = carré net, 0.5 = rond). */
+  pixelRadius: number;
+  /** Force de la vague de survol de la pastille « play » (× ; 0 = coupée). */
+  navWave: number;
+  /** Côté d'un pixel de la pastille « play » (rem). */
+  navPixelSize: number;
+  /** Force des pixels qui font le fond de la pastille « play » au repos (× ; 0 = coupés). */
+  navRest: number;
+  /**
+   * Irisation de la pastille « play » : 0 = le gris neutre d'avant, 1 = les reflets de la
+   * vague de survol des cartes (la force, `navRest` et `navWave`, y reçoit en plus le gain
+   * `daIridGain`, pour que les deux se valent).
+   */
+  navIrid: number;
+  /** Irisation du loader (0 = le gris neutre d'avant, 1 = les reflets de la vague de survol des cartes). */
+  loaderIrid: number;
+  /** Force de la vague du loader (× ; 0 = coupée), avec le même gain des reflets que la pastille. */
+  loaderStrength: number;
   /** Durée d'un passage du champ de pixels de la pastille « play » active (s) : plus grand = plus chill. */
   navDriftPeriod: number;
   /** Durée de la vague de survol de la pastille « play » (s). */
   navHoverDuration: number;
   /** Étalement de la vague de survol de gauche à droite (s). */
   navHoverSpread: number;
-  /** Taille des rectangles du coin bas droit du side panel (×). */
-  panelPixelScale: number;
+  /** Côté d'une case de la forme tramée du coin bas droit du side panel (rem) : le pixel en occupe 80 %. */
+  panelPixelSize: number;
+  /** Nombre de pixels de cette forme (0..1 ; la forme pleine en compte 36). */
+  panelPixelDensity: number;
+  /** Amplitude de leur respiration (0 = fixes, 1 = ils s'effacent presque). */
+  panelPixelPulse: number;
+  /** Durée d'une respiration (s) : plus grand = plus calme. */
+  panelPixelPeriod: number;
+  /** Variation du nombre de pixels : la densité monte et descend de ± cette part (0 = nombre fixe). */
+  panelPixelFlux: number;
+  /** Durée d'un cycle du nombre de pixels (s). */
+  panelPixelFluxPeriod: number;
+  /** Retard du coin au large dans ce cycle, en part de cycle (0 = tous ensemble, 1 = une onde entière). */
+  panelPixelRipple: number;
+  /** Dérive des couleurs des pixels le long de la palette de la page (0 = fixes, 1 = d'une couleur à la suivante). */
+  panelPixelShift: number;
+  /** Durée d'un cycle des couleurs (s). */
+  panelPixelShiftPeriod: number;
   /** Étendue du dégradé du side panel (×). */
   panelGradientSpread: number;
+  /** Irisation du dégradé du side panel (0 = les seules couleurs de la page ouverte, 1 = arc-en-ciel). */
+  panelGradientIrid: number;
 };
 
 export const DA_DEFAULTS: DaParams = {
-  navPixels: 2,
+  pixelRadius: DA_RADIUS,
+  navWave: 1,
+  navPixelSize: 0.5,
+  navRest: 1,
+  navIrid: 1,
+  loaderIrid: 1,
+  loaderStrength: 1,
   navDriftPeriod: 14,
   navHoverDuration: 1.1,
   navHoverSpread: 0.55,
-  panelPixelScale: 2.5,
+  panelPixelSize: 1,
+  panelPixelDensity: PANEL_PIXEL_DENSITY,
+  panelPixelPulse: 0.4,
+  panelPixelPeriod: 8,
+  panelPixelFlux: 0.1,
+  panelPixelFluxPeriod: 10,
+  panelPixelRipple: 0.5,
+  panelPixelShift: 0.75,
+  panelPixelShiftPeriod: 12,
   panelGradientSpread: 1.8,
+  panelGradientIrid: 0,
 };
 
 export type PlayDebugState = {
@@ -325,7 +391,7 @@ export type PlayDebugState = {
   da: DaParams;
   cursor: CursorParams;
   background: BackgroundParams;
-  /** Ombre portée des cartes de la mosaïque (cf. CardShadow.tsx). */
+  /** Contour (ex-ombre portée) de toutes les cartes, mosaïque et deck (cf. CardShadow.tsx). */
   shadow: ShadowParams;
   /** Style visuel actif (une DA complète : « prism » pour l'instant). */
   style: { name: string };
@@ -441,13 +507,28 @@ export type PlayRuntimeState = {
     /** Rewind : avancement 0..1 (avant courbe), état d'où il part (t de la timeline, position du deck). */
     rewindU: number;
     rewindFromT: number;
+    /** Position (entière) du deck au départ : la carte du dessus est la seule qui rentre dans la mosaïque. */
     rewindFromDeck: number;
+    /**
+     * La carte gardée n'est pas le média de la tuile : elle se fond dans la tuile en
+     * fin de retour au lieu de la remplacer d'un coup (écrit par `SecondaryGalleryPlanes`).
+     */
+    keepOther: boolean;
     /** Debug : traction du deck maintenue à cette valeur (null = libre). */
     deckFreeze: number | null;
     /** Carte du deck qui se décompose en éclats à cet instant (une seule à la fois). */
     deckFx: {
       intensity: number;
       spread?: number;
+      cx: number;
+      cy: number;
+      w: number;
+      h: number;
+      url: string;
+      kind: "image" | "video";
+    };
+    /** Carte la plus proche du dessus de la pile à cet instant, hors traction : l'origine des pixels de fond. */
+    deckTop: {
       cx: number;
       cy: number;
       w: number;
@@ -511,27 +592,29 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.hoveredPos = null;
 
   // Depuis la vue détail ou n'importe où dans la timeline d'entrée : un vrai
-  // rewind. Le temps recule en courbe cinématique (lent, rapide, lent) ; si des
-  // cartes ont été passées, elles sont d'abord défaites (une à une, en sens
-  // inverse), puis l'ouverture se rejoue à l'envers.
+  // rewind. Le temps recule en courbe cinématique (lent, rapide, lent) et
+  // l'ouverture se rejoue à l'envers. Les cartes passées ne sont pas défaites :
+  // seule la carte du dessus (celle que le deck vise, même en plein changement)
+  // est gardée, les autres s'effacent, et c'est elle qui rentre dans la mosaïque.
   if (rc.transition.phase === "playing" || rc.transition.phase === "isolated") {
     const tr = rc.transition;
     tr.holding = false;
     tr.releaseAt = null;
-    tr.rewinding = true;
     tr.rewindU = 0;
     tr.rewindFromT = tr.t;
-    tr.rewindFromDeck = tr.phase === "isolated" ? tr.columnScrollY : 0;
-    tr.targetColumnScrollY = tr.columnScrollY;
+    // Le retour « clean » glisse de l'état exact d'où l'on part vers le repos, un second Échap
+    // en plein retour compris : on en garde un instantané (cf. `sampleRewind`).
+    tr.returnFrom = { ...tr.frame };
+    // Un second Échap en plein retour garde la même carte : le deck n'est plus « isolated ».
+    if (!tr.rewinding) {
+      tr.rewindFromDeck = tr.phase === "isolated" ? Math.round(tr.targetColumnScrollY) : 0;
+    }
+    tr.targetColumnScrollY = tr.rewindFromDeck;
     tr.deckPullRaw = 0;
     tr.deckPullShown = 0;
     tr.deckFreeze = null;
-    // Pas de carte à défaire : on entre directement dans le rewind de l'ouverture.
-    if (tr.phase === "isolated" && Math.abs(tr.rewindFromDeck) <= 0.02) {
-      tr.phase = "playing";
-      tr.columnScrollY = 0;
-      tr.targetColumnScrollY = 0;
-    }
+    tr.rewinding = true;
+    tr.phase = "playing";
     rc.camera.mode = "settle";
     return;
   }
@@ -602,9 +685,9 @@ function applyArrowNavigation(
 }
 
 // ── Ouverture — image ────────────────────────────────────────────────────
-const PLANE_RADIUS = 45;
-/** Lissage des coins façon Apple (0..1) : 32 % par défaut. */
-const CORNER_SMOOTHING_DEFAULT = 0.2;
+const PLANE_RADIUS = 24;
+/** Lissage des coins façon Apple (0..1) : 16 % par défaut. */
+const CORNER_SMOOTHING_DEFAULT = 0.16;
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
 const INDICATOR_FADE_SPEED = 26;
@@ -615,7 +698,8 @@ const CAMERA_ZOOM = 0.8;
 const CAMERA_MOTION_BLUR_ENABLED = false;
 const CAMERA_MOTION_BLUR_STRENGTH = 4.0;
 const CAMERA_MOTION_BLUR_MAX = 0.25;
-const CAMERA_SETTLE_SPEED = 8;
+const CAMERA_FOLLOW_SPEED = 8;
+const CAMERA_SETTLE_SPEED = 1;
 /** Vitesse d'extinction des reliquats de courbe : assez rapide pour disparaître
  *  sous la seconde, assez lente pour ne jamais se voir comme un saut. */
 const SETTLE_DECAY_SPEED = 12;
@@ -730,10 +814,9 @@ function framingOffsetY(
  */
 /**
  * Un pas de rewind. Une seule courbe (`rewindEasing`, par défaut easeInOutQuint :
- * départ lent, milieu rapide, arrivée lente) conduit tout le retour : d'abord le
- * deck revient à la première carte, puis la timeline d'ouverture recule jusqu'à 0.
- * Le deck repasse par chaque position entière, donc chaque passage de carte est
- * rejoué à l'envers, avec ses éclats.
+ * départ lent, milieu rapide, arrivée lente) conduit tout le retour : la timeline
+ * d'ouverture recule jusqu'à 0. Le deck ne se défait pas : il se résorbe sur la
+ * carte du dessus (`rewindFromDeck`), seule gardée pour rentrer dans la mosaïque.
  */
 function advanceRewind(
   tr: PlayRuntimeState["transition"],
@@ -741,25 +824,11 @@ function advanceRewind(
   dt: number,
 ) {
   tr.wall += dt;
-  const hasDeck = Math.abs(tr.rewindFromDeck) > 0.02;
-  const cards = Math.min(4, Math.abs(Math.round(tr.rewindFromDeck)));
-  const total = Math.max(0.2, config.rewindDuration + cards * config.rewindDeckPerCard);
-  tr.rewindU = Math.min(1, tr.rewindU + dt / total);
+  tr.rewindU = Math.min(1, tr.rewindU + dt / Math.max(0.2, config.rewindDuration));
   const eased = evaluateEasing(config.rewindEasing, tr.rewindU);
-  const share = hasDeck ? Math.min(0.8, Math.max(0.05, config.rewindDeckShare)) : 0;
-  const deckP = share > 0 ? Math.min(1, eased / share) : 1;
-  const openP = Math.min(1, Math.max(0, (eased - share) / (1 - share)));
-
-  if (hasDeck) {
-    tr.columnScrollY = tr.rewindFromDeck * (1 - deckP);
-    tr.targetColumnScrollY = tr.columnScrollY;
-  }
-  if (tr.phase === "isolated" && deckP >= 1) {
-    tr.phase = "playing";
-    tr.columnScrollY = 0;
-    tr.targetColumnScrollY = 0;
-  }
-  if (tr.phase === "playing") tr.t = tr.rewindFromT * (1 - openP);
+  tr.columnScrollY = dampTowards(tr.columnScrollY, tr.rewindFromDeck, config.detailScrollDamping, dt);
+  tr.targetColumnScrollY = tr.rewindFromDeck;
+  tr.t = tr.rewindFromT * (1 - eased);
 }
 
 function advanceClock(
@@ -770,7 +839,7 @@ function advanceClock(
 ) {
   const tr = rc.transition;
 
-  if (tr.rewinding && (tr.phase === "playing" || tr.phase === "isolated")) {
+  if (tr.rewinding && tr.phase === "playing") {
     advanceRewind(tr, config, effDelta);
     return;
   }
@@ -938,7 +1007,7 @@ function stepCamera(
     // Lissage léger du suivi : les deltas discrets de la molette ne sautent plus
     // d'une frame à l'autre. Le recentrage (flèches, sélection) est plus doux.
     const rate = following
-      ? (camCfg?.followSpeed ?? 22)
+      ? (camCfg?.followSpeed ?? CAMERA_FOLLOW_SPEED)
       : (camCfg?.settleSpeed ?? CAMERA_SETTLE_SPEED);
 
     // Inertie du geste : la cible avance avant que le retard soit mesuré. Sa
@@ -1028,6 +1097,7 @@ function stepCamera(
   if (returned) {
     tr.rewinding = false;
     tr.rewindU = 0;
+    tr.returnFrom = null;
     // La courbe a déjà ramené la caméra au repos : on se contente de recaler
     // la cible du pan sur ce que la courbe vient de produire.
     camera.zoom = baseZoom;
@@ -1141,21 +1211,25 @@ function CameraRig({
       );
     }
 
-    // DA : opacité des pixels de la nav et taille des rectangles du panel (variables CSS).
+    // DA : rayon des pixels, pixels de la nav et du panel (variables CSS, écrites seulement quand elles changent).
     const da = debug.current.da;
     const rootStyle = document.documentElement.style;
-    if (rootStyle.getPropertyValue("--da-nav-a") !== String(da.navPixels)) {
-      rootStyle.setProperty("--da-nav-a", String(da.navPixels));
-    }
-    if (rootStyle.getPropertyValue("--pg-scale") !== String(da.panelPixelScale)) {
-      rootStyle.setProperty("--pg-scale", String(da.panelPixelScale));
-    }
-    const navVars: [string, string][] = [
+    // Les reflets irisés pèsent moins que le gris à opacité égale : leur force reçoit un gain.
+    const navGain = daIridGain(da.navIrid);
+    const daVars: [string, string][] = [
+      ["--da-radius", `${Math.round(da.pixelRadius * 1000) / 10}%`],
+      ["--da-nav-irid", String(da.navIrid)],
+      ["--da-nav-wave", String(Math.round(da.navWave * navGain * 1000) / 1000)],
+      ["--da-cell", `${da.navPixelSize}rem`],
+      ["--da-nav-rest", String(Math.round(da.navRest * navGain * 1000) / 1000)],
+      ["--ld-irid", String(da.loaderIrid)],
+      ["--ld-strength", String(Math.round(da.loaderStrength * daIridGain(da.loaderIrid) * 1000) / 1000)],
+      ["--pg-size", `${da.panelPixelSize}rem`],
       ["--da-period", `${da.navDriftPeriod}s`],
       ["--da-hover-dur", `${da.navHoverDuration}s`],
       ["--da-hover-spread", `${da.navHoverSpread}s`],
     ];
-    for (const [name, value] of navVars) {
+    for (const [name, value] of daVars) {
       if (rootStyle.getPropertyValue(name) !== value) rootStyle.setProperty(name, value);
     }
 
@@ -1258,7 +1332,7 @@ export function PlayCanvas({
     plane: {
       radius: PLANE_RADIUS,
       cornerSmoothing: CORNER_SMOOTHING_DEFAULT,
-      rotationRange: 0,
+      rotationRange: 1.5,
     },
     indicator: { fadeSpeed: INDICATOR_FADE_SPEED, moveSpeed: INDICATOR_MOVE_SPEED },
     camera: {
@@ -1266,14 +1340,14 @@ export function PlayCanvas({
       motionBlur: CAMERA_MOTION_BLUR_ENABLED,
       motionBlurStrength: CAMERA_MOTION_BLUR_STRENGTH,
       motionBlurMax: CAMERA_MOTION_BLUR_MAX,
-      speedDezoom: 0.2,
-      speedDezoomRef: 1800,
-      speedDezoomAttack: 30,
+      speedDezoom: 0.16,
+      speedDezoomRef: 5000,
+      speedDezoomAttack: 200,
       dezoomAnchor: true,
       cursorTrail: 0.2,
       cursorTrailLife: 160,
-      followSpeed: 22,
-      settleSpeed: 8,
+      followSpeed: CAMERA_FOLLOW_SPEED,
+      settleSpeed: CAMERA_SETTLE_SPEED,
       wheelSpeed: 1,
     },
     cursor: { ...CURSOR_DEFAULTS },
@@ -1345,8 +1419,10 @@ export function PlayCanvas({
       rewindU: 0,
       rewindFromT: 0,
       rewindFromDeck: 0,
+      keepOther: false,
       deckFreeze: null,
       deckFx: { intensity: 0, cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
+      deckTop: { cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
       passed: false,
       releaseAt: null,
       returnFrom: null,
@@ -1663,6 +1739,54 @@ export function PlayCanvas({
     return tr.deckFx;
   }, []);
 
+  // Pixels de fond du pack ouvert : quelques éclats de la carte du dessus, très discrets, qui
+  // dérivent derrière la pile pour donner une ambiance. La couche naît en fondu quand la pile
+  // est en place, s'éteint au retour, et quand le média du dessus change elle s'éteint, prend
+  // les couleurs du nouveau puis revient : les pixels ne sautent jamais d'une image à l'autre.
+  const ambientRef = useRef({
+    level: 0,
+    at: 0,
+    src: { intensity: 0, spread: 1, cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" } as ShardSource,
+  });
+  const ambientParamsRef = useRef<ShardParams>({ ...SHARD_DEFAULTS });
+  const ambientParams = useCallback((): ShardParams => {
+    const cfg = debug.current.transition;
+    const p = Object.assign(ambientParamsRef.current, debug.current.shards);
+    p.count = Math.max(0, Math.round(cfg.ambientPixels ?? 0));
+    p.maxSize = Math.max(1, cfg.ambientSize ?? 30);
+    p.minSize = p.maxSize * 0.35;
+    p.travel = cfg.ambientTravel ?? 140;
+    p.speed = cfg.ambientSpeed ?? 0.12;
+    p.opacity = cfg.ambientOpacity ?? 0.28;
+    return p;
+  }, [debug]);
+  const ambientShardSource = useCallback((): ShardSource | null => {
+    const tr = runtime.current.transition;
+    const cfg = debug.current.transition;
+    const a = ambientRef.current;
+    const now = performance.now();
+    const dt = a.at > 0 ? Math.min(0.1, (now - a.at) / 1000) : 0;
+    a.at = now;
+    const top = tr.deckTop;
+    // La pile est en place : fin de l'ouverture (la carte a pris sa taille) ou vue détail, jamais en plein retour.
+    const settled = tr.phase === "isolated" || (tr.phase === "playing" && tr.frame.reveal > 0.999);
+    const open = settled && !tr.rewinding && top.url !== "" && (cfg.ambientPixels ?? 0) > 0;
+    const swapping = open && a.src.url !== "" && top.url !== a.src.url && a.level > 0.01;
+    const step = dt / Math.max(0.05, cfg.ambientFade ?? 1.2);
+    a.level = open && !swapping ? Math.min(1, a.level + step) : Math.max(0, a.level - step * 2);
+    if (open && !swapping) {
+      a.src.cx = top.cx;
+      a.src.cy = top.cy;
+      a.src.w = top.w;
+      a.src.h = top.h;
+      a.src.url = top.url;
+      a.src.kind = top.kind;
+    }
+    if (a.level < 0.01) return null;
+    a.src.intensity = a.level * a.level * (3 - 2 * a.level);
+    return a.src;
+  }, [debug]);
+
   // Éclats de l'ouverture : la tuile ouverte se sépare en morceaux, du clic à la fin de la vague.
   const openShardSource = useCallback((): ShardSource | null => {
     const rc = runtime.current;
@@ -1682,7 +1806,9 @@ export function PlayCanvas({
     };
   }, [tile]);
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
-  usePanelGradient(panelEl, deckWeightsRef, palettesRef, debug);
+  // Les trois couleurs de la page ouverte : le hook les tient à jour, les pixels du coin bas droit les lisent.
+  const panelPaletteRef = useRef<RGB[]>(PANEL_FALLBACK);
+  usePanelGradient(panelEl, panelPaletteRef, deckWeightsRef, palettesRef, debug);
 
   const loadPalette = useCallback((media: { url: string; kind: "image" | "video" }) => {
     if (palettesRef.current.has(media.url)) return;
@@ -2145,7 +2271,7 @@ export function PlayCanvas({
       aria-hidden={!active}
       className={`fixed inset-0 bg-white ${active ? "" : "invisible pointer-events-none"}`}
     >
-      <PlayLoader loaded={loaded} total={total} isReady={isReady} />
+      <PlayLoader isReady={isReady} />
 
       <div
         className={`h-full w-full transition-opacity duration-700 ease-out ${isReady ? "opacity-100" : "pointer-events-none opacity-0"
@@ -2218,6 +2344,15 @@ export function PlayCanvas({
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
             <ShardField debug={debug} source={openShardSource} paletteRef={primaryPaletteRef} />
             <ShardField debug={debug} source={deckShardSource} paletteRef={primaryPaletteRef} seedOffset={7} />
+            <ShardField
+              debug={debug}
+              source={ambientShardSource}
+              params={ambientParams}
+              paletteRef={primaryPaletteRef}
+              seedOffset={13}
+              renderOrder={AMBIENT_RENDER_ORDER}
+              groupOrder={0}
+            />
             <FisheyeEffect debug={debug} />
           </Canvas>
         )}
@@ -2231,7 +2366,7 @@ export function PlayCanvas({
       {active && <CursorTrail debug={debug} />}
 
       {selectedArtifactDetail && isDetailVisible && (
-        <PanelPixels intensity={debug.current.transition.panelGlitch} />
+        <PanelPixels debug={debug} paletteRef={panelPaletteRef} />
       )}
 
       <AnimatePresence mode="wait">

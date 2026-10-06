@@ -2,9 +2,9 @@
 
 import { folder, useControls } from "leva";
 import type { PlayDebugRef } from "../PlayCanvas";
-import { num } from "./controls";
+import { num, toggle } from "./controls";
 
-/** Media : dimensions des artifacts, variance d'échelle, arrondi, rotation. */
+/** Media : dimensions des artifacts, variance d'échelle, arrondi, rotation, et le contour (ombre) de chaque carte. */
 export function MediaTab({
   state,
   onLayoutChange,
@@ -14,6 +14,7 @@ export function MediaTab({
 }) {
   const g = state.current.gravity;
   const plane = state.current.plane;
+  const sh = state.current.shadow;
 
   // Les réglages de dimension recalculent le layout (comme dans l'ancien onglet canvas).
   const layoutNum = (key: "maxWidth" | "maxHeight" | "scaleVariance", o: Parameters<typeof num>[2]) => ({
@@ -34,6 +35,17 @@ export function MediaTab({
       radius: num(plane, "radius", { label: "Border radius (px)", min: 0, max: 120, step: 1 }),
       cornerSmoothing: num(plane, "cornerSmoothing", { label: "Corner smoothing (0.32 = 32 pct)", min: 0, max: 1, step: 0.01 }),
       rotationRange: num(plane, "rotationRange", { label: "Rotation range (+/- deg)", min: 0, max: 20, step: 0.25 }),
+    }),
+    // Le contour suit chaque carte (mosaïque et deck), à l'ouverture comme après.
+    "Contour (ombre)": folder({
+      shadow: toggle(sh, "enabled", "Contour sur les cartes"),
+      shadowOpacity: num(sh, "opacity", { label: "Opacite", min: 0, max: 0.6, step: 0.01 }),
+      shadowSpread: num(sh, "spread", { label: "Epaisseur (monde)", min: -40, max: 40, step: 1 }),
+      shadowBlur: num(sh, "blur", { label: "Flou (monde)", min: 0, max: 120, step: 1 }),
+      shadowOffsetY: num(sh, "offsetY", { label: "Decalage bas (monde)", min: -40, max: 80, step: 1 }),
+      shadowOffsetX: num(sh, "offsetX", { label: "Decalage droite (monde)", min: -60, max: 60, step: 1 }),
+      shadowLift: num(sh, "lift", { label: "Soulevement au survol", min: 0, max: 2, step: 0.05 }),
+      shadowColor: { label: "Couleur", value: sh.color, onChange: (v: string) => { sh.color = v; } },
     }),
   }));
 

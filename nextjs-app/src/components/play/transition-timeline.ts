@@ -19,6 +19,7 @@ import {
   timelineEnd,
   trackAt,
   trackRaw,
+  twistSettleBounds,
   type TransitionConfig,
 } from "./transition-presets";
 
@@ -100,15 +101,32 @@ export type TransitionClock = {
   loop: number;
   /** La timeline attend que le pack soit téléchargé. */
   holding: boolean;
-  /** Annulation en cours d'entrée : `t` recule, le film se déroule à l'envers. */
+  /** Retour en cours (Échap) : la timeline ne se joue plus à l'endroit. */
   rewinding?: boolean;
-  /** Si le retour part d'une entrée interrompue : le frame au moment de l'annulation. */
+  /** Avancement 0..1 du retour en cours (avant la courbe d'adoucissement). */
+  rewindU?: number;
+  /** Retour : le frame au moment de l'annulation, d'où chaque grandeur glisse vers le repos. */
   returnFrom: TransitionFrame | null;
 };
+
+function clamp01(x: number): number {
+  return x <= 0 ? 0 : x >= 1 ? 1 : x;
+}
 
 function smoothstep(t: number): number {
   const u = t <= 0 ? 0 : t >= 1 ? 1 : t;
   return u * u * (3 - 2 * u);
+}
+
+/**
+ * Retour dans la mosaïque d'une carte qui n'est pas le média de la tuile : sur les
+ * derniers 20 % du `reveal`, elle se fond dans la tuile au lieu de la remplacer d'un coup.
+ */
+export const REWIND_LAND_ZONE = 0.2;
+
+/** Part (1 → 0) de la carte gardée encore visible à ce `reveal` ; la tuile prend le reste. */
+export function rewindLandMix(reveal: number): number {
+  return smoothstep(reveal / REWIND_LAND_ZONE);
 }
 
 /** Part de la piste `lock` consacrée à la montée du détachement. */
@@ -157,12 +175,16 @@ function samplePlaying(
   const waveDuration = passEnd - hold;
   sampleIdle(frame);
 
+  // Retour en « film » : ce que l'ouverture n'a joué qu'une fois (torsion, éclats, vague, coup de
+  // zoom du silence) ne repart pas à l'envers. `rewindCalm` étouffe tout cela, 1 = rien ne revient.
+  const calm = clock.rewinding ? clamp01(config.rewindCalm ?? 1) : 0;
+
   // ── 1. Approche : la caméra file vers l'artifact (zoom du hero) ─────────
   const heroT = trackAt(config.hero, t);
   // La tuile se redresse pendant l'approche.
   frame.rest = 1 - heroT;
   const wait = Math.min(1, Math.max(0, (t - config.hero.start - config.hero.duration) / 1.5));
-  const drift = (config.silenceDrift ?? 0) * evaluateEasing("easeOutQuad", wait);
+  const drift = (config.silenceDrift ?? 0) * evaluateEasing("easeOutQuad", wait) * (1 - calm);
   const climbing = (1 + (config.approachZoom - 1) * heroT) * (1 + drift);
 
   // ── 2. Burst : la mosaïque explose, absolu dans la timeline ─────────────
@@ -170,12 +192,17 @@ function samplePlaying(
   frame.scatter = config.scatterDistance * burstT;
   frame.mosaicOpacity = 1 - burstT;
 
-  // ── 3. Tortillement de l'artifact, du clic jusqu'à la fin de la vague ───────
+  // ── 3. Tortillement de l'artifact, du clic jusqu'à son retour à plat ───────
   // Il démarre au clic, pas au burst : l'approche, le burst et le tortillement
-  // se jouent en même temps au lieu de se passer le relais.
+  // se jouent en même temps au lieu de se passer le relais. Il ne s'arrête pas
+  // net à la fin de la vague : son amplitude redescend sur `twistSettle` secondes,
+  // avec sa propre courbe, et déborde sur le boom (la carte du deck reprend la
+  // torsion restante, cf. SecondaryGalleryPlanes).
   const wiggleIn = smoothstep(t / 0.35);
-  const wiggleOut = 1 - smoothstep((t - hold - waveDuration * 0.6) / (waveDuration * 0.4 + 0.001));
-  const env = wiggleIn * wiggleOut;
+  const settle = twistSettleBounds(config);
+  const wiggleOut =
+    1 - evaluateEasing(config.twistSettleEasing ?? "easeInOutCubic", (t - settle.start) / (settle.end - settle.start));
+  const env = wiggleIn * wiggleOut * (1 - calm);
   const w = clock.wall * (config.wiggleSpeed ?? 7);
   const amp = config.packShake ?? 0.05;
   frame.tileRoll = env * amp * (Math.sin(w) + 0.5 * Math.sin(w * 1.7 + 1.3));
@@ -183,12 +210,14 @@ function samplePlaying(
   frame.tileTiltY = env * amp * 0.8 * Math.cos(w * 0.9);
   const grow = (config.loadGrow ?? 0.1) * (1 - Math.exp(-Math.max(0, clock.wall) * 1.1));
   const breathe = (config.breathe ?? 0.025) * (0.5 + 0.5 * Math.sin(clock.wall * 3.1));
-  frame.tileScale = 1 + env * (grow + breathe);
+  const swell = env * (grow + breathe);
+  frame.tileScale = 1 + swell;
 
-  // Effets visuels (glitch, pixels) : même enveloppe que le tortillement, avec
-  // un pic au moment où la mosaïque explose.
+  // Effets visuels (pixels d'ouverture) : ils s'arrêtent avec la vague, pas avec le retour
+  // à plat de la carte, et ont un pic au moment où la mosaïque explose.
+  const fxOut = 1 - smoothstep((t - hold - waveDuration * 0.6) / (waveDuration * 0.4 + 0.001));
   const burstPulse = Math.sin(Math.PI * Math.min(1, Math.max(0, (t - config.scatter.start) / 0.9)));
-  frame.fx = env * (1 + (config.fxBurstBoost ?? 0) * burstPulse);
+  frame.fx = wiggleIn * fxOut * (1 + (config.fxBurstBoost ?? 0) * burstPulse) * (1 - calm);
 
   // ── 4. Vague : boucle pendant l'attente, puis traverse l'artifact ───────
   if (clock.holding) {
@@ -213,14 +242,18 @@ function samplePlaying(
   frame.columnOpacity = trackAt(config.columnFade, tp);
 
   if (tp > 0) {
-    const popWeight = lockPopEnvelope(trackRaw(config.lock, tp));
-    frame.tileScale = 1 + (config.lockScalePunch ?? 0.02) * popWeight;
-    frame.tileRoll = 0;
-    frame.tileTiltX = 0;
-    frame.tileTiltY = 0;
+    // Le détachement du boom se pose sur le gonflement qui retombe : le plus grand des
+    // deux, plus `twistSettleBlend` du plus petit. Sans ça la carte rétrécirait jusqu'à
+    // sa taille de repos avant de regonfler (le « V » qui rendait la fin brusque).
+    const pop = (config.lockScalePunch ?? 0.02) * lockPopEnvelope(trackRaw(config.lock, tp)) * (1 - calm);
+    const blend = Math.min(1, Math.max(0, config.twistSettleBlend ?? 0.5));
+    frame.tileScale = 1 + Math.max(swell, pop) + blend * Math.min(swell, pop);
+    // Roulis et bascule continuent de s'éteindre (`env`) : plus remis à zéro d'un coup.
     frame.overlayExit = 1;
     frame.waveProgress = 1;
   }
+  // La vague qui a déjà quitté la carte à l'aller ne la retraverse pas au retour.
+  frame.overlayExit += (1 - frame.overlayExit) * calm;
 
   const scrollEnd = scrollEndTime(config);
   frame.navbarRevealed = t >= scrollEnd - (config.navbarLead ?? 0.3);
@@ -244,6 +277,71 @@ function sampleIsolated(config: TransitionConfig, frame: TransitionFrame) {
   frame.overlayExit = 1;
   frame.textRevealed = true;
   frame.navbarRevealed = true;
+}
+
+/** Rang de départ, dans le retour « clean », de chaque grandeur : 0 part la première, 1 la dernière. */
+const REWIND_RANK_CARD = 0.2;
+const REWIND_RANK_CAMERA = 0.4;
+const REWIND_RANK_MOSAIC = 1;
+/** Part du retour (0..1) que prennent la vague, les éclats, la torsion et la pile à s'éteindre. */
+const REWIND_QUICK = 0.3;
+/** Le `reveal` est fini bien avant ce point : la rotation « posée à la main » ne reprend qu'après. */
+const REWIND_REST_LATEST = 0.8;
+
+/** Source de repli d'un retour sans instantané : la vue détail stabilisée (réutilisée, rien d'alloué par frame). */
+const rewindFallback = createTransitionFrame();
+
+/**
+ * Avancement adouci (0..1) d'une grandeur de rang `rank` : sa fenêtre court de `rank × half` à
+ * `1 − (1 − rank) × half`, donc toutes ont la même largeur et la dernière est décalée de `half`
+ * sur la première (`half` = la moitié de `rewindStagger`).
+ */
+function rewindAt(config: TransitionConfig, u: number, half: number, rank: number): number {
+  const from = rank * half;
+  const to = 1 - (1 - rank) * half;
+  return evaluateEasing(config.rewindEasing, (u - from) / Math.max(0.001, to - from));
+}
+
+/**
+ * Retour « clean » : chaque grandeur glisse vers son repos depuis l'état exact où l'ouverture
+ * en était (`returnFrom`), au lieu de rejouer le film à l'envers. Aucune vague, aucune torsion,
+ * aucun éclat ne repart, et la caméra ne fait qu'un trajet, sans à-coup. La carte revient
+ * d'abord, la caméra juste derrière, la mosaïque se remet en place en dernier.
+ */
+function sampleRewind(config: TransitionConfig, clock: TransitionClock, frame: TransitionFrame) {
+  let src = clock.returnFrom;
+  if (!src) {
+    sampleIsolated(config, rewindFallback);
+    src = rewindFallback;
+  }
+  const u = clamp01(clock.rewindU ?? 0);
+  const half = 0.5 * clamp01(config.rewindStagger ?? 0.6);
+  const card = rewindAt(config, u, half, REWIND_RANK_CARD);
+  const camera = rewindAt(config, u, half, REWIND_RANK_CAMERA);
+  const mosaic = rewindAt(config, u, half, REWIND_RANK_MOSAIC);
+  // La tuile de la mosaïque a une rotation posée à la main que la carte du deck n'a pas : elle ne
+  // la reprend qu'une fois la carte rentrée dans la tuile (`reveal` à 0), jamais pendant.
+  const restFrom = Math.min(1 - (1 - REWIND_RANK_CARD) * half, REWIND_REST_LATEST);
+  const rest = evaluateEasing(config.rewindEasing, (u - restFrom) / Math.max(0.001, 1 - restFrom));
+  const quick = smoothstep(u / REWIND_QUICK);
+
+  frame.zoom = src.zoom + (1 - src.zoom) * camera;
+  frame.framing = src.framing * (1 - camera);
+  frame.scatter = src.scatter * (1 - mosaic);
+  frame.mosaicOpacity = src.mosaicOpacity + (1 - src.mosaicOpacity) * mosaic;
+  frame.reveal = src.reveal * (1 - card);
+  frame.rest = src.rest + (1 - src.rest) * rest;
+  // Ce qu'une ouverture interrompue laissait en route (torsion, gonflement, vague, éclats) s'éteint d'abord.
+  frame.tileScale = src.tileScale + (1 - src.tileScale) * quick;
+  frame.tileTiltX = src.tileTiltX * (1 - quick);
+  frame.tileTiltY = src.tileTiltY * (1 - quick);
+  frame.tileRoll = src.tileRoll * (1 - quick);
+  frame.columnOpacity = src.columnOpacity * (1 - quick);
+  frame.fx = src.fx * (1 - quick);
+  frame.waveProgress = src.waveProgress;
+  frame.overlayExit = src.overlayExit + (1 - src.overlayExit) * quick;
+  frame.textRevealed = false;
+  frame.navbarRevealed = false;
 }
 
 function sampleReturning(
@@ -373,7 +471,8 @@ export function sampleTransition(
 ) {
   switch (clock.phase) {
     case "playing":
-      samplePlaying(config, clock, frame);
+      if (clock.rewinding && (config.rewindMode ?? "clean") !== "film") sampleRewind(config, clock, frame);
+      else samplePlaying(config, clock, frame);
       return;
     case "isolated":
       sampleIsolated(config, frame);

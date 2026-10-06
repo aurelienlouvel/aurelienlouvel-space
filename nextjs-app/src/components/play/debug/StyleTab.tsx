@@ -8,8 +8,9 @@ const STYLES = ["prism"];
 
 /**
  * Style : le rendu visuel (la « DA »). Un select choisit le style ; chaque
- * style expose ses propres réglages. Pour l'instant : « prism » — la vague
- * irisée, sa lumière, les éclats de verre, les pixels de la nav et du panel.
+ * style expose ses propres réglages. Pour l'instant : « prism » (l'identifiant
+ * d'origine de la DA, aujourd'hui « Pixels ») — la vague de sélection, la vague
+ * blanche de survol, les éclats, les pixels de la nav et du panel.
  */
 export function StyleTab({
   state,
@@ -69,6 +70,8 @@ export function StyleTab({
             hoverWaveAmp: num(hover, "waveAmp", { label: "Intensite", min: 0, max: 1.5, step: 0.05 }),
             hoverWaveWidth: num(hover, "waveWidth", { label: "Largeur de la bande", min: 0.05, max: 0.6, step: 0.01 }),
             hoverWaveDuration: num(hover, "waveDuration", { label: "Duree (s)", min: 0.25, max: 2.5, step: 0.05 }),
+            hoverWaveGlow: num(hover, "waveGlow", { label: "Eclat lumineux (coeur de la bande)", min: 0, max: 2, step: 0.05 }),
+            hoverWaveIrid: num(hover, "waveIrid", { label: "Irisation (0 = blanc pur)", min: 0, max: 1, step: 0.05 }),
           },
           { collapsed: true },
         ),
@@ -95,19 +98,42 @@ export function StyleTab({
 
         "Pixels et degrades": folder(
           {
-            daNavPixels: num(da, "navPixels", { label: "Pastille play : opacite", min: 0, max: 3, step: 0.05 }),
+            daRadius: num(da, "pixelRadius", { label: "Pixels : coins arrondis (0 carre, 0.5 rond)", min: 0, max: 0.5, step: 0.01 }),
+            daNavIrid: num(da, "navIrid", { label: "Pastille play : irisation (0 = gris neutre)", min: 0, max: 1, step: 0.02 }),
+            daNavWave: num(da, "navWave", { label: "Pastille play : force de la vague", min: 0, max: 3, step: 0.05 }),
+            daNavSize: num(da, "navPixelSize", { label: "Pastille play : taille d un pixel (rem)", min: 0.25, max: 0.6, step: 0.0625 }),
+            daNavRest: num(da, "navRest", { label: "Pastille play : force du fond au repos", min: 0, max: 3, step: 0.05 }),
             daNavDrift: num(da, "navDriftPeriod", { label: "Pastille play : defilement actif (s)", min: 3, max: 60, step: 1 }),
             daNavHoverDur: num(da, "navHoverDuration", { label: "Pastille play : vague au survol (s)", min: 0.3, max: 3, step: 0.05 }),
             daNavHoverSpread: num(da, "navHoverSpread", { label: "Pastille play : etalement de la vague (s)", min: 0.1, max: 2, step: 0.05 }),
-            daPanelScale: num(da, "panelPixelScale", { label: "Rectangles du panel (taille)", min: 0.3, max: 3, step: 0.05 }),
+            // Le loader n'existe que pendant le chargement : recharger la page pour le revoir.
+            daLoaderIrid: num(da, "loaderIrid", { label: "Loader : irisation (0 = gris neutre, a recharger)", min: 0, max: 1, step: 0.02 }),
+            daLoaderStrength: num(da, "loaderStrength", { label: "Loader : force de la vague (a recharger)", min: 0, max: 3, step: 0.05 }),
+            daPanelSize: num(da, "panelPixelSize", { label: "Pixels du panel (taille d une case, rem)", min: 0.25, max: 2, step: 0.0625 }),
+            daPanelPulse: num(da, "panelPixelPulse", { label: "Pixels du panel (respiration, 0 = fixes)", min: 0, max: 1, step: 0.05 }),
+            daPanelPeriod: num(da, "panelPixelPeriod", { label: "Pixels du panel (duree d une respiration, s)", min: 2, max: 20, step: 0.5 }),
+            daPanelFlux: num(da, "panelPixelFlux", { label: "Pixels du panel (variation du nombre, 0 = fixe)", min: 0, max: 0.4, step: 0.01 }),
+            daPanelFluxPeriod: num(da, "panelPixelFluxPeriod", { label: "Pixels du panel (duree du cycle du nombre, s)", min: 2, max: 40, step: 0.5 }),
+            daPanelRipple: num(da, "panelPixelRipple", { label: "Pixels du panel (retard du coin au large, en cycle)", min: 0, max: 1, step: 0.05 }),
+            daPanelShift: num(da, "panelPixelShift", { label: "Pixels du panel (derive des couleurs, 0 = fixes)", min: 0, max: 2, step: 0.05 }),
+            daPanelShiftPeriod: num(da, "panelPixelShiftPeriod", { label: "Pixels du panel (duree du cycle des couleurs, s)", min: 2, max: 40, step: 0.5 }),
+            // La densité change les pixels rendus : React doit les refaire (comme l'opacité).
+            daPanelDensity: {
+              ...num(da, "panelPixelDensity", { label: "Pixels du panel (nombre, 1 = grille pleine)", min: 0, max: 1, step: 0.01 }),
+              onChange: (v: number) => {
+                da.panelPixelDensity = v;
+                onPanelChange?.();
+              },
+            },
             panelGlitch: {
-              ...num(tr, "panelGlitch", { label: "Rectangles du panel (opacite)", min: 0, max: 1, step: 0.01 }),
+              ...num(tr, "panelGlitch", { label: "Pixels du panel (opacite)", min: 0, max: 1, step: 0.01 }),
               onChange: (v: number) => {
                 tr.panelGlitch = v;
                 onPanelChange?.();
               },
             },
             daPanelSpread: num(da, "panelGradientSpread", { label: "Degrade du panel (etendue)", min: 0.4, max: 2.2, step: 0.05 }),
+            daPanelIrid: num(da, "panelGradientIrid", { label: "Degrade du panel (irisation, 0 = couleurs de la page)", min: 0, max: 1, step: 0.02 }),
             panelGradientStrength: num(tr, "panelGradientStrength", { label: "Degrade du panel (intensite)", min: 0, max: 1, step: 0.01 }),
             panelGradientSpeed: num(tr, "panelGradientSpeed", { label: "Degrade du panel (vitesse)", min: 0, max: 6, step: 0.1 }),
           },
