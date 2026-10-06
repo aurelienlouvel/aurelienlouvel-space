@@ -28,7 +28,8 @@ export function GlobalTab({ state }: { state: PlayDebugRef }) {
         {
           speedDezoom: num(cam, "speedDezoom", { label: "Dezoom max (0.2 = -20 pct)", min: 0, max: 0.6, step: 0.01 }),
           speedDezoomRef: num(cam, "speedDezoomRef", { label: "Vitesse pour dezoom complet (px/s)", min: 400, max: 5000, step: 50 }),
-          speedDezoomResponse: num(cam, "speedDezoomResponse", { label: "Reactivite (colle au mouvement)", min: 4, max: 40, step: 0.5 }),
+          speedDezoomAttack: num(cam, "speedDezoomAttack", { label: "Attaque (haut = instantane)", min: 4, max: 200, step: 1 }),
+          dezoomAnchor: toggle(cam, "dezoomAnchor", "Zoom ancre sous le pointeur"),
         },
         { collapsed: false },
       ),
