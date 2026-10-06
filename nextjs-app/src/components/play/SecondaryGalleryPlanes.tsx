@@ -74,8 +74,8 @@ uniform float uRadius;
 uniform float uMotionBlur;
 uniform vec2 uMotionBlurDir;
 
-// Désagrégation d'une carte tirée : des zones rectangulaires de tailles variées
-// qui se pixellisent, s'irisent puis disparaissent, le bord qui mène d'abord.
+// Désagrégation d'une carte tirée : des zones carrées de tailles variées qui se
+// pixellisent (une couleur unie par zone), puis disparaissent, le bord qui mène d'abord.
 uniform float uDissolve;
 uniform vec2 uDissolveDir;
 uniform float uDissolveCols;
@@ -99,13 +99,14 @@ const MOTION_BLUR_MAP = /* glsl */ `
   float dissolveG = 0.0;
   float dissolveSeed = 0.0;
   if (uDissolve > 0.003) {
-    // Grille grossière, subdivisée au hasard (1×, 2×, 4×) et étirée : des rectangles de tailles et de formats variés.
-    vec2 cg = vec2(max(2.0, uDissolveCols), max(2.0, uDissolveCols) * 1.15);
+    // Grille grossière de cases carrées à l'écran (le nombre de lignes suit le format
+    // de la carte), subdivisée au hasard (1×, 2×, 4×) : des carrés de tailles variées.
+    float cols = max(2.0, uDissolveCols);
+    vec2 cg = vec2(cols, cols * uSize.y / uSize.x);
     vec2 cid = floor(vUv * cg);
     float h0 = dhash(cid);
     float sub = h0 < 0.34 ? 1.0 : (h0 < 0.7 ? 2.0 : 4.0);
-    float asp = 0.6 + dhash(cid + 7.1) * 1.4;
-    vec2 fg = cg * vec2(sub, sub * asp);
+    vec2 fg = cg * sub;
     vec2 fid = floor(vUv * fg);
     dissolveSeed = dhash(fid + cid * 3.7);
     // Le bord qui mène (côté de la visée) part en premier.
@@ -162,8 +163,8 @@ function roundCorners(
     uDissolve: { value: 0 },
     uDissolveDir: { value: new Vector2(0, 1) },
     uDissolveCols: { value: 5 },
-    uDissolvePixel: { value: 0.8 },
-    uDissolveIrid: { value: 0.5 },
+    uDissolvePixel: { value: 1 },
+    uDissolveIrid: { value: 0 },
     uDissolveBias: { value: 0.45 },
     uDissolveTime: { value: 0 },
   } satisfies PlaneUniforms);
@@ -184,7 +185,7 @@ function roundCorners(
 }
 
 function roundCornersCacheKey() {
-  return "play-secondary-planes-motion-blur-tilt-dissolve-flat-tilt";
+  return "play-secondary-planes-motion-blur-tilt-dissolve-flat-tilt-square";
 }
 
 // ── Cache global de textures vidéo partagées (1 seul élément vidéo HTML5 par URL) ──
@@ -870,8 +871,8 @@ export function SecondaryGalleryPlanes({
           uniforms.uDissolve.value = dissolve;
           uniforms.uDissolveDir.value.set(dissolveX, dissolveY);
           uniforms.uDissolveCols.value = cfg.deckCellCols ?? 5;
-          uniforms.uDissolvePixel.value = cfg.deckCellPixel ?? 0.8;
-          uniforms.uDissolveIrid.value = cfg.deckCellIrid ?? 0.5;
+          uniforms.uDissolvePixel.value = cfg.deckCellPixel ?? 1;
+          uniforms.uDissolveIrid.value = cfg.deckCellIrid ?? 0;
           uniforms.uDissolveBias.value = cfg.deckCellBias ?? 0.45;
           uniforms.uDissolveTime.value = (performance.now() / 1000) % 1000;
         }

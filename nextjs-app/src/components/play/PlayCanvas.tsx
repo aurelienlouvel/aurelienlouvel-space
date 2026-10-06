@@ -269,12 +269,14 @@ export type HoverParams = {
   rotate: number;
   /** Vitesse de transition (par seconde). */
   speed: number;
-  /** Intensité de la vague irisée du bas gauche (0 = coupée). */
+  /** Intensité de la bande blanche de la vague, qui éclaircit la carte (0 = coupée). */
   waveAmp: number;
   /** Largeur de la bande de la vague (fraction de la carte). */
   waveWidth: number;
   /** Durée de la traversée (s). */
   waveDuration: number;
+  /** Éclat lumineux au cœur de la bande (0 = juste un voile blanc). */
+  waveGlow: number;
 };
 
 export const HOVER_DEFAULTS: HoverParams = {
@@ -284,9 +286,10 @@ export const HOVER_DEFAULTS: HoverParams = {
   waveAmp: 0.8,
   waveWidth: 0.18,
   waveDuration: 0.75,
+  waveGlow: 0.6,
 };
 
-/** Réglages de la DA « Prism » (cf. lib/da.ts) qui ne sont pas rendus par le canvas. */
+/** Réglages de la DA « Pixels » (cf. lib/da.ts) qui ne sont pas rendus par le canvas. */
 export type DaParams = {
   /** Opacité des pixels de la pastille « play » dans la navigation (0 = coupés). */
   navPixels: number;
@@ -296,8 +299,8 @@ export type DaParams = {
   navHoverDuration: number;
   /** Étalement de la vague de survol de gauche à droite (s). */
   navHoverSpread: number;
-  /** Taille des rectangles du coin bas droit du side panel (×). */
-  panelPixelScale: number;
+  /** Taille d'un pixel du coin bas droit du side panel (rem). */
+  panelPixelSize: number;
   /** Étendue du dégradé du side panel (×). */
   panelGradientSpread: number;
 };
@@ -307,7 +310,7 @@ export const DA_DEFAULTS: DaParams = {
   navDriftPeriod: 14,
   navHoverDuration: 1.1,
   navHoverSpread: 0.55,
-  panelPixelScale: 2.5,
+  panelPixelSize: 0.5,
   panelGradientSpread: 1.8,
 };
 
@@ -1138,14 +1141,14 @@ function CameraRig({
       );
     }
 
-    // DA : opacité des pixels de la nav et taille des rectangles du panel (variables CSS).
+    // DA : opacité des pixels de la nav et taille des pixels du panel (variables CSS).
     const da = debug.current.da;
     const rootStyle = document.documentElement.style;
     if (rootStyle.getPropertyValue("--da-nav-a") !== String(da.navPixels)) {
       rootStyle.setProperty("--da-nav-a", String(da.navPixels));
     }
-    if (rootStyle.getPropertyValue("--pg-scale") !== String(da.panelPixelScale)) {
-      rootStyle.setProperty("--pg-scale", String(da.panelPixelScale));
+    if (rootStyle.getPropertyValue("--pg-size") !== `${da.panelPixelSize}rem`) {
+      rootStyle.setProperty("--pg-size", `${da.panelPixelSize}rem`);
     }
     const navVars: [string, string][] = [
       ["--da-period", `${da.navDriftPeriod}s`],

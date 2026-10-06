@@ -269,9 +269,9 @@ function stepKinematicMeshes(
         }
       }
 
-      // Survol : léger grossissement + inclinaison amortis, et une vague irisée
-      // qui part du bas gauche. L'état vient du mesh (cf. ArtifactPlane), et
-      // retombe dès qu'une transition démarre.
+      // Survol : léger grossissement + inclinaison amortis, et une bande blanche
+      // lumineuse qui traverse la carte depuis le bas gauche. L'état vient du mesh
+      // (cf. ArtifactPlane), et retombe dès qu'une transition démarre.
       const idle = rc.transition.phase === "idle";
       if (!idle) mesh.userData.hovered = false;
       // « Rejouer le survol » (debug) force le survol de la carte sélectionnée un instant.
@@ -342,6 +342,7 @@ function stepKinematicMeshes(
           uniforms.uHoverWave.value = idle ? wave : 0;
           uniforms.uHoverWaveAmp.value = hover.waveAmp;
           uniforms.uHoverWaveWidth.value = hover.waveWidth;
+          uniforms.uHoverWaveGlow.value = hover.waveGlow;
           uniforms.uTime.value = (performance.now() / 1000) % 1000;
         }
       }

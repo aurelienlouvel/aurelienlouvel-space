@@ -3,6 +3,7 @@
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Color, DoubleSide, ShaderMaterial, Vector4, type Mesh } from "three";
+import { daGradientRgb } from "@/lib/da";
 import type { RGB } from "@/lib/dominant-color";
 import type { PlayDebugRef } from "./PlayCanvas";
 import { getSharedTexture } from "./SecondaryGalleryPlanes";
@@ -35,7 +36,7 @@ export type ShardParams = {
   /** Côté minimal / maximal d'un éclat (unités monde). */
   minSize: number;
   maxSize: number;
-  /** Étirement maximal (rectangle) : 1 = carrés, 4 = jusqu'à 4:1. */
+  /** Étirement maximal (rectangle) : 1 = carrés (la DA), 4 = jusqu'à 4:1. */
   aspect: number;
   /** Distance d'éjection du plan médian (unités monde). */
   travel: number;
@@ -45,15 +46,19 @@ export type ShardParams = {
   /** Échelle finale des plans arrière / avant (le plan avant « se rapproche »). */
   scaleFar: number;
   scaleNear: number;
-  /** Opacité globale (les éclats restent translucides). */
+  /** Opacité globale. */
   opacity: number;
-  /** Flou (biais de mipmap) des plans arrière / avant : profondeur de champ. */
+  /** Flou (biais de mipmap) des plans arrière / avant : profondeur de champ (0 = net, la DA). */
   blurFar: number;
   blurNear: number;
-  /** Douceur des bords (0 = nets, 1 = très fondus) : c'est le dégradé de chaque éclat. */
+  /** Douceur des bords (0 = nets, la DA ; 1 = très fondus). */
   softness: number;
-  /** Part d'irisation dans la couleur (0 = image pure). */
+  /** Part d'irisation dans la couleur (0 = aucune, la DA ; 1 = reflet arc-en-ciel). */
   iridescence: number;
+  /** Aplat : 1 = un carré d'une seule couleur (la moyenne de son morceau d'image), 0 = le morceau d'image tel quel. */
+  flat: number;
+  /** Part de la couleur de la DA dans celle de l'éclat : 0 = les couleurs de l'image, 1 = le dégradé ciel → lilas → rose selon sa place sur la carte. */
+  tint: number;
   /** Cycles de vie par seconde. */
   speed: number;
   /** Rotation maximale (degrés) pendant le vol. */
@@ -66,31 +71,32 @@ export type ShardParams = {
 
 export const SHARD_DEFAULTS: ShardParams = {
   count: 34,
-  minSize: 18,
-  maxSize: 150,
-  aspect: 3.2,
+  minSize: 14,
+  maxSize: 110,
+  aspect: 1,
   travel: 170,
   travelFar: 0.45,
   travelNear: 1.9,
   scaleFar: 0.82,
   scaleNear: 1.3,
-  opacity: 0.7,
-  blurFar: 2.4,
-  blurNear: 1.4,
-  softness: 0.45,
-  iridescence: 0.55,
+  opacity: 0.85,
+  blurFar: 0,
+  blurNear: 0,
+  softness: 0,
+  iridescence: 0,
+  flat: 1,
+  tint: 0,
   speed: 0.9,
-  spin: 14,
+  spin: 0,
   upBias: 0.25,
   seed: 1,
 };
 
-/** Repli tant que la palette du média n'est pas calculée : le spectre Prism (cf. lib/da.ts). */
+/** Repli tant que la palette du média n'est pas calculée : le début du spectre de la DA (cf. lib/da.ts). */
 const FALLBACK_PALETTE: RGB[] = [
   [143, 208, 255],
   [169, 155, 255],
   [255, 159, 208],
-  [143, 240, 216],
 ];
 
 const VERTEX = /* glsl */ `
@@ -101,14 +107,19 @@ void main() {
 }
 `;
 
-// Un éclat : un rectangle qui reprend le morceau d'image dont il est issu, flouté
-// par la profondeur de champ, bords fondus (le dégradé), teinté d'un reflet irisé.
+// Un éclat : un carré net qui reprend le morceau d'image dont il est issu. À plat
+// (par défaut), il n'a qu'une couleur, la moyenne de son morceau ; sinon l'image
+// reste visible, avec en option un flou de profondeur de champ, des bords fondus et
+// un reflet irisé (les réglages d'avant la DA « Pixels »).
 const FRAGMENT = /* glsl */ `
 uniform sampler2D uMap;
 uniform float uHasMap;
 uniform float uDecode;
 uniform vec4 uRect;
 uniform vec3 uTint;
+uniform vec3 uDa;
+uniform float uDaMix;
+uniform float uFlat;
 uniform float uOpacity;
 uniform float uSoft;
 uniform float uBlur;
@@ -117,13 +128,37 @@ uniform float uSeed;
 uniform float uTime;
 varying vec2 vUv;
 
+vec3 decodeTexel(vec3 c) {
+  return uDecode > 0.5 ? pow(c, vec3(2.2)) : c;
+}
+
+// La couleur unie d'un morceau : moyenne de 3 x 3 prises réparties dessus, lues dans
+// un mip à leur échelle. Une seule prise donnerait la couleur d'un texel au hasard
+// (une vidéo n'a pas de mips), donc un voisin d'une teinte sans rapport.
+vec3 patchColor(vec2 centre) {
+  vec2 size = vec2(textureSize(uMap, 0));
+  float lod = max(log2(max(uRect.z * size.x, uRect.w * size.y) * 0.3), 0.0);
+  vec3 sum = vec3(0.0);
+  for (int j = -1; j <= 1; j++) {
+    for (int i = -1; i <= 1; i++) {
+      vec2 p = centre + vec2(float(i), float(j)) * uRect.zw * 0.3;
+      sum += decodeTexel(textureLod(uMap, p, lod).rgb);
+    }
+  }
+  return sum / 9.0;
+}
+
 void main() {
   vec2 uv = uRect.xy + vUv * uRect.zw;
   vec3 col = uTint;
   if (uHasMap > 0.5) {
-    col = texture2D(uMap, uv, uBlur).rgb;
-    if (uDecode > 0.5) col = pow(col, vec3(2.2));
+    vec3 imageCol = vec3(0.0);
+    vec3 flatCol = vec3(0.0);
+    if (uFlat < 0.999) imageCol = decodeTexel(texture2D(uMap, uv, uBlur).rgb);
+    if (uFlat > 0.001) flatCol = patchColor(uRect.xy + 0.5 * uRect.zw);
+    col = mix(imageCol, flatCol, uFlat);
   }
+  col = mix(col, uDa, uDaMix);
 
   // Reflet irisé, même famille que la vague.
   float g = (vUv.x + (1.0 - vUv.y)) * 0.5;
@@ -131,8 +166,7 @@ void main() {
   col = mix(col, col * (0.6 + 0.8 * spec) + 0.06 * spec, uIrid);
   col += 0.1 * uIrid * smoothstep(0.55, 0.0, g);
 
-  // Bords fondus : l'opacité retombe vers le bord, ce qui donne un dégradé
-  // plutôt qu'une découpe nette.
+  // Bords fondus : l'opacité retombe vers le bord. À 0, la découpe est nette.
   float e = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
   float a = smoothstep(0.0, max(uSoft, 0.01) * 0.5, e);
   gl_FragColor = linearToOutputTexel(vec4(col, a * uOpacity));
@@ -150,11 +184,11 @@ function toLinear(out: Color, c: RGB): Color {
 }
 
 /**
- * L'image qui se sépare en morceaux : des rectangles de tailles et de formats
- * variés, chacun reprenant un bout réel de l'image, répartis sur trois plans de
- * profondeur (parallaxe, échelle et flou différents), translucides, aux bords
- * fondus et teintés d'un reflet irisé. S'utilise pour l'ouverture d'un artifact
- * et pour le passage d'une carte à la suivante : `source` dit quelle carte
+ * L'image qui se sépare en morceaux : des carrés de tailles variées, chacun d'une
+ * seule couleur (la moyenne de son morceau d'image, donc voisins, ils forment le
+ * dégradé de l'image), répartis sur trois plans de profondeur (parallaxe et échelle
+ * différentes), nets, sans flou ni bord fondu. S'utilise pour l'ouverture d'un
+ * artifact et pour le passage d'une carte à la suivante : `source` dit quelle carte
  * décomposer et avec quelle intensité.
  */
 export function ShardField({
@@ -183,10 +217,13 @@ export function ShardField({
             uDecode: { value: 0 },
             uRect: { value: new Vector4(0, 0, 1, 1) },
             uTint: { value: new Color(0.5, 0.6, 1) },
+            uDa: { value: new Color(0.5, 0.6, 1) },
+            uDaMix: { value: 0 },
+            uFlat: { value: 1 },
             uOpacity: { value: 0 },
-            uSoft: { value: 0.4 },
+            uSoft: { value: 0 },
             uBlur: { value: 0 },
-            uIrid: { value: 0.4 },
+            uIrid: { value: 0 },
             uSeed: { value: hash01(i * 11.3 + 8.1) },
             uTime: { value: 0 },
           },
@@ -218,7 +255,7 @@ export function ShardField({
     const palette = paletteRef?.current ?? FALLBACK_PALETTE;
     const planes = [
       { z: PLANE_Z[0], travel: p.travelFar, scale: p.scaleFar, blur: p.blurFar, opacity: 0.6 },
-      { z: PLANE_Z[1], travel: 1, scale: 1, blur: 0.4, opacity: 0.9 },
+      { z: PLANE_Z[1], travel: 1, scale: 1, blur: 0, opacity: 0.9 },
       { z: PLANE_Z[2], travel: p.travelNear, scale: p.scaleNear, blur: p.blurNear, opacity: 1 },
     ] as const;
     const seedBase = p.seed * 37.17 + seedOffset * 11.9;
@@ -238,8 +275,10 @@ export function ShardField({
       // Taille log-uniforme, forme plus ou moins étirée, jamais plus grande que la carte.
       const base = p.minSize * Math.pow(p.maxSize / Math.max(1, p.minSize), Math.pow(hash01(k + 2.7), 1.5));
       const stretch = Math.exp((hash01(k + 3.9) - 0.5) * 2 * Math.log(Math.max(1, p.aspect)));
-      const w = Math.min(src.w * 0.6, base * Math.sqrt(stretch));
-      const h = Math.min(src.h * 0.6, base / Math.sqrt(stretch));
+      let w = Math.min(src.w * 0.6, base * Math.sqrt(stretch));
+      let h = Math.min(src.h * 0.6, base / Math.sqrt(stretch));
+      // Sans étirement, de vrais carrés même quand la carte est plus petite que l'éclat.
+      if (p.aspect <= 1.001) w = h = Math.min(w, h);
 
       // Origine sur la carte (coordonnées normalisées -0.5..0.5).
       const sx = (hash01(k + 5.1) - 0.5) * (1 - w / src.w);
@@ -275,6 +314,11 @@ export function ShardField({
       u.uDecode.value = texture && src.kind === "video" ? 1 : 0;
       (u.uRect.value as Vector4).set(0.5 + sx - w / src.w / 2, 0.5 + sy - h / src.h / 2, w / src.w, h / src.h);
       toLinear(u.uTint.value as Color, palette[i % palette.length]);
+      u.uFlat.value = p.flat;
+      u.uDaMix.value = p.tint;
+      // La couleur de la DA suit la place de l'éclat sur la carte, en diagonale : voisins,
+      // ils se suivent dans le spectre.
+      if (p.tint > 0.001) toLinear(u.uDa.value as Color, daGradientRgb(0.5 + (sx - sy) * 0.5));
       const fadeIn = Math.min(1, life / 0.12);
       u.uOpacity.value = intensity * p.opacity * plane.opacity * fadeIn * Math.pow(1 - life, 1.1);
       u.uSoft.value = p.softness;

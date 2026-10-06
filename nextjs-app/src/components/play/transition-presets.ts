@@ -124,7 +124,7 @@ export type TransitionConfig = {
   stackOpacityFalloff: number; // Facteur d'opacité appliqué à chaque layer suivant (0..1)
   panelGradientStrength: number; // 0..1 — intensité du dégradé de fond du side panel
   panelGradientSpeed: number; // Vitesse de dérive du dégradé du side panel (×)
-  panelGlitch: number; // 0..1 — intensité du glitch pixel en bas à droite (0 = coupé)
+  panelGlitch: number; // 0..1 — opacité des pixels qui scintillent en bas à droite (0 = coupés)
   cardExit: number; // Course de la carte qui s'en va, en hauteurs de carte
   stepCooldown: number; // Délai minimal entre deux cartes (s) : verrou après un changement
   deckPullDistance: number; // Défilement (px de molette) à fournir pour passer à la carte suivante
@@ -134,9 +134,9 @@ export type TransitionConfig = {
   deckHold: number; // Délai sans geste avant que la carte ne redescende (s)
   deckShimmer: number; // Éclats qui se décollent pendant la traction (0 = aucun)
   deckDissolveAmount: number; // 0..1 — part de la carte désagrégée quand elle est tirée au maximum
-  deckCellCols: number; // Nombre de zones (rectangles) de désagrégation sur la largeur de la carte
-  deckCellPixel: number; // 0..1 — pixellisation des zones qui se détachent
-  deckCellIrid: number; // 0..1 — reflet irisé des zones en train de partir
+  deckCellCols: number; // Nombre de zones (carrés) de désagrégation sur la largeur de la carte
+  deckCellPixel: number; // 0..1 — pixellisation des zones qui se détachent (1 = une couleur unie par zone)
+  deckCellIrid: number; // 0..1 — reflet irisé des zones en train de partir (0 = aucun, la DA est à plat)
   deckCellBias: number; // 0..1 — la désagrégation part du bord qui mène (1) plutôt qu'au hasard (0)
   deckAimMix: number; // 0..1 — part de la visée (curseur / geste) dans la direction de la carte, le reste étant tout droit
   deckThrow: number; // Distance dont la carte part dans sa direction en se désagrégeant (px écran)
@@ -288,7 +288,7 @@ const BASE_AMPLITUDES = {
   stackOpacityFalloff: 0.55,
   panelGradientStrength: 0.65,
   panelGradientSpeed: 1.8,
-  panelGlitch: 0.6,
+  panelGlitch: 0.9,
   cardExit: 0.7,
   stepCooldown: 0.55,
   deckPullDistance: 1030,
@@ -299,8 +299,8 @@ const BASE_AMPLITUDES = {
   deckShimmer: 1,
   deckDissolveAmount: 0.9,
   deckCellCols: 5,
-  deckCellPixel: 0.8,
-  deckCellIrid: 0.5,
+  deckCellPixel: 1,
+  deckCellIrid: 0,
   deckCellBias: 0.45,
   deckAimMix: 0.8,
   deckThrow: 180,

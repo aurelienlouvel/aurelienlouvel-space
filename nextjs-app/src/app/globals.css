@@ -431,10 +431,11 @@ body.body-project {
   }
 }
 
-/* ── DA « Prism » (cf. src/lib/da.ts) ──────────────────────────────────────
-   Rectangles de verre translucides, dégradés, bords fondus, apparition par
-   paliers (steps) — animations limitées à transform/opacity, composées sur le
-   GPU et fluides même quand le thread principal charge les textures. */
+/* ── DA « Pixels » (cf. src/lib/da.ts) ─────────────────────────────────────
+   Des carrés plats, une couleur unie chacun, sans flou ni bord fondu : le dégradé
+   naît entre voisins, et les pixels s'allument puis redeviennent blancs. Animations
+   limitées à transform/opacity, composées sur le GPU et fluides même quand le
+   thread principal charge les textures. */
 :root {
   --da-sky: #8fd0ff;
   --da-lilac: #a99bff;
@@ -444,40 +445,36 @@ body.body-project {
   --da-ink: #4a6cff;
 }
 
-.da-rect {
-  filter: blur(var(--da-blur, 0.4px));
-}
-
-/* Loader /play : apparition par paliers, scintillement, envol final. */
+/* Loader /play : apparition par paliers (steps), scintillement entre la couleur et
+   un voile blanc, envol final. */
 @keyframes ld-in {
   0% { opacity: 0; transform: scale(0.3); }
   45% { opacity: 1; transform: scale(1.35); }
-  100% { opacity: var(--da-a, 0.5); transform: scale(1); }
+  100% { opacity: var(--da-a, 1); transform: scale(1); }
 }
 
 @keyframes ld-twinkle {
-  0%, 100% { opacity: var(--da-a, 0.5); transform: translate(0, 0); }
-  40% { opacity: calc(var(--da-a, 0.5) * 0.4); }
-  70% { opacity: calc(var(--da-a, 0.5) * 0.75); transform: translate(0.15rem, -0.1rem); }
+  0%, 100% { opacity: var(--da-a, 1); }
+  50% { opacity: calc(var(--da-a, 1) * 0.3); }
 }
 
 @keyframes ld-out {
-  0% { opacity: var(--da-a, 0.5); transform: translate(0, 0) scale(1); }
+  0% { opacity: var(--da-a, 1); transform: translate(0, 0) scale(1); }
   100% { opacity: 0; transform: translate(var(--ox, 0), var(--oy, 0)) scale(0.2); }
 }
 
-.ld-rect {
+.ld-pixel {
   opacity: 0;
   transform: scale(0.3);
 }
 
-.ld-rect[data-on] {
+.ld-pixel[data-on] {
   animation:
     ld-in 0.5s steps(4, end) var(--da-delay, 0s) both,
     ld-twinkle var(--da-tw, 3.4s) ease-in-out calc(var(--da-delay, 0s) + 0.5s) infinite;
 }
 
-.ld-rect[data-out] {
+.ld-pixel[data-out] {
   animation: ld-out 0.6s steps(5, end) var(--da-delay, 0s) both;
 }
 
@@ -491,18 +488,20 @@ body.body-project {
   animation: ld-cell-in 0.3s steps(3, end) both;
 }
 
-/* Pastille « play » de la navigation : un champ régulier de cellules aux
-   opacités variées. Actif : il défile doucement vers la droite (sans vague).
-   Survol : une vague le balaie de gauche à droite (--x décale chaque cellule). */
+/* Pastille « play » de la navigation : un champ de petits carrés dont une partie
+   est allumée (couleur unie, en dégradé d'un voisin à l'autre) ; les autres restent
+   blancs. Actif : le champ défile doucement vers la droite, sans vague. Survol :
+   une vague balaie le champ de gauche à droite (--x décale chaque pixel), allume
+   d'autres pixels, puis chacun redevient blanc. */
 @keyframes da-drift {
   from { transform: translateX(-50%); }
   to { transform: translateX(0); }
 }
 
 @keyframes da-cell-wave {
-  0% { opacity: 0; transform: scale(0.55); }
-  32% { opacity: min(1, calc(var(--a, 0.3) * 2.6 + 0.14)); transform: scale(1); }
-  100% { opacity: 0; transform: scale(0.8); }
+  0% { opacity: 0; transform: scale(0.4); }
+  30% { opacity: var(--lit); transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.7); }
 }
 
 .da-pill {
@@ -514,8 +513,13 @@ body.body-project {
   animation: da-drift var(--da-period, 14s) linear infinite;
 }
 
+/* Opacité d'un pixel allumé : sa force propre (--a) × le réglage de la nav, plafonnée à 1. */
+.da-cell {
+  --lit: min(1, calc(var(--a, 0.8) * var(--da-nav-a, 1) * 0.5));
+}
+
 .da-field .da-cell {
-  opacity: calc(var(--a, 0.3) * 0.7 * var(--da-nav-a, 1));
+  opacity: var(--lit);
 }
 
 .da-field-hover .da-cell {
@@ -524,16 +528,13 @@ body.body-project {
   animation-delay: calc(var(--x, 0) * var(--da-hover-spread, 0.55s));
 }
 
-/* Panel : quelques grands rectangles qui flottent et respirent dans le coin
-   bas droit. --pg-scale (debug) agrandit l'ensemble. */
-@keyframes pg-float {
-  0%, 100% { transform: translate(0, 0) rotate(var(--pg-r, 0deg)); }
-  50% { transform: translate(var(--pg-dx, 0.4rem), var(--pg-dy, -0.5rem)) rotate(calc(var(--pg-r, 0deg) * -0.6)); }
-}
-
-@keyframes pg-breathe {
-  0%, 18%, 100% { opacity: 0; }
-  38%, 62% { opacity: var(--pg-a, 0.5); }
+/* Panel : un champ de petits carrés dans le coin bas droit, qui scintillent sans
+   interruption, de --pg-lo à --pg-hi : jamais jusqu'à zéro, donc jamais de temps
+   mort. Le déphasage (--pg-delay) suit la distance au coin : de lentes pulsations
+   en rayonnent. --pg-size (debug) règle la taille d'un pixel. */
+@keyframes pg-twinkle {
+  0%, 100% { opacity: var(--pg-lo, 0.14); }
+  50% { opacity: var(--pg-hi, 0.95); }
 }
 
 @keyframes pg-fade-in {
@@ -545,30 +546,28 @@ body.body-project {
   animation: pg-fade-in 0.9s ease-out both;
 }
 
-.pg-rect {
-  animation:
-    pg-float var(--pg-f, 8s) ease-in-out var(--pg-delay, 0s) infinite,
-    pg-breathe var(--pg-b, 9s) ease-in-out var(--pg-delay, 0s) infinite;
+.pg-cell {
+  animation: pg-twinkle var(--pg-t, 3.6s) ease-in-out var(--pg-delay, 0s) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ld-rect[data-on],
-  .ld-rect[data-out],
+  .ld-pixel[data-on],
+  .ld-pixel[data-out],
   .ld-cell[data-on],
   .da-drift,
   .da-field-hover .da-cell,
   .pg-field,
-  .pg-rect {
+  .pg-cell {
     animation: none;
   }
 
-  .ld-rect[data-on] {
-    opacity: var(--da-a, 0.5);
+  .ld-pixel[data-on] {
+    opacity: var(--da-a, 1);
     transform: scale(1);
   }
 
-  .pg-rect {
-    opacity: calc(var(--pg-a, 0.5) * 0.7);
+  .pg-cell {
+    opacity: calc(var(--pg-hi, 0.95) * 0.7);
   }
 }
 

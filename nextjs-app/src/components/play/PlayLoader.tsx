@@ -1,63 +1,75 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DA_SPECTRUM, daGradient, daHash } from "@/lib/da";
+import { daGradientAt, daHash } from "@/lib/da";
 
 /** Durée de l'envol final avant de démonter le loader (ms). */
 const OUT_DURATION_MS = 900;
-const RECT_COUNT = 30;
+const PIXEL_COUNT = 36;
 const BAR_CELLS = 14;
+
+/** Côté d'un pixel et pas de la grille qui les aligne (rem). */
+const SQUARE = 0.75;
+const PITCH = 1.75;
+/** Étendue de la grille autour du centre, en cases : les pixels s'y répartissent en cloche. */
+const GRID_COLS = 24;
+const GRID_ROWS = 16;
 
 type Phase = "loading" | "out" | "gone";
 
-type Rect = {
-  left: number;
-  top: number;
-  w: number;
-  h: number;
-  gradient: string;
+type Pixel = {
+  /** Coin haut gauche, en rem depuis le centre de l'écran. */
+  x: number;
+  y: number;
+  color: string;
   alpha: number;
   threshold: number;
   twinkle: number;
   delay: number;
-  blur: number;
   ox: string;
   oy: string;
 };
 
-// Nuage clairsemé de rectangles de formats variés, plus dense vers le centre.
-const RECTS: Rect[] = Array.from({ length: RECT_COUNT }, (_, i) => {
-  const bell = (a: number, b: number, c: number) => (a + b + c) / 3;
-  const left = Math.round((50 + (bell(daHash(i * 1.3), daHash(i * 2.9), daHash(i * 4.1)) - 0.5) * 120) * 10) / 10;
-  const top = Math.round((50 + (bell(daHash(i * 5.7), daHash(i * 6.1), daHash(i * 7.3)) - 0.5) * 110) * 10) / 10;
-  // Largeur log-uniforme 0.4–3.2rem, hauteur de 0.35 à 2.4× la largeur : de vrais rectangles.
-  const w = 0.4 * Math.pow(8, Math.pow(daHash(i * 8.9), 1.5));
-  const h = Math.max(0.3, w * (0.35 + daHash(i * 10.1) * 2.05));
-  return {
-    left,
-    top,
-    w: Math.round(w * 100) / 100,
-    h: Math.round(h * 100) / 100,
-    gradient: daGradient(i * 3.3),
-    alpha: 0.28 + daHash(i * 13.7) * 0.34,
-    // Ordre d'apparition mélangé : les rectangles surgissent partout, pas en balayage.
-    threshold: (i + daHash(i * 17.1) * 0.9) / RECT_COUNT,
-    twinkle: 2.8 + daHash(i * 19.3) * 3,
-    delay: daHash(i * 23.9) * 0.3,
-    // Les plus grands sont aussi les plus flous : une profondeur de champ.
-    blur: Math.round((0.3 + (w / 3.2) * 1.6) * 10) / 10,
-    ox: `${((left - 50) * 0.8).toFixed(1)}vw`,
-    oy: `${((top - 50) * 0.8).toFixed(1)}vh`,
-  };
-});
+const BAR_COLORS = Array.from({ length: BAR_CELLS }, (_, i) => daGradientAt(i / (BAR_CELLS - 1)));
+
+// Nuage clairsemé de carrés identiques, calés sur une grille, plus dense vers le centre.
+// La barre de progression occupe le milieu : ses cases sont exclues, et une case de la
+// grille ne porte jamais deux pixels.
+const PIXELS: Pixel[] = (() => {
+  const bell = (a: number, b: number, c: number) => (a + b + c) / 3 - 0.5;
+  const taken = new Set<string>();
+  const pixels: Pixel[] = [];
+  for (let i = 0; pixels.length < PIXEL_COUNT && i < PIXEL_COUNT * 12; i++) {
+    const cx = Math.round(bell(daHash(i * 1.3), daHash(i * 2.9), daHash(i * 4.1)) * 2 * GRID_COLS);
+    const cy = Math.round(bell(daHash(i * 5.7), daHash(i * 6.1), daHash(i * 7.3)) * 2 * GRID_ROWS);
+    if (Math.abs(cx) <= 4 && Math.abs(cy) <= 1) continue;
+    const key = `${cx},${cy}`;
+    if (taken.has(key)) continue;
+    taken.add(key);
+    pixels.push({
+      x: Math.round((cx * PITCH - SQUARE / 2) * 1000) / 1000,
+      y: Math.round((cy * PITCH - SQUARE / 2) * 1000) / 1000,
+      // Voisins, ils se suivent dans le spectre : le dégradé se lit en diagonale.
+      color: daGradientAt(0.5 + (cx / GRID_COLS + cy / GRID_ROWS) * 0.75),
+      alpha: 0.75 + daHash(i * 13.7) * 0.25,
+      // Ordre d'apparition mélangé : les pixels surgissent partout, pas en balayage.
+      threshold: (pixels.length + daHash(i * 17.1) * 0.9) / PIXEL_COUNT,
+      twinkle: 2.8 + daHash(i * 19.3) * 3,
+      delay: daHash(i * 23.9) * 0.3,
+      ox: `${(cx * PITCH * 1.5).toFixed(1)}rem`,
+      oy: `${(cy * PITCH * 1.5).toFixed(1)}rem`,
+    });
+  }
+  return pixels;
+})();
 
 /**
- * Chargement de /play : fond blanc, quelques rectangles de verre translucides
- * aux couleurs du spectre Prism qui surgissent au fil du chargement réel
- * (`loaded` / `total`), et une petite barre de cellules au centre. Quand tout
- * est prêt, les rectangles s'envolent vers l'extérieur, puis le loader se
- * démonte. HTML + CSS : transform/opacity seulement, donc fluide même quand le
- * thread principal décode les textures.
+ * Chargement de /play : fond blanc, un nuage de petits carrés unis (la DA « Pixels »)
+ * qui surgissent au fil du chargement réel (`loaded` / `total`) et scintillent entre
+ * leur couleur et le blanc, et une barre de cellules carrées au centre, dont les
+ * couleurs forment un dégradé. Quand tout est prêt, les carrés s'envolent vers
+ * l'extérieur par paliers, puis le loader se démonte. HTML + CSS : transform/opacity
+ * seulement, donc fluide même quand le thread principal décode les textures.
  */
 export function PlayLoader({
   loaded,
@@ -71,7 +83,7 @@ export function PlayLoader({
   const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
   const [phase, setPhase] = useState<Phase>("loading");
 
-  // Tout est prêt : les rectangles s'envolent, puis le loader se démonte.
+  // Tout est prêt : les carrés s'envolent, puis le loader se démonte.
   if (isReady && phase === "loading") setPhase("out");
 
   useEffect(() => {
@@ -93,26 +105,25 @@ export function PlayLoader({
         style={{ opacity: out ? 0 : 1, transitionDelay: out ? "0.35s" : "0s" }}
       />
 
-      {RECTS.map((r, i) => {
-        const on = progress >= r.threshold;
+      {PIXELS.map((p, i) => {
+        const on = progress >= p.threshold;
         return (
           <span
             key={i}
-            className="ld-rect da-rect absolute rounded-[32%]"
+            className="ld-pixel absolute"
             data-on={on && !out ? "" : undefined}
             data-out={out && on ? "" : undefined}
             style={{
-              left: `${r.left}%`,
-              top: `${r.top}%`,
-              width: `${r.w}rem`,
-              height: `${r.h}rem`,
-              backgroundImage: r.gradient,
-              ["--da-a" as string]: r.alpha.toFixed(2),
-              ["--da-delay" as string]: `${r.delay.toFixed(2)}s`,
-              ["--da-tw" as string]: `${r.twinkle.toFixed(2)}s`,
-              ["--da-blur" as string]: `${r.blur}px`,
-              ["--ox" as string]: r.ox,
-              ["--oy" as string]: r.oy,
+              left: `calc(50% + ${p.x}rem)`,
+              top: `calc(50% + ${p.y}rem)`,
+              width: `${SQUARE}rem`,
+              height: `${SQUARE}rem`,
+              backgroundColor: p.color,
+              ["--da-a" as string]: p.alpha.toFixed(2),
+              ["--da-delay" as string]: `${p.delay.toFixed(2)}s`,
+              ["--da-tw" as string]: `${p.twinkle.toFixed(2)}s`,
+              ["--ox" as string]: p.ox,
+              ["--oy" as string]: p.oy,
             }}
           />
         );
@@ -123,18 +134,12 @@ export function PlayLoader({
         style={{ opacity: out ? 0 : 1 }}
       >
         <div className="flex gap-1">
-          {Array.from({ length: BAR_CELLS }, (_, i) => (
+          {BAR_COLORS.map((color, i) => (
             <span
               key={i}
-              className="ld-cell block h-3 w-1.5 rounded-[32%]"
+              className="ld-cell block size-2"
               data-on={i < lit ? "" : undefined}
-              style={{
-                backgroundImage:
-                  i < lit
-                    ? `linear-gradient(180deg, ${DA_SPECTRUM[Math.floor((i / BAR_CELLS) * DA_SPECTRUM.length)]}, ${DA_SPECTRUM[Math.min(DA_SPECTRUM.length - 1, Math.floor((i / BAR_CELLS) * DA_SPECTRUM.length) + 1)]})`
-                    : undefined,
-                backgroundColor: i < lit ? undefined : "#eef1f8",
-              }}
+              style={{ backgroundColor: i < lit ? color : "#eef1f8" }}
             />
           ))}
         </div>

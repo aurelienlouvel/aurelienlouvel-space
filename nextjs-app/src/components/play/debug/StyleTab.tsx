@@ -8,8 +8,9 @@ const STYLES = ["prism"];
 
 /**
  * Style : le rendu visuel (la « DA »). Un select choisit le style ; chaque
- * style expose ses propres réglages. Pour l'instant : « prism » — la vague
- * irisée, sa lumière, les éclats de verre, les pixels de la nav et du panel.
+ * style expose ses propres réglages. Pour l'instant : « prism » (l'identifiant
+ * d'origine de la DA, aujourd'hui « Pixels ») — la vague de sélection, la vague
+ * blanche de survol, les éclats, les pixels de la nav et du panel.
  */
 export function StyleTab({
   state,
@@ -69,6 +70,7 @@ export function StyleTab({
             hoverWaveAmp: num(hover, "waveAmp", { label: "Intensite", min: 0, max: 1.5, step: 0.05 }),
             hoverWaveWidth: num(hover, "waveWidth", { label: "Largeur de la bande", min: 0.05, max: 0.6, step: 0.01 }),
             hoverWaveDuration: num(hover, "waveDuration", { label: "Duree (s)", min: 0.25, max: 2.5, step: 0.05 }),
+            hoverWaveGlow: num(hover, "waveGlow", { label: "Eclat lumineux (coeur de la bande)", min: 0, max: 2, step: 0.05 }),
           },
           { collapsed: true },
         ),
@@ -99,9 +101,9 @@ export function StyleTab({
             daNavDrift: num(da, "navDriftPeriod", { label: "Pastille play : defilement actif (s)", min: 3, max: 60, step: 1 }),
             daNavHoverDur: num(da, "navHoverDuration", { label: "Pastille play : vague au survol (s)", min: 0.3, max: 3, step: 0.05 }),
             daNavHoverSpread: num(da, "navHoverSpread", { label: "Pastille play : etalement de la vague (s)", min: 0.1, max: 2, step: 0.05 }),
-            daPanelScale: num(da, "panelPixelScale", { label: "Rectangles du panel (taille)", min: 0.3, max: 3, step: 0.05 }),
+            daPanelSize: num(da, "panelPixelSize", { label: "Pixels du panel (taille, rem)", min: 0.25, max: 1.5, step: 0.0625 }),
             panelGlitch: {
-              ...num(tr, "panelGlitch", { label: "Rectangles du panel (opacite)", min: 0, max: 1, step: 0.01 }),
+              ...num(tr, "panelGlitch", { label: "Pixels du panel (opacite)", min: 0, max: 1, step: 0.01 }),
               onChange: (v: number) => {
                 tr.panelGlitch = v;
                 onPanelChange?.();
