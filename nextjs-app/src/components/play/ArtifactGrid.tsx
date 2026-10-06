@@ -17,6 +17,7 @@ import type { LayoutPoint, LayoutTile } from "./layout-types";
 import { ArtifactPlane, type PlaneUniforms } from "./ArtifactPlane";
 import { uniformsOf } from "./rounded-frame";
 import type { TransitionConfig } from "./transition-presets";
+import { REWIND_LAND_ZONE, rewindLandMix } from "./transition-timeline";
 import { restRotation } from "./rest-rotation";
 
 /**
@@ -231,8 +232,15 @@ function stepKinematicMeshes(
       // expansion dans la colonne (reveal > 0.001).
       // Pendant la phase de pause (0.6s) et la micro-animation de lock, la tuile reste
       // rigoureusement visible avec opacité 1, empêchant tout clignotement ou disparition.
+      // Retour d'une carte qui n'est pas le média de la tuile : sur la fin de la course,
+      // la tuile reparaît sous elle et la carte s'y fond (cf. `SecondaryGalleryPlanes`).
+      const landing =
+        rc.transition.rewinding === true &&
+        rc.transition.keepOther &&
+        frame.reveal < REWIND_LAND_ZONE;
       const shouldHideInMosaic =
         isTarget &&
+        !landing &&
         (rc.transition.phase === "isolated" ||
           (rc.transition.phase === "playing" && frame.reveal > 0.001) ||
           (rc.transition.phase === "returning" && frame.reveal > 0.001));
@@ -269,9 +277,9 @@ function stepKinematicMeshes(
         }
       }
 
-      // Survol : léger grossissement + inclinaison amortis, et une vague irisée
-      // qui part du bas gauche. L'état vient du mesh (cf. ArtifactPlane), et
-      // retombe dès qu'une transition démarre.
+      // Survol : léger grossissement + inclinaison amortis, et une bande blanche
+      // lumineuse qui traverse la carte depuis le bas gauche. L'état vient du mesh
+      // (cf. ArtifactPlane), et retombe dès qu'une transition démarre.
       const idle = rc.transition.phase === "idle";
       if (!idle) mesh.userData.hovered = false;
       // « Rejouer le survol » (debug) force le survol de la carte sélectionnée un instant.
@@ -301,6 +309,10 @@ function stepKinematicMeshes(
       }
 
       mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
+      // Les matériaux n'écrivent ni ne testent la profondeur : la tuile qui
+      // s'ouvre (et s'incline) passe devant ses voisines au seul `renderOrder`,
+      // sous le deck (≥ 70) et la vague de sélection (20).
+      mesh.renderOrder = isTarget && !idle ? 10 : 0;
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
       // Contrairement à la bascule X/Y (aplatie par la caméra orthographique,
       // cf. ArtifactPlane.tsx), une rotation Z reste un pur tourni dans le
@@ -311,11 +323,19 @@ function stepKinematicMeshes(
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
-        // La tuile ciblée reste à opacité 1 (jamais de semi-transparence fantôme)
-        const targetOpacity = isTarget ? 1 : frame.mosaicOpacity;
+        // La tuile ciblée reste à opacité 1 (jamais de semi-transparence fantôme),
+        // sauf quand elle accueille une autre carte : elle se révèle au même rythme
+        // que la carte s'efface.
+        const targetOpacity = isTarget
+          ? landing
+            ? 1 - rewindLandMix(frame.reveal)
+            : 1
+          : frame.mosaicOpacity;
         if (mat.opacity !== targetOpacity) {
           mat.opacity = targetOpacity;
         }
+        // Mosaïque effacée : inutile de dessiner une tuile à opacité 0.
+        mesh.visible = targetOpacity > 0.002;
         // Bascule 3D : un warp de perspective locale dans le shader (cf.
         // ArtifactPlane.tsx), pas une rotation Object3D — sous la caméra
         // orthographique de la scène, une rotation ne produirait qu'un
@@ -336,6 +356,8 @@ function stepKinematicMeshes(
           uniforms.uHoverWave.value = idle ? wave : 0;
           uniforms.uHoverWaveAmp.value = hover.waveAmp;
           uniforms.uHoverWaveWidth.value = hover.waveWidth;
+          uniforms.uHoverWaveGlow.value = hover.waveGlow;
+          uniforms.uHoverWaveIrid.value = hover.waveIrid;
           uniforms.uTime.value = (performance.now() / 1000) % 1000;
         }
       }

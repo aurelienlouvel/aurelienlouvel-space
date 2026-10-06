@@ -29,8 +29,8 @@ const PlayHostContext = createContext<PlayHostValue | null>(null);
  * (`frameloop="never"`), sans écouteurs actifs — quand on navigue ailleurs.
  * Revenir sur /play ne recrée ni le contexte WebGL ni les textures.
  *
- * Fournit aussi `data-play` sur <html>, qui active les curseurs agrandis de
- * /play (cf. globals.css) uniquement sur cette partie du site.
+ * Fournit aussi `data-play` sur <html>, qui active les curseurs SVG de /play
+ * (cf. globals.css) uniquement sur cette partie du site.
  */
 export function PlayHostProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();

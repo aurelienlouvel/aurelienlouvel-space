@@ -40,7 +40,7 @@ export const GRAVITY_DEFAULTS: GravityParams = {
   maxWidth: 400,
   maxHeight: 480,
   gap: 240,
-  scaleVariance: 0.1,
+  scaleVariance: 0.24,
   repeat: 3,
   antiNeighbor: true,
   repeatGap: 400,

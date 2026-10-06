@@ -49,6 +49,14 @@ export function evaluateEasing(name: EasingName, t: number): number {
   return fn(Math.max(0, Math.min(1, t)));
 }
 
+/**
+ * Façon de sortir d'un pack ouvert :
+ * - `clean` : chaque grandeur glisse vers le repos depuis l'état exact où elle était, chacune
+ *   dans sa fenêtre (cf. `sampleRewind`) ; pas de vague, pas de torsion, pas d'éclats.
+ * - `film`  : l'ouverture se rejoue à l'envers (le temps de la timeline recule).
+ */
+export type RewindMode = "clean" | "film";
+
 /** Une piste de la timeline : quand elle démarre, combien de temps elle dure. */
 export type TrackSpec = {
   start: number;
@@ -88,9 +96,15 @@ export type TransitionConfig = {
   simulatedLoadMs: number; // Debug : délai artificiel ajouté au chargement du pack (ms)
   rewindDuration: number; // Durée du rewind de l'ouverture (s) : lent au début, rapide au milieu, lent à la fin
   rewindEasing: EasingName; // Courbe du rewind (easeInOut = effet cinématique)
-  rewindDeckShare: number; // Part du rewind consacrée à défaire les cartes passées (0..0.8)
-  rewindDeckPerCard: number; // Durée ajoutée par carte à défaire (s)
+  rewindLayerFade: number; // Retour : durée (s) de la disparition des cartes derrière la carte gardée
+  rewindMode: RewindMode; // Retour : « clean » (glissement vers le repos) ou « film » (l'ouverture rejouée à l'envers)
+  rewindStagger: number; // Retour « clean » : 0..1 — décalage entre la caméra, la carte et la mosaïque (0 = ensemble, 1 = l'un après l'autre)
+  rewindCalm: number; // Retour « film » : 0..1 — part de la torsion, des éclats et de la vague étouffée dès le début du retour
   fxBurstBoost: number; // Surintensité des éclats au moment du burst (×, 0 = aucune)
+  twistSettleStart: number; // Fin du tortillement : début du retour à plat, en s après la fin de la vague (négatif = pendant la vague)
+  twistSettle: number; // Fin du tortillement : durée (s) du retour à plat de la torsion, de la bascule et du gonflement
+  twistSettleEasing: EasingName; // Fin du tortillement : courbe du retour à plat (easeInOut = départ et arrivée doux)
+  twistSettleBlend: number; // 0..1 — part du détachement du boom qui s'ajoute au gonflement encore présent (0 = le plus grand des deux, 1 = les deux s'additionnent)
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
   lock: TrackSpec; // Impact : la carte se détache au boom
@@ -122,9 +136,16 @@ export type TransitionConfig = {
   stackDepth: number; // Nombre de layers visibles sous la première carte
   stackOpacity: number; // Opacité du premier layer sous la carte (0..1)
   stackOpacityFalloff: number; // Facteur d'opacité appliqué à chaque layer suivant (0..1)
+  stackSaturation: number; // Saturation des layers derrière la carte du dessus (1 = couleurs d'origine, 0 = noir et blanc)
   panelGradientStrength: number; // 0..1 — intensité du dégradé de fond du side panel
   panelGradientSpeed: number; // Vitesse de dérive du dégradé du side panel (×)
-  panelGlitch: number; // 0..1 — intensité du glitch pixel en bas à droite (0 = coupé)
+  panelGlitch: number; // 0..1 — opacité des pixels qui scintillent en bas à droite (0 = coupés)
+  ambientPixels: number; // Pixels de fond tant que le pack est ouvert : nombre (0 = aucun)
+  ambientOpacity: number; // 0..1 — opacité des pixels de fond (très discrets)
+  ambientSize: number; // Côté maximal d'un pixel de fond (unités monde), le plus petit fait 35 % de ce côté
+  ambientTravel: number; // Distance de dérive d'un pixel de fond, de sa naissance à sa disparition (unités monde)
+  ambientSpeed: number; // Cycles de vie par seconde des pixels de fond (0.1 = un pixel vit 10 s)
+  ambientFade: number; // Apparition de la couche à l'ouverture du pack, et changement de carte (s) ; la sortie va deux fois plus vite
   cardExit: number; // Course de la carte qui s'en va, en hauteurs de carte
   stepCooldown: number; // Délai minimal entre deux cartes (s) : verrou après un changement
   deckPullDistance: number; // Défilement (px de molette) à fournir pour passer à la carte suivante
@@ -134,14 +155,14 @@ export type TransitionConfig = {
   deckHold: number; // Délai sans geste avant que la carte ne redescende (s)
   deckShimmer: number; // Éclats qui se décollent pendant la traction (0 = aucun)
   deckDissolveAmount: number; // 0..1 — part de la carte désagrégée quand elle est tirée au maximum
-  deckCellCols: number; // Nombre de zones (rectangles) de désagrégation sur la largeur de la carte
-  deckCellPixel: number; // 0..1 — pixellisation des zones qui se détachent
-  deckCellIrid: number; // 0..1 — reflet irisé des zones en train de partir
+  deckCellCols: number; // Nombre de zones (carrés) de désagrégation sur la largeur de la carte
+  deckCellPixel: number; // 0..1 — pixellisation des zones qui se détachent (1 = une couleur unie par zone)
+  deckCellIrid: number; // 0..1 — reflet irisé des zones en train de partir (0 = aucun, la DA est à plat)
   deckCellBias: number; // 0..1 — la désagrégation part du bord qui mène (1) plutôt qu'au hasard (0)
   deckAimMix: number; // 0..1 — part de la visée (curseur / geste) dans la direction de la carte, le reste étant tout droit
   deckThrow: number; // Distance dont la carte part dans sa direction en se désagrégeant (px écran)
   deckSpin: number; // Rotation maximale de la carte lancée (degrés), selon sa direction
-  deckTilt: number; // Inclinaison 3D maximale de la carte et des layers selon la souris (degrés, négatif = inverse)
+  deckTilt: number; // Inclinaison 3D maximale de la carte et des layers selon la souris (degrés, négatif = inverse, 0 = carte plane au repos)
   deckTiltLayerGain: number; // Inclinaison supplémentaire des layers plus profonds (× par niveau)
   deckTiltSmooth: number; // Raideur de l'inclinaison (par seconde)
   deckDissolve: number; // Courbe d'évanouissement de la carte qui part (1 = linéaire, 2 = tardive)
@@ -234,14 +255,24 @@ export function passEndTime(config: TransitionConfig): number {
   return holdTime(config) + Math.max(0.05, config.waveDuration);
 }
 
-/** Instant auquel la dernière piste de la séquence d'entrée se termine. */
+/**
+ * Instants (absolus) où le retour à plat de la fin du tortillement commence et finit.
+ * Il ne démarre jamais avant le hold : tant que le pack charge, la carte continue de se tordre.
+ */
+export function twistSettleBounds(config: TransitionConfig): { start: number; end: number } {
+  const start = Math.max(holdTime(config), passEndTime(config) + (config.twistSettleStart ?? -0.3));
+  return { start, end: start + Math.max(0.05, config.twistSettle ?? 1) };
+}
+
+/** Instant auquel la dernière piste de la séquence d'entrée se termine, retour à plat de la torsion compris. */
 export function timelineEnd(config: TransitionConfig): number {
   let end = 0;
   for (const name of ["lock", "reveal", "columnFade", "dezoom"] as const) {
     const track = config[name];
     end = Math.max(end, track.start + track.duration);
   }
-  return passEndTime(config) + Math.max(0.05, end);
+  const passEnd = passEndTime(config);
+  return Math.max(passEnd + Math.max(0.05, end), twistSettleBounds(config).end);
 }
 
 /** Instant (absolu) où la caméra a fini de cadrer la pile. */
@@ -265,9 +296,15 @@ const BASE_AMPLITUDES = {
   simulatedLoadMs: 0,
   rewindDuration: 1.4,
   rewindEasing: "easeInOutQuint" as EasingName,
-  rewindDeckShare: 0.4,
-  rewindDeckPerCard: 0.15,
+  rewindLayerFade: 0.25,
+  rewindMode: "clean" as RewindMode,
+  rewindStagger: 0.6,
+  rewindCalm: 1,
   fxBurstBoost: 1,
+  twistSettleStart: -0.3,
+  twistSettle: 1,
+  twistSettleEasing: "easeInOutCubic" as EasingName,
+  twistSettleBlend: 0.5,
   lockScalePunch: 0.08,
   overlayExitDuration: 0.35,
   scatterDistance: 1000,
@@ -286,9 +323,16 @@ const BASE_AMPLITUDES = {
   stackDepth: 4,
   stackOpacity: 0.55,
   stackOpacityFalloff: 0.55,
+  stackSaturation: 0.45,
   panelGradientStrength: 0.65,
   panelGradientSpeed: 1.8,
-  panelGlitch: 0.6,
+  panelGlitch: 0.9,
+  ambientPixels: 8,
+  ambientOpacity: 0.32,
+  ambientSize: 30,
+  ambientTravel: 140,
+  ambientSpeed: 0.12,
+  ambientFade: 1.2,
   cardExit: 0.7,
   stepCooldown: 0.55,
   deckPullDistance: 1030,
@@ -297,15 +341,15 @@ const BASE_AMPLITUDES = {
   deckRelease: 9,
   deckHold: 0.14,
   deckShimmer: 1,
-  deckDissolveAmount: 0.9,
-  deckCellCols: 5,
-  deckCellPixel: 0.8,
-  deckCellIrid: 0.5,
+  deckDissolveAmount: 0.64,
+  deckCellCols: 6,
+  deckCellPixel: 1,
+  deckCellIrid: 1,
   deckCellBias: 0.45,
   deckAimMix: 0.8,
   deckThrow: 180,
   deckSpin: 12,
-  deckTilt: 7,
+  deckTilt: 0,
   deckTiltLayerGain: 0.35,
   deckTiltSmooth: 8,
   deckDissolve: 3.6,
@@ -331,12 +375,16 @@ export const TRANSITION_PRESETS: Record<
   cinematic: {
     ...BASE_AMPLITUDES,
     waveDuration: 1.3,
+    twistSettleStart: -0.33,
+    twistSettle: 1.1,
     approachZoom: 2.7,
     ...scaleTracks(1.1),
   },
   snappy: {
     ...BASE_AMPLITUDES,
     waveDuration: 0.8,
+    twistSettleStart: -0.23,
+    twistSettle: 0.78,
     lockScalePunch: 0.11,
     overlayExitDuration: 0.22,
     approachZoom: 2.4,
@@ -347,6 +395,8 @@ export const TRANSITION_PRESETS: Record<
   dramatic: {
     ...BASE_AMPLITUDES,
     waveDuration: 1.6,
+    twistSettleStart: -0.42,
+    twistSettle: 1.4,
     lockScalePunch: 0.1,
     overlayExitDuration: 0.4,
     scatterDistance: 3400,
