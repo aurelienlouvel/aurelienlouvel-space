@@ -254,7 +254,7 @@ function roundCorners(
  * matériaux qui injectent du code.
  */
 function roundCornersCacheKey() {
-  return "play-artifact-grid-motion-blur-lens-hover";
+  return "play-artifact-grid-motion-blur-lens-hover-flat-tilt";
 }
 
 /**
@@ -434,6 +434,11 @@ function ArtifactPlaneMesh({
         ref={materialRef}
         map={texture}
         transparent
+        // Empilement au seul `renderOrder` : même transparente, une tuile
+        // écrirait sa profondeur et découperait les cartes du deck qui la
+        // recouvrent à l'ouverture.
+        depthTest={false}
+        depthWrite={false}
         defines={FRAME_DEFINES}
         onBeforeCompile={roundCorners}
         customProgramCacheKey={roundCornersCacheKey}
