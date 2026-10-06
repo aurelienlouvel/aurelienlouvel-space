@@ -60,10 +60,16 @@ const projects = await client.fetch<ProjectListItem[]>(projectsListQuery);
 const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { slug });
 ```
 
-### /play — DA « Prism » et scène persistante
-- DA commune (loader, nav, side panel, curseur, éclats) : `src/lib/da.ts` — rectangles de verre
-  translucides, dégradés, bords fondus, spectre pastel, coins lissés à 32 % (`CORNER_SMOOTHING`
-  côté shaders, `--da-corner-k` côté CSS).
+### /play — DA « Pixels » et scène persistante
+- DA commune (loader, nav, side panel, curseur, éclats) : `src/lib/da.ts` — des carrés unis et rien d'autre :
+  une couleur par pixel, ni flou, ni verre translucide, ni bord fondu ; un pixel éteint est blanc. Le
+  dégradé naît entre pixels voisins (`daGradientAt` : une fenêtre `DA_WINDOW` du spectre pastel à la fois,
+  jamais tout le spectre). Ce que la DA anime : la vague de la nav allume des pixels puis les éteint ; au
+  survol d'une carte, une bande blanche lumineuse la traverse (`ArtifactPlane`, réglage `waveGlow`) ; les
+  pixels du coin bas droit du panneau (`PanelPixels`, taille `panelPixelSize`) scintillent en continu.
+  Les éclats d'ouverture sont des carrés d'une couleur (celle de leur morceau d'image, ou le dégradé de la
+  DA avec `tint`). Les coins des cartes restent lissés (`CORNER_SMOOTHING` côté shaders, `--da-corner-k`
+  côté CSS). Réglages dans `/play#debug` › Style.
 - Dézoom de la caméra en mouvement : lié au retard de la caméra sur sa cible
   (`components/play/camera-dezoom.ts`), pas à une vitesse lissée à part : un lissage de plus sur le zoom
   réintroduirait une animation de fin sur un canvas déjà statique. Au drag et à la molette, le zoom pivote
