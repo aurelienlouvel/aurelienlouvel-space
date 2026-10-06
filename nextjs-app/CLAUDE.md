@@ -66,8 +66,11 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   côté shaders, `--da-corner-k` côté CSS).
 - La scène 3D vit dans le layout (`components/play/PlayHost.tsx`) : montée à la première visite de
   `/play`, puis gardée en vie (invisible, `frameloop="never"`) ; la page `/play` ne fait que lui passer
-  les artifacts via `<PlayMount>`. `html[data-play]` active les curseurs 56px de `/public/cursors/lg`.
+  les artifacts via `<PlayMount>`. `html[data-play]` n'active les curseurs SVG de `/public/cursors`
+  (`globals.css`) que sur `/play` : partout ailleurs, curseur système.
 - Réglages visuels : `/play#debug`, 5 onglets (global : caméra + curseur ; media ; canvas : layout + fond de points ;
   style : select « prism » ; animation : survol / ouverture / carte suivante, avec inspecteur et rejeu).
   Le code vit dans `components/play/debug/`. `window.__play` expose l'état.
-- Le curseur de /play est dessiné par `PlayCursor` (incliné selon le mouvement, grossit au survol, rétrécit au clic).
+- Le curseur de /play est dessiné par `PlayCursor` (incliné selon la vitesse du pointeur par un ressort
+  amorti sans retard, grossit au survol, rétrécit au clic). Il est rendu en portail dans `<body>` : la
+  surface de /play est un contexte d'empilement, un curseur placé dedans passerait sous l'ActionBar.
