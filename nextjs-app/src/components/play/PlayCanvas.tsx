@@ -34,6 +34,12 @@ import {
   SecondaryGalleryPlanes,
 } from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
+import {
+  anchorShift,
+  cameraScreenSpeed,
+  dezoomForSpeed,
+  stepDezoom,
+} from "./camera-dezoom";
 import { dampTowards } from "./damp";
 import { FisheyeEffect } from "./FisheyeEffect";
 import {
@@ -174,8 +180,14 @@ export type CameraDebugParams = {
   speedDezoom: number;
   /** Vitesse d'écran (px/s) à partir de laquelle le dézoom est complet. */
   speedDezoomRef: number;
-  /** Réactivité du dézoom (par seconde) : plus haut = le zoom colle au mouvement. */
-  speedDezoomResponse: number;
+  /**
+   * Attaque du dézoom (par seconde) : la vitesse à laquelle il se creuse quand le
+   * mouvement s'accélère d'un coup (cran de molette). Le retour, lui, est lié au
+   * retard de la caméra : il n'a ni délai ni réglage.
+   */
+  speedDezoomAttack: number;
+  /** Le zoom pivote autour du pointeur : le point qu'on tient reste sous le doigt. */
+  dezoomAnchor: boolean;
   /** Intensité (0..1) de la traînée de pixels derrière le curseur — 0 = coupée. */
   cursorTrail: number;
   /** Durée de vie d'un pixel de la traînée (ms) — plus court = traînée plus courte. */
@@ -354,10 +366,12 @@ export type PlayRuntimeState = {
     settleZoom: number;
     /** Phase de la frame précédente, pour détecter les sauts. */
     lastPhase: TransitionPhase;
+    /** Dézoom actuellement appliqué au repos (0..speedDezoom) : 0 = zoom de base. */
+    dezoom: number;
   };
-  /** Dernière position connue du pointeur (px écran). */
-  pointer: { x: number; y: number };
-  /** Vitesse de la caméra à l'écran (px/s), lissée — alimente le dézoom en mouvement rapide. */
+  /** Dernière position connue du pointeur (px écran) ; `seen` : un événement l'a déjà renseignée. */
+  pointer: { x: number; y: number; seen: boolean };
+  /** Vitesse de la caméra à l'écran (px/s), lissée — sert à relancer le survol quand la caméra bouge. */
   cameraSpeed: number;
   /** Zoom réellement appliqué à la caméra (dézoom compris) : sert à convertir les gestes en monde. */
   liveZoom: number;
@@ -611,6 +625,9 @@ const DRAG_THRESHOLD = 6;
 const VELOCITY_WINDOW_MS = 80;
 const INERTIA_FRICTION = -6;
 const VELOCITY_EPSILON = 0.0001;
+/** Lissage (par seconde) de `cameraSpeed` : monte vite, retombe plus doucement. */
+const CAMERA_SPEED_RISE = 25;
+const CAMERA_SPEED_FALL = 11;
 
 /** Texture tirée au double de la largeur affichée, pour les écrans retina. */
 const RETINA_MULTIPLIER = 2;
@@ -852,7 +869,7 @@ function stepCamera(
   config: TransitionConfig,
   delta: number,
   studio?: AnimationStudioParams,
-  screenSize?: { width: number; height: number },
+  screenSize?: { width: number; height: number; left?: number; top?: number },
   onTextReveal?: () => void,
   onReturnComplete?: () => void,
   onNavbarReveal?: () => void,
@@ -914,43 +931,79 @@ function stepCamera(
 
   // ── Repos : zoom de base et pan inertiel ────────────────────────────────
   if (tr.phase === "idle") {
-    // Dézoom en mouvement rapide : plus la caméra file vite à l'écran, plus on
-    // recule, puis le zoom revient en douceur à l'arrêt — ça donne de la vitesse.
-    const speedRef = Math.max(200, camCfg?.speedDezoomRef ?? 1800);
-    const speedT = Math.min(1, rc.cameraSpeed / speedRef);
-    const dezoom = (camCfg?.speedDezoom ?? 0) * Math.pow(speedT, 0.85);
-    const targetZoom = baseZoom * (1 - dezoom);
-    if (Math.abs(camera.zoom - targetZoom) > 0.0002) {
-      // Le zoom colle à la vitesse de la caméra : il revient exactement au rythme
-      // où le mouvement s'éteint, sans second délai.
-      camera.zoom = dampTowards(camera.zoom, targetZoom, camCfg?.speedDezoomResponse ?? 16, effDelta);
+    const following = rc.camera.mode === "follow";
+    // Lissage léger du suivi : les deltas discrets de la molette ne sautent plus
+    // d'une frame à l'autre. Le recentrage (flèches, sélection) est plus doux.
+    const rate = following
+      ? (camCfg?.followSpeed ?? 22)
+      : (camCfg?.settleSpeed ?? CAMERA_SETTLE_SPEED);
+
+    // Inertie du geste : la cible avance avant que le retard soit mesuré. Sa
+    // vitesse monde est celle du geste réglée au zoom de base, quel que soit le
+    // dézoom du moment : relâcher en plein dézoom ne freine donc pas le canvas.
+    if (following && (velocity.x !== 0 || velocity.y !== 0)) {
+      const k = (delta * 1000 * baseZoom) / Math.max(0.05, camera.zoom);
+      rc.camera.targetX += velocity.x * k;
+      rc.camera.targetY += velocity.y * k;
+      const decay = Math.exp(friction * delta);
+      velocity.x *= decay;
+      velocity.y *= decay;
+      if (Math.abs(velocity.x) < VELOCITY_EPSILON && Math.abs(velocity.y) < VELOCITY_EPSILON) {
+        velocity.x = 0;
+        velocity.y = 0;
+      }
+    }
+
+    // Dézoom en mouvement rapide, lié au retard de la caméra sur sa cible : à
+    // l'arrêt le retard est nul et le zoom est exactement celui de base, sans
+    // animation de fin (cf. camera-dezoom.ts).
+    const lag = Math.hypot(
+      rc.camera.targetX - camera.position.x,
+      rc.camera.targetY - camera.position.y,
+    );
+    const speed = cameraScreenSpeed(lag, camera.zoom, rate * (studio?.speed ?? 1));
+    const targetDezoom = dezoomForSpeed(
+      speed,
+      camCfg?.speedDezoom ?? 0,
+      Math.max(200, camCfg?.speedDezoomRef ?? 1800),
+    );
+    rc.camera.dezoom = stepDezoom(
+      rc.camera.dezoom,
+      targetDezoom,
+      Math.max(1, camCfg?.speedDezoomAttack ?? 30),
+      effDelta,
+    );
+    const zoomBefore = camera.zoom;
+    const zoomAfter = baseZoom * (1 - rc.camera.dezoom);
+    if (Math.abs(zoomAfter - zoomBefore) > 1e-6) {
+      // Le zoom pivote autour du pointeur : le point qu'on tient reste sous le doigt
+      // au lieu de glisser vers le centre. Caméra et cible bougent ensemble, le
+      // retard (donc le dézoom) n'en est pas modifié. Le recentrage vise une
+      // tuile précise : il ne se décale pas.
+      if (following && rc.pointer.seen && (camCfg?.dezoomAnchor ?? true) && screenSize) {
+        const shift = anchorShift(
+          rc.pointer.x - ((screenSize.left ?? 0) + screenSize.width / 2),
+          -(rc.pointer.y - ((screenSize.top ?? 0) + screenSize.height / 2)),
+          zoomBefore,
+          zoomAfter,
+        );
+        camera.position.x += shift.x;
+        camera.position.y += shift.y;
+        rc.camera.targetX += shift.x;
+        rc.camera.targetY += shift.y;
+      }
+      camera.zoom = zoomAfter;
       camera.updateProjectionMatrix();
     }
     rc.liveZoom = camera.zoom;
 
-    if (rc.camera.mode === "follow") {
-      if (velocity.x !== 0 || velocity.y !== 0) {
-        rc.camera.targetX += velocity.x * delta * 1000;
-        rc.camera.targetY += velocity.y * delta * 1000;
-        const decay = Math.exp(friction * delta);
-        velocity.x *= decay;
-        velocity.y *= decay;
-        if (Math.abs(velocity.x) < VELOCITY_EPSILON && Math.abs(velocity.y) < VELOCITY_EPSILON) {
-          velocity.x = 0;
-          velocity.y = 0;
-        }
-      }
-      // Lissage léger : les deltas discrets de la molette ne sautent plus d'une frame à l'autre.
-      const follow = camCfg?.followSpeed ?? 22;
-      camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, follow, effDelta);
-      camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, follow, effDelta);
-      return;
-    }
-    const settle = camCfg?.settleSpeed ?? CAMERA_SETTLE_SPEED;
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, settle, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, settle, effDelta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, rate, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, rate, effDelta);
     return;
   }
+
+  // Hors repos le zoom suit la courbe : le dézoom en mouvement repart de zéro.
+  rc.camera.dezoom = 0;
 
   // ── Transition : la courbe s'applique telle quelle ──────────────────────
   rc.camera.settleZoom = dampTowards(rc.camera.settleZoom, 1, SETTLE_DECAY_SPEED, effDelta);
@@ -1139,14 +1192,14 @@ function CameraRig({
     prevCamPosRef.current.x = cam.position.x;
     prevCamPosRef.current.y = cam.position.y;
 
-    // Vitesse à l'écran (px/s) : monte vite, retombe plus doucement. Hors repos
-    // (transition en cours) elle reste nulle, pour ne jamais dézoomer pendant l'ouverture.
+    // Vitesse à l'écran (px/s), lissée : elle ne règle pas le zoom (qui lit le
+    // retard de la caméra) mais dit à la grille que la caméra bouge, pour qu'elle
+    // relance le survol. Hors repos (transition en cours) elle reste nulle.
     const rcur = runtime.current;
-    const camCfg2 = debug.current.camera;
     const screenSpeed =
       rcur.transition.phase === "idle" ? Math.hypot(camVx, camVy) * cam.zoom : 0;
-    const response = camCfg2.speedDezoomResponse ?? 16;
-    const speedK = 1 - Math.exp(-delta * (screenSpeed > rcur.cameraSpeed ? response * 1.6 : response * 0.7));
+    const speedK =
+      1 - Math.exp(-delta * (screenSpeed > rcur.cameraSpeed ? CAMERA_SPEED_RISE : CAMERA_SPEED_FALL));
     rcur.cameraSpeed += (screenSpeed - rcur.cameraSpeed) * speedK;
 
     const camCfg = debug.current.camera;
@@ -1212,7 +1265,8 @@ export function PlayCanvas({
       motionBlurMax: CAMERA_MOTION_BLUR_MAX,
       speedDezoom: 0.2,
       speedDezoomRef: 1800,
-      speedDezoomResponse: 16,
+      speedDezoomAttack: 30,
+      dezoomAnchor: true,
       cursorTrail: 0.2,
       cursorTrailLife: 160,
       followSpeed: 22,
@@ -1243,8 +1297,8 @@ export function PlayCanvas({
     selectedPos: { x: 0, y: 0 },
     hovered: null,
     hoveredPos: null,
-    camera: { targetX: 0, targetY: 0, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle" },
-    pointer: { x: 0, y: 0 },
+    camera: { targetX: 0, targetY: 0, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle", dezoom: 0 },
+    pointer: { x: 0, y: 0, seen: false },
     cameraSpeed: 0,
     liveZoom: CAMERA_ZOOM,
     hoverInfo: { hov: 0, wave: 0 },
@@ -1667,7 +1721,7 @@ export function PlayCanvas({
       const ox = origin ? origin.x : 0;
       const oy = origin ? origin.y : 0;
       rc.selectedPos = { x: ox, y: oy };
-      rc.camera = { targetX: ox, targetY: oy, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle" };
+      rc.camera = { targetX: ox, targetY: oy, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle", dezoom: 0 };
       if (origin) {
         rc.indicatorTarget = { x: ox, y: oy, width: origin.width, height: origin.height };
       }
@@ -1771,6 +1825,7 @@ export function PlayCanvas({
       if (!activeRef.current) return;
       runtime.current.pointer.x = e.clientX;
       runtime.current.pointer.y = e.clientY;
+      runtime.current.pointer.seen = true;
     }
 
     function onWheel(e: WheelEvent) {
