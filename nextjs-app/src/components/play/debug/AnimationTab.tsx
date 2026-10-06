@@ -176,6 +176,7 @@ export function AnimationTab({
               stackDepth: num(tr, "stackDepth", { label: "Layers visibles dessous", min: 0, max: 8, step: 1 }),
               stackOpacity: num(tr, "stackOpacity", { label: "Opacite du 1er layer", min: 0, max: 1, step: 0.01 }),
               stackOpacityFalloff: num(tr, "stackOpacityFalloff", { label: "Decroissance par layer", min: 0, max: 1, step: 0.01 }),
+              stackSaturation: num(tr, "stackSaturation", { label: "Saturation des layers dessous (1 = couleurs d origine)", min: 0, max: 1, step: 0.01 }),
               stackPeek: num(tr, "stackPeek", { label: "Decalage vers le bas (px)", min: 4, max: 80, step: 1 }),
               stackScale: num(tr, "stackScale", { label: "Echelle par layer", min: 0.5, max: 1, step: 0.01 }),
             }),
@@ -192,7 +193,17 @@ export function AnimationTab({
         "7 Retour": folder(
           {
             rewindDuration: num(tr, "rewindDuration", { label: "Rewind : duree de l ouverture (s)", min: 0.3, max: 6, step: 0.05 }),
+            rewindMode: {
+              label: "Rewind : facon (clean = chaque grandeur glisse vers le repos, film = l ouverture a l envers)",
+              value: tr.rewindMode,
+              options: ["clean", "film"],
+              onChange: (v: string) => {
+                tr.rewindMode = v === "film" ? "film" : "clean";
+              },
+            },
             rewindEasing: easingControl(tr, "rewindEasing", "Rewind : courbe (cinematique = easeInOut)"),
+            rewindStagger: num(tr, "rewindStagger", { label: "Rewind clean : decalage entre carte, camera et mosaique (0 = ensemble)", min: 0, max: 1, step: 0.05 }),
+            rewindCalm: num(tr, "rewindCalm", { label: "Rewind : calme (coupe vague, torsion et eclats ; 1 = aucun)", min: 0, max: 1, step: 0.05 }),
             rewindLayerFade: num(tr, "rewindLayerFade", { label: "Rewind : disparition des cartes derriere (s)", min: 0.02, max: 1.5, step: 0.01 }),
             exit_duration: num(tr.exit, "duration", { label: "Sortie vue detail (s)", min: 0.1, max: 3, step: 0.05 }),
             exit_easing: easingControl(tr.exit, "easing", "Easing de sortie"),

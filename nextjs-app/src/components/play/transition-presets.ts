@@ -49,6 +49,14 @@ export function evaluateEasing(name: EasingName, t: number): number {
   return fn(Math.max(0, Math.min(1, t)));
 }
 
+/**
+ * Façon de sortir d'un pack ouvert :
+ * - `clean` : chaque grandeur glisse vers le repos depuis l'état exact où elle était, chacune
+ *   dans sa fenêtre (cf. `sampleRewind`) ; pas de vague, pas de torsion, pas d'éclats.
+ * - `film`  : l'ouverture se rejoue à l'envers (le temps de la timeline recule).
+ */
+export type RewindMode = "clean" | "film";
+
 /** Une piste de la timeline : quand elle démarre, combien de temps elle dure. */
 export type TrackSpec = {
   start: number;
@@ -89,6 +97,9 @@ export type TransitionConfig = {
   rewindDuration: number; // Durée du rewind de l'ouverture (s) : lent au début, rapide au milieu, lent à la fin
   rewindEasing: EasingName; // Courbe du rewind (easeInOut = effet cinématique)
   rewindLayerFade: number; // Retour : durée (s) de la disparition des cartes derrière la carte gardée
+  rewindMode: RewindMode; // Retour : « clean » (glissement vers le repos) ou « film » (l'ouverture rejouée à l'envers)
+  rewindStagger: number; // Retour « clean » : 0..1 — décalage entre la caméra, la carte et la mosaïque (0 = ensemble, 1 = l'un après l'autre)
+  rewindCalm: number; // Retour « film » : 0..1 — part de la torsion, des éclats et de la vague étouffée dès le début du retour
   fxBurstBoost: number; // Surintensité des éclats au moment du burst (×, 0 = aucune)
   twistSettleStart: number; // Fin du tortillement : début du retour à plat, en s après la fin de la vague (négatif = pendant la vague)
   twistSettle: number; // Fin du tortillement : durée (s) du retour à plat de la torsion, de la bascule et du gonflement
@@ -125,6 +136,7 @@ export type TransitionConfig = {
   stackDepth: number; // Nombre de layers visibles sous la première carte
   stackOpacity: number; // Opacité du premier layer sous la carte (0..1)
   stackOpacityFalloff: number; // Facteur d'opacité appliqué à chaque layer suivant (0..1)
+  stackSaturation: number; // Saturation des layers derrière la carte du dessus (1 = couleurs d'origine, 0 = noir et blanc)
   panelGradientStrength: number; // 0..1 — intensité du dégradé de fond du side panel
   panelGradientSpeed: number; // Vitesse de dérive du dégradé du side panel (×)
   panelGlitch: number; // 0..1 — opacité des pixels qui scintillent en bas à droite (0 = coupés)
@@ -285,6 +297,9 @@ const BASE_AMPLITUDES = {
   rewindDuration: 1.4,
   rewindEasing: "easeInOutQuint" as EasingName,
   rewindLayerFade: 0.25,
+  rewindMode: "clean" as RewindMode,
+  rewindStagger: 0.6,
+  rewindCalm: 1,
   fxBurstBoost: 1,
   twistSettleStart: -0.3,
   twistSettle: 1,
@@ -308,6 +323,7 @@ const BASE_AMPLITUDES = {
   stackDepth: 4,
   stackOpacity: 0.55,
   stackOpacityFalloff: 0.55,
+  stackSaturation: 0.45,
   panelGradientStrength: 0.65,
   panelGradientSpeed: 1.8,
   panelGlitch: 0.9,

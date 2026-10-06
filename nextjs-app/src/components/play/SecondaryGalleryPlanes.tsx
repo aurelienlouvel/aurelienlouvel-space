@@ -68,6 +68,7 @@ type PlaneUniforms = {
   uDissolveIrid: IUniform<number>;
   uDissolveBias: IUniform<number>;
   uDissolveTime: IUniform<number>;
+  uSaturation: IUniform<number>;
 };
 
 const ROUNDING_PARS = /* glsl */ `
@@ -75,6 +76,8 @@ uniform vec2 uSize;
 uniform float uRadius;
 uniform float uMotionBlur;
 uniform vec2 uMotionBlurDir;
+// Cartes en retrait dans la pile : 1 = couleurs d'origine, 0 = noir et blanc.
+uniform float uSaturation;
 
 // Désagrégation d'une carte tirée : des zones carrées de tailles variées qui se
 // pixellisent (une couleur unie par zone), puis disparaissent, le bord qui mène d'abord.
@@ -142,6 +145,10 @@ const MOTION_BLUR_MAP = /* glsl */ `
   #ifdef DECODE_VIDEO_TEXTURE
     sampledDiffuseColor = sRGBTransferEOTF( sampledDiffuseColor );
   #endif
+  if (uSaturation < 0.999) {
+    float satLuma = dot(sampledDiffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    sampledDiffuseColor.rgb = mix(vec3(satLuma), sampledDiffuseColor.rgb, max(uSaturation, 0.0));
+  }
   diffuseColor *= sampledDiffuseColor;
 #endif
 
@@ -169,6 +176,7 @@ function roundCorners(
     uDissolveIrid: { value: 0 },
     uDissolveBias: { value: 0.45 },
     uDissolveTime: { value: 0 },
+    uSaturation: { value: 1 },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
     .replace("#include <common>", `#include <common>\n${ROUNDING_PARS}`)
@@ -187,7 +195,7 @@ function roundCorners(
 }
 
 function roundCornersCacheKey() {
-  return "play-secondary-planes-motion-blur-tilt-dissolve-flat-tilt-square";
+  return "play-secondary-planes-motion-blur-tilt-dissolve-flat-tilt-square-saturation";
 }
 
 // ── Cache global de textures vidéo partagées (1 seul élément vidéo HTML5 par URL) ──
@@ -687,6 +695,7 @@ export function SecondaryGalleryPlanes({
     const depthMax = cfg.stackDepth ?? 3;
     const stackOpacity = cfg.stackOpacity ?? 0.55;
     const stackFalloff = cfg.stackOpacityFalloff ?? 0.55;
+    const stackSaturation = Math.min(1, Math.max(0, cfg.stackSaturation ?? 1));
     // Tous les médias sont alignés par le BAS : une carte moins haute que la
     // première laisse quand même voir son bord inférieur, sous la pile.
     const baseBottom = principalPoint.y - heights[0] / 2;
@@ -944,6 +953,9 @@ export function SecondaryGalleryPlanes({
           uniforms.uDissolveIrid.value = cfg.deckCellIrid ?? 0;
           uniforms.uDissolveBias.value = cfg.deckCellBias ?? 0.45;
           uniforms.uDissolveTime.value = (performance.now() / 1000) % 1000;
+          // Pack ouvert : seule la carte du dessus garde ses couleurs, celles des layers qui
+          // s'enfoncent derrière s'éteignent avec la profondeur (`dv` : continue pendant la traction).
+          uniforms.uSaturation.value = d >= 0 ? 1 + (stackSaturation - 1) * Math.min(1, dv) : 1;
         }
         mat.opacity = opacity;
         mat.color.setScalar(shade);

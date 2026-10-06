@@ -574,6 +574,9 @@ export function applyResetTransition(rc: PlayRuntimeState) {
     tr.releaseAt = null;
     tr.rewindU = 0;
     tr.rewindFromT = tr.t;
+    // Le retour « clean » glisse de l'état exact d'où l'on part vers le repos, un second Échap
+    // en plein retour compris : on en garde un instantané (cf. `sampleRewind`).
+    tr.returnFrom = { ...tr.frame };
     // Un second Échap en plein retour garde la même carte : le deck n'est plus « isolated ».
     if (!tr.rewinding) {
       tr.rewindFromDeck = tr.phase === "isolated" ? Math.round(tr.targetColumnScrollY) : 0;
@@ -1066,6 +1069,7 @@ function stepCamera(
   if (returned) {
     tr.rewinding = false;
     tr.rewindU = 0;
+    tr.returnFrom = null;
     // La courbe a déjà ramené la caméra au repos : on se contente de recaler
     // la cible du pan sur ce que la courbe vient de produire.
     camera.zoom = baseZoom;
