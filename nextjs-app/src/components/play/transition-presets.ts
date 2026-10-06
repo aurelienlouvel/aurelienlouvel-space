@@ -128,6 +128,12 @@ export type TransitionConfig = {
   panelGradientStrength: number; // 0..1 — intensité du dégradé de fond du side panel
   panelGradientSpeed: number; // Vitesse de dérive du dégradé du side panel (×)
   panelGlitch: number; // 0..1 — opacité des pixels qui scintillent en bas à droite (0 = coupés)
+  ambientPixels: number; // Pixels de fond tant que le pack est ouvert : nombre (0 = aucun)
+  ambientOpacity: number; // 0..1 — opacité des pixels de fond (très discrets)
+  ambientSize: number; // Côté maximal d'un pixel de fond (unités monde), le plus petit fait 35 % de ce côté
+  ambientTravel: number; // Distance de dérive d'un pixel de fond, de sa naissance à sa disparition (unités monde)
+  ambientSpeed: number; // Cycles de vie par seconde des pixels de fond (0.1 = un pixel vit 10 s)
+  ambientFade: number; // Apparition de la couche à l'ouverture du pack, et changement de carte (s) ; la sortie va deux fois plus vite
   cardExit: number; // Course de la carte qui s'en va, en hauteurs de carte
   stepCooldown: number; // Délai minimal entre deux cartes (s) : verrou après un changement
   deckPullDistance: number; // Défilement (px de molette) à fournir pour passer à la carte suivante
@@ -305,6 +311,12 @@ const BASE_AMPLITUDES = {
   panelGradientStrength: 0.65,
   panelGradientSpeed: 1.8,
   panelGlitch: 0.9,
+  ambientPixels: 8,
+  ambientOpacity: 0.32,
+  ambientSize: 30,
+  ambientTravel: 140,
+  ambientSpeed: 0.12,
+  ambientFade: 1.2,
   cardExit: 0.7,
   stepCooldown: 0.55,
   deckPullDistance: 1030,

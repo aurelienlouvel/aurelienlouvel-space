@@ -11,6 +11,9 @@ import { getSharedTexture } from "./SecondaryGalleryPlanes";
 /** Nombre maximal d'éclats (le debug règle le nombre réellement émis). */
 const MAX_SHARDS = 96;
 
+/** Rang des pixels de fond du pack ouvert : devant la mosaïque (0 à 20), derrière toute la pile (`100 − d·10`). */
+export const AMBIENT_RENDER_ORDER = 50;
+
 /** Plans de profondeur : 0 = derrière l'image, 1 = au niveau, 2 = devant. */
 const PLANE_Z = [-0.15, 0.55, 0.7] as const;
 
@@ -199,18 +202,29 @@ function toLinear(out: Color, c: RGB): Color {
  * dégradé de l'image), répartis sur trois plans de profondeur (parallaxe et échelle
  * différentes), nets, sans coins arrondis par défaut (`da.pixelRadius`), sans flou ni bord
  * fondu. S'utilise pour l'ouverture d'un artifact et pour le passage d'une carte à la
- * suivante : `source` dit quelle carte décomposer et avec quelle intensité.
+ * suivante : `source` dit quelle carte décomposer et avec quelle intensité. Les pixels de fond
+ * du pack ouvert en sont une troisième instance : mêmes morceaux, mais bien moins nombreux,
+ * posés derrière les cartes (`params`, `renderOrder`, `groupOrder`).
  */
 export function ShardField({
   debug,
   source,
   paletteRef,
   seedOffset = 0,
+  params,
+  renderOrder = 300,
+  groupOrder = 300,
 }: {
   debug: PlayDebugRef;
   source: () => ShardSource | null;
   paletteRef?: { current: RGB[] | null };
   seedOffset?: number;
+  /** Réglages propres à ce champ ; sans eux, ceux du debug (`shards`). */
+  params?: () => ShardParams;
+  /** Rang des éclats dans l'empilement : 300 les met devant tout (cf. « Empilement des cartes » du CLAUDE.md). */
+  renderOrder?: number;
+  /** Rang du groupe : le tri de three le compare avant le `renderOrder` des meshes, donc 0 pour passer derrière les cartes. */
+  groupOrder?: number;
 }) {
   const meshRefs = useRef<(Mesh | null)[]>([]);
   const matRefs = useRef<(ShaderMaterial | null)[]>([]);
@@ -249,7 +263,7 @@ export function ShardField({
   );
 
   useFrame((state) => {
-    const p = debug.current.shards;
+    const p = params?.() ?? debug.current.shards;
     const src = source();
     const meshes = meshRefs.current;
     if (!src || src.intensity < 0.01) {
@@ -343,7 +357,7 @@ export function ShardField({
   });
 
   return (
-    <group renderOrder={300}>
+    <group renderOrder={groupOrder}>
       {materials.map((mat, i) => (
         <mesh
           key={i}
@@ -351,7 +365,7 @@ export function ShardField({
             meshRefs.current[i] = m;
           }}
           visible={false}
-          renderOrder={300}
+          renderOrder={renderOrder}
           raycast={() => null}
         >
           <planeGeometry args={[1, 1]} />

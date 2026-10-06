@@ -694,6 +694,8 @@ export function SecondaryGalleryPlanes({
     const pullShown = tr.phase === "isolated" ? tr.deckPullShown : 0;
     const liftWorld = (cfg.deckLift ?? 70) / curZoom;
     let fxBest = 0;
+    // Plus petite profondeur |d| vue : la carte du dessus est celle à moins d'un demi-pas.
+    let topD = 0.5;
 
     // ── Visée : où la carte part ────────────────────────────────────────────
     // Entre « tout droit » et la direction du curseur (ou du drag), selon
@@ -848,6 +850,19 @@ export function SecondaryGalleryPlanes({
       }
 
       weightEntries[i].w = returning ? 0 : weight * (tr.phase === "playing" ? frame.columnOpacity || 1 : 1);
+
+      // Carte du dessus : l'origine des pixels de fond. Prise avant la traction, pour que
+      // les pixels ne suivent pas la carte qu'on tire.
+      if (!rewinding && !returning && Math.abs(d) < topD) {
+        topD = Math.abs(d);
+        const top = tr.deckTop;
+        top.cx = posX;
+        top.cy = posY;
+        top.w = drawW;
+        top.h = drawH;
+        top.url = slot.url;
+        top.kind = slot.kind;
+      }
 
       if (tr.phase === "isolated") {
         // Traction : la carte du dessus monte d'autant plus qu'elle est proche du premier plan.

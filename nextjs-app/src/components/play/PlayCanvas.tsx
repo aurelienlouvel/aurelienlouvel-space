@@ -53,7 +53,13 @@ import { PlayLoader } from "./PlayLoader";
 import { CursorTrail } from "./CursorTrail";
 import { PlayCursor } from "./PlayCursor";
 import { SHADOW_DEFAULTS, type ShadowParams } from "./CardShadow";
-import { ShardField, SHARD_DEFAULTS, type ShardParams, type ShardSource } from "./ShardField";
+import {
+  AMBIENT_RENDER_ORDER,
+  ShardField,
+  SHARD_DEFAULTS,
+  type ShardParams,
+  type ShardSource,
+} from "./ShardField";
 import { CORNER_SMOOTHING } from "./rounded-frame";
 import { PanelPixels, PANEL_PIXEL_DENSITY } from "./PanelPixels";
 import { SelectProgressOverlay } from "./SelectProgressOverlay";
@@ -486,6 +492,15 @@ export type PlayRuntimeState = {
     deckFx: {
       intensity: number;
       spread?: number;
+      cx: number;
+      cy: number;
+      w: number;
+      h: number;
+      url: string;
+      kind: "image" | "video";
+    };
+    /** Carte la plus proche du dessus de la pile à cet instant, hors traction : l'origine des pixels de fond. */
+    deckTop: {
       cx: number;
       cy: number;
       w: number;
@@ -1372,6 +1387,7 @@ export function PlayCanvas({
       keepOther: false,
       deckFreeze: null,
       deckFx: { intensity: 0, cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
+      deckTop: { cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
       passed: false,
       releaseAt: null,
       returnFrom: null,
@@ -1687,6 +1703,54 @@ export function PlayCanvas({
     if (tr.phase !== "isolated" || tr.deckFx.intensity < 0.01) return null;
     return tr.deckFx;
   }, []);
+
+  // Pixels de fond du pack ouvert : quelques éclats de la carte du dessus, très discrets, qui
+  // dérivent derrière la pile pour donner une ambiance. La couche naît en fondu quand la pile
+  // est en place, s'éteint au retour, et quand le média du dessus change elle s'éteint, prend
+  // les couleurs du nouveau puis revient : les pixels ne sautent jamais d'une image à l'autre.
+  const ambientRef = useRef({
+    level: 0,
+    at: 0,
+    src: { intensity: 0, spread: 1, cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" } as ShardSource,
+  });
+  const ambientParamsRef = useRef<ShardParams>({ ...SHARD_DEFAULTS });
+  const ambientParams = useCallback((): ShardParams => {
+    const cfg = debug.current.transition;
+    const p = Object.assign(ambientParamsRef.current, debug.current.shards);
+    p.count = Math.max(0, Math.round(cfg.ambientPixels ?? 0));
+    p.maxSize = Math.max(1, cfg.ambientSize ?? 30);
+    p.minSize = p.maxSize * 0.35;
+    p.travel = cfg.ambientTravel ?? 140;
+    p.speed = cfg.ambientSpeed ?? 0.12;
+    p.opacity = cfg.ambientOpacity ?? 0.28;
+    return p;
+  }, [debug]);
+  const ambientShardSource = useCallback((): ShardSource | null => {
+    const tr = runtime.current.transition;
+    const cfg = debug.current.transition;
+    const a = ambientRef.current;
+    const now = performance.now();
+    const dt = a.at > 0 ? Math.min(0.1, (now - a.at) / 1000) : 0;
+    a.at = now;
+    const top = tr.deckTop;
+    // La pile est en place : fin de l'ouverture (la carte a pris sa taille) ou vue détail, jamais en plein retour.
+    const settled = tr.phase === "isolated" || (tr.phase === "playing" && tr.frame.reveal > 0.999);
+    const open = settled && !tr.rewinding && top.url !== "" && (cfg.ambientPixels ?? 0) > 0;
+    const swapping = open && a.src.url !== "" && top.url !== a.src.url && a.level > 0.01;
+    const step = dt / Math.max(0.05, cfg.ambientFade ?? 1.2);
+    a.level = open && !swapping ? Math.min(1, a.level + step) : Math.max(0, a.level - step * 2);
+    if (open && !swapping) {
+      a.src.cx = top.cx;
+      a.src.cy = top.cy;
+      a.src.w = top.w;
+      a.src.h = top.h;
+      a.src.url = top.url;
+      a.src.kind = top.kind;
+    }
+    if (a.level < 0.01) return null;
+    a.src.intensity = a.level * a.level * (3 - 2 * a.level);
+    return a.src;
+  }, [debug]);
 
   // Éclats de l'ouverture : la tuile ouverte se sépare en morceaux, du clic à la fin de la vague.
   const openShardSource = useCallback((): ShardSource | null => {
@@ -2245,6 +2309,15 @@ export function PlayCanvas({
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
             <ShardField debug={debug} source={openShardSource} paletteRef={primaryPaletteRef} />
             <ShardField debug={debug} source={deckShardSource} paletteRef={primaryPaletteRef} seedOffset={7} />
+            <ShardField
+              debug={debug}
+              source={ambientShardSource}
+              params={ambientParams}
+              paletteRef={primaryPaletteRef}
+              seedOffset={13}
+              renderOrder={AMBIENT_RENDER_ORDER}
+              groupOrder={0}
+            />
             <FisheyeEffect debug={debug} />
           </Canvas>
         )}

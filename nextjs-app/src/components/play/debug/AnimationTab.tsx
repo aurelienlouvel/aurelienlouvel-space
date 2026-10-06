@@ -201,6 +201,17 @@ export function AnimationTab({
           },
           { collapsed: true },
         ),
+        "8 Pixels de fond": folder(
+          {
+            ambientPixels: num(tr, "ambientPixels", { label: "Nombre (0 = aucun)", min: 0, max: 30, step: 1 }),
+            ambientOpacity: num(tr, "ambientOpacity", { label: "Opacite (discret = bas)", min: 0, max: 1, step: 0.01 }),
+            ambientSize: num(tr, "ambientSize", { label: "Taille max (unites monde)", min: 6, max: 120, step: 1 }),
+            ambientTravel: num(tr, "ambientTravel", { label: "Derive (unites monde)", min: 0, max: 600, step: 5 }),
+            ambientSpeed: num(tr, "ambientSpeed", { label: "Vitesse (cycles par s, 0.1 = 10 s de vie)", min: 0.02, max: 1, step: 0.01 }),
+            ambientFade: num(tr, "ambientFade", { label: "Apparition et changement de carte (s)", min: 0.05, max: 4, step: 0.05 }),
+          },
+          { collapsed: true },
+        ),
       },
       { collapsed: true },
     ),
