@@ -17,6 +17,7 @@ import type { LayoutPoint, LayoutTile } from "./layout-types";
 import { ArtifactPlane, type PlaneUniforms } from "./ArtifactPlane";
 import { uniformsOf } from "./rounded-frame";
 import type { TransitionConfig } from "./transition-presets";
+import { REWIND_LAND_ZONE, rewindLandMix } from "./transition-timeline";
 import { restRotation } from "./rest-rotation";
 
 /**
@@ -231,8 +232,15 @@ function stepKinematicMeshes(
       // expansion dans la colonne (reveal > 0.001).
       // Pendant la phase de pause (0.6s) et la micro-animation de lock, la tuile reste
       // rigoureusement visible avec opacité 1, empêchant tout clignotement ou disparition.
+      // Retour d'une carte qui n'est pas le média de la tuile : sur la fin de la course,
+      // la tuile reparaît sous elle et la carte s'y fond (cf. `SecondaryGalleryPlanes`).
+      const landing =
+        rc.transition.rewinding === true &&
+        rc.transition.keepOther &&
+        frame.reveal < REWIND_LAND_ZONE;
       const shouldHideInMosaic =
         isTarget &&
+        !landing &&
         (rc.transition.phase === "isolated" ||
           (rc.transition.phase === "playing" && frame.reveal > 0.001) ||
           (rc.transition.phase === "returning" && frame.reveal > 0.001));
@@ -315,8 +323,14 @@ function stepKinematicMeshes(
 
       const mat = mesh.material as MeshBasicMaterial | undefined;
       if (mat) {
-        // La tuile ciblée reste à opacité 1 (jamais de semi-transparence fantôme)
-        const targetOpacity = isTarget ? 1 : frame.mosaicOpacity;
+        // La tuile ciblée reste à opacité 1 (jamais de semi-transparence fantôme),
+        // sauf quand elle accueille une autre carte : elle se révèle au même rythme
+        // que la carte s'efface.
+        const targetOpacity = isTarget
+          ? landing
+            ? 1 - rewindLandMix(frame.reveal)
+            : 1
+          : frame.mosaicOpacity;
         if (mat.opacity !== targetOpacity) {
           mat.opacity = targetOpacity;
         }

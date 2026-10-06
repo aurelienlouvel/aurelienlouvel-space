@@ -464,7 +464,13 @@ export type PlayRuntimeState = {
     /** Rewind : avancement 0..1 (avant courbe), état d'où il part (t de la timeline, position du deck). */
     rewindU: number;
     rewindFromT: number;
+    /** Position (entière) du deck au départ : la carte du dessus est la seule qui rentre dans la mosaïque. */
     rewindFromDeck: number;
+    /**
+     * La carte gardée n'est pas le média de la tuile : elle se fond dans la tuile en
+     * fin de retour au lieu de la remplacer d'un coup (écrit par `SecondaryGalleryPlanes`).
+     */
+    keepOther: boolean;
     /** Debug : traction du deck maintenue à cette valeur (null = libre). */
     deckFreeze: number | null;
     /** Carte du deck qui se décompose en éclats à cet instant (une seule à la fois). */
@@ -534,27 +540,26 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.hoveredPos = null;
 
   // Depuis la vue détail ou n'importe où dans la timeline d'entrée : un vrai
-  // rewind. Le temps recule en courbe cinématique (lent, rapide, lent) ; si des
-  // cartes ont été passées, elles sont d'abord défaites (une à une, en sens
-  // inverse), puis l'ouverture se rejoue à l'envers.
+  // rewind. Le temps recule en courbe cinématique (lent, rapide, lent) et
+  // l'ouverture se rejoue à l'envers. Les cartes passées ne sont pas défaites :
+  // seule la carte du dessus (celle que le deck vise, même en plein changement)
+  // est gardée, les autres s'effacent, et c'est elle qui rentre dans la mosaïque.
   if (rc.transition.phase === "playing" || rc.transition.phase === "isolated") {
     const tr = rc.transition;
     tr.holding = false;
     tr.releaseAt = null;
-    tr.rewinding = true;
     tr.rewindU = 0;
     tr.rewindFromT = tr.t;
-    tr.rewindFromDeck = tr.phase === "isolated" ? tr.columnScrollY : 0;
-    tr.targetColumnScrollY = tr.columnScrollY;
+    // Un second Échap en plein retour garde la même carte : le deck n'est plus « isolated ».
+    if (!tr.rewinding) {
+      tr.rewindFromDeck = tr.phase === "isolated" ? Math.round(tr.targetColumnScrollY) : 0;
+    }
+    tr.targetColumnScrollY = tr.rewindFromDeck;
     tr.deckPullRaw = 0;
     tr.deckPullShown = 0;
     tr.deckFreeze = null;
-    // Pas de carte à défaire : on entre directement dans le rewind de l'ouverture.
-    if (tr.phase === "isolated" && Math.abs(tr.rewindFromDeck) <= 0.02) {
-      tr.phase = "playing";
-      tr.columnScrollY = 0;
-      tr.targetColumnScrollY = 0;
-    }
+    tr.rewinding = true;
+    tr.phase = "playing";
     rc.camera.mode = "settle";
     return;
   }
@@ -754,10 +759,9 @@ function framingOffsetY(
  */
 /**
  * Un pas de rewind. Une seule courbe (`rewindEasing`, par défaut easeInOutQuint :
- * départ lent, milieu rapide, arrivée lente) conduit tout le retour : d'abord le
- * deck revient à la première carte, puis la timeline d'ouverture recule jusqu'à 0.
- * Le deck repasse par chaque position entière, donc chaque passage de carte est
- * rejoué à l'envers, avec ses éclats.
+ * départ lent, milieu rapide, arrivée lente) conduit tout le retour : la timeline
+ * d'ouverture recule jusqu'à 0. Le deck ne se défait pas : il se résorbe sur la
+ * carte du dessus (`rewindFromDeck`), seule gardée pour rentrer dans la mosaïque.
  */
 function advanceRewind(
   tr: PlayRuntimeState["transition"],
@@ -765,25 +769,11 @@ function advanceRewind(
   dt: number,
 ) {
   tr.wall += dt;
-  const hasDeck = Math.abs(tr.rewindFromDeck) > 0.02;
-  const cards = Math.min(4, Math.abs(Math.round(tr.rewindFromDeck)));
-  const total = Math.max(0.2, config.rewindDuration + cards * config.rewindDeckPerCard);
-  tr.rewindU = Math.min(1, tr.rewindU + dt / total);
+  tr.rewindU = Math.min(1, tr.rewindU + dt / Math.max(0.2, config.rewindDuration));
   const eased = evaluateEasing(config.rewindEasing, tr.rewindU);
-  const share = hasDeck ? Math.min(0.8, Math.max(0.05, config.rewindDeckShare)) : 0;
-  const deckP = share > 0 ? Math.min(1, eased / share) : 1;
-  const openP = Math.min(1, Math.max(0, (eased - share) / (1 - share)));
-
-  if (hasDeck) {
-    tr.columnScrollY = tr.rewindFromDeck * (1 - deckP);
-    tr.targetColumnScrollY = tr.columnScrollY;
-  }
-  if (tr.phase === "isolated" && deckP >= 1) {
-    tr.phase = "playing";
-    tr.columnScrollY = 0;
-    tr.targetColumnScrollY = 0;
-  }
-  if (tr.phase === "playing") tr.t = tr.rewindFromT * (1 - openP);
+  tr.columnScrollY = dampTowards(tr.columnScrollY, tr.rewindFromDeck, config.detailScrollDamping, dt);
+  tr.targetColumnScrollY = tr.rewindFromDeck;
+  tr.t = tr.rewindFromT * (1 - eased);
 }
 
 function advanceClock(
@@ -794,7 +784,7 @@ function advanceClock(
 ) {
   const tr = rc.transition;
 
-  if (tr.rewinding && (tr.phase === "playing" || tr.phase === "isolated")) {
+  if (tr.rewinding && tr.phase === "playing") {
     advanceRewind(tr, config, effDelta);
     return;
   }
@@ -1368,6 +1358,7 @@ export function PlayCanvas({
       rewindU: 0,
       rewindFromT: 0,
       rewindFromDeck: 0,
+      keepOther: false,
       deckFreeze: null,
       deckFx: { intensity: 0, cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
       passed: false,

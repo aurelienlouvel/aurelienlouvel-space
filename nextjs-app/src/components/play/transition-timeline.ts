@@ -111,6 +111,17 @@ function smoothstep(t: number): number {
   return u * u * (3 - 2 * u);
 }
 
+/**
+ * Retour dans la mosaïque d'une carte qui n'est pas le média de la tuile : sur les
+ * derniers 20 % du `reveal`, elle se fond dans la tuile au lieu de la remplacer d'un coup.
+ */
+export const REWIND_LAND_ZONE = 0.2;
+
+/** Part (1 → 0) de la carte gardée encore visible à ce `reveal` ; la tuile prend le reste. */
+export function rewindLandMix(reveal: number): number {
+  return smoothstep(reveal / REWIND_LAND_ZONE);
+}
+
 /** Part de la piste `lock` consacrée à la montée du détachement. */
 const LOCK_POP_ATTACK_END = 0.3;
 /** Fin du mini temps de pause tenu, début du relâchement. */

@@ -189,8 +189,7 @@ export function AnimationTab({
           {
             rewindDuration: num(tr, "rewindDuration", { label: "Rewind : duree de l ouverture (s)", min: 0.3, max: 6, step: 0.05 }),
             rewindEasing: easingControl(tr, "rewindEasing", "Rewind : courbe (cinematique = easeInOut)"),
-            rewindDeckShare: num(tr, "rewindDeckShare", { label: "Rewind : part pour defaire les cartes", min: 0.05, max: 0.8, step: 0.01 }),
-            rewindDeckPerCard: num(tr, "rewindDeckPerCard", { label: "Rewind : duree par carte defaite (s)", min: 0, max: 1, step: 0.01 }),
+            rewindLayerFade: num(tr, "rewindLayerFade", { label: "Rewind : disparition des cartes derriere (s)", min: 0.02, max: 1.5, step: 0.01 }),
             exit_duration: num(tr.exit, "duration", { label: "Sortie vue detail (s)", min: 0.1, max: 3, step: 0.05 }),
             exit_easing: easingControl(tr.exit, "easing", "Easing de sortie"),
             repulseReturnDelay: num(tr, "repulseReturnDelay", { label: "Retard de la mosaique (s)", min: 0, max: 1.5, step: 0.05 }),

@@ -88,8 +88,7 @@ export type TransitionConfig = {
   simulatedLoadMs: number; // Debug : délai artificiel ajouté au chargement du pack (ms)
   rewindDuration: number; // Durée du rewind de l'ouverture (s) : lent au début, rapide au milieu, lent à la fin
   rewindEasing: EasingName; // Courbe du rewind (easeInOut = effet cinématique)
-  rewindDeckShare: number; // Part du rewind consacrée à défaire les cartes passées (0..0.8)
-  rewindDeckPerCard: number; // Durée ajoutée par carte à défaire (s)
+  rewindLayerFade: number; // Retour : durée (s) de la disparition des cartes derrière la carte gardée
   fxBurstBoost: number; // Surintensité des éclats au moment du burst (×, 0 = aucune)
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
@@ -265,8 +264,7 @@ const BASE_AMPLITUDES = {
   simulatedLoadMs: 0,
   rewindDuration: 1.4,
   rewindEasing: "easeInOutQuint" as EasingName,
-  rewindDeckShare: 0.4,
-  rewindDeckPerCard: 0.15,
+  rewindLayerFade: 0.25,
   fxBurstBoost: 1,
   lockScalePunch: 0.08,
   overlayExitDuration: 0.35,

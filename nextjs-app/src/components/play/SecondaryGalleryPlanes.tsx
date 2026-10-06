@@ -29,6 +29,7 @@ import {
   GLSL_PIXEL_WIDTH,
   uniformsOf,
 } from "./rounded-frame";
+import { rewindLandMix } from "./transition-timeline";
 
 type SecondaryGalleryPlanesProps = {
   gallery: ArtifactGalleryItem[];
@@ -565,6 +566,9 @@ export function SecondaryGalleryPlanes({
   }, [onFocusMedia]);
   const tiltRef = useRef({ x: 0, y: 0 });
   const exitStartRef = useRef({ x: 0, y: 0, w: 0, h: 0, op: 1 });
+  // Retour : part (1 → 0) des cartes de la pile qui s'effacent derrière la gardée.
+  // Elle ne fait que baisser, pour qu'un second Échap ne les fasse pas réapparaître.
+  const layerFadeRef = useRef(1);
 
   // Entrées de poids partagées avec le dégradé du panneau (mutées en place).
   const weightEntries = useMemo(
@@ -583,6 +587,12 @@ export function SecondaryGalleryPlanes({
     const frame = tr.frame;
     // Aucune carte ne se décompose tant que la boucle ci-dessous ne l'a pas décidé.
     tr.deckFx.intensity = 0;
+    // Retour : le film d'ouverture se rejoue à l'envers, et seule la carte du dessus rentre.
+    const rewinding = tr.rewinding === true && tr.phase === "playing";
+    if (!rewinding) {
+      tr.keepOther = false;
+      layerFadeRef.current = 1;
+    }
 
     if (tr.phase !== "playing" && tr.phase !== "isolated" && tr.phase !== "returning") {
       group.visible = false;
@@ -615,6 +625,16 @@ export function SecondaryGalleryPlanes({
       : screenH * (cfg.mobileMediaHeightRatio ?? 0.34);
 
     const K = Math.max(1, uniqueCount);
+    // Au retour, la carte gardée est celle que le deck visait ; sinon, c'est le média de la tuile.
+    const keptI = rewinding ? ((Math.round(tr.rewindFromDeck) % K) + K) % K : 0;
+    tr.keepOther = rewinding && keptI !== 0;
+    if (rewinding) {
+      layerFadeRef.current = Math.max(
+        0,
+        layerFadeRef.current - delta / Math.max(0.02, cfg.rewindLayerFade ?? 0.25),
+      );
+    }
+    const layerFade = layerFadeRef.current * layerFadeRef.current * (3 - 2 * layerFadeRef.current);
     const widths: number[] = new Array(K);
     const heights: number[] = new Array(K);
     for (let m = 0; m < K; m++) {
@@ -721,8 +741,8 @@ export function SecondaryGalleryPlanes({
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
       if (!mesh) return;
-      const isMain = s === 0;
       const i = slot.galleryIdx % K;
+      const isMain = i === keptI;
 
       // Profondeur cyclique signée : 0 = carte du dessus, >0 = derrière, <0 = partie.
       let d = i - deckPos;
@@ -773,17 +793,33 @@ export function SecondaryGalleryPlanes({
 
       if (isMain && !returning && tr.phase === "playing") {
         // Réveil : taille de tuile → taille de carte, sans fondu.
-        drawW = mainStartW + (targetW - mainStartW) * frame.reveal;
-        drawH = mainStartH + (targetH - mainStartH) * frame.reveal;
-        opacity = 1;
+        let startW = mainStartW;
+        let startH = mainStartH;
+        if (i !== 0) {
+          // Retour d'une carte qui n'est pas le média de la tuile : elle garde son
+          // ratio, inscrite dans la tuile (jamais étirée), puis se fond dans la tuile.
+          const fit = Math.min(mainStartW / targetW, mainStartH / targetH);
+          startW = targetW * fit;
+          startH = targetH * fit;
+        }
+        drawW = startW + (targetW - startW) * frame.reveal;
+        drawH = startH + (targetH - startH) * frame.reveal;
+        // Les cartes du deck sont alignées par le bas : celle-ci rejoint le centre de la tuile.
+        posY = principalPoint.y + (baseBottom + targetH / 2 - principalPoint.y) * frame.reveal;
+        opacity = i !== 0 ? rewindLandMix(frame.reveal) : 1;
       } else if (!isMain && tr.phase === "playing") {
-        // Cascade : les layers sortent l'un après l'autre de derrière la carte
-        // du dessus, en glissant vers le bas jusqu'à leur place.
-        const p = frame.columnOpacity * (depthMax + 1);
-        const cin = Math.max(0, Math.min(1, p - (Math.max(1, d) - 1)));
-        const eased = 1 - Math.pow(1 - cin, 3);
-        opacity *= cin;
-        posY += peek * Math.max(0, d) * (1 - eased);
+        if (rewinding) {
+          // Retour : le reste de la pile s'efface sur place, avant que la carte gardée ne bouge.
+          opacity *= layerFade;
+        } else {
+          // Cascade : les layers sortent l'un après l'autre de derrière la carte
+          // du dessus, en glissant vers le bas jusqu'à leur place.
+          const p = frame.columnOpacity * (depthMax + 1);
+          const cin = Math.max(0, Math.min(1, p - (Math.max(1, d) - 1)));
+          const eased = 1 - Math.pow(1 - cin, 3);
+          opacity *= cin;
+          posY += peek * Math.max(0, d) * (1 - eased);
+        }
       }
 
       if (returning) {
@@ -880,7 +916,7 @@ export function SecondaryGalleryPlanes({
         mat.color.setScalar(shade);
       }
 
-      if (weight > 0.05 && !returning && !notifiedRef.current.has(slot.url)) {
+      if (weight > 0.05 && !returning && !rewinding && !notifiedRef.current.has(slot.url)) {
         notifiedRef.current.add(slot.url);
         onFocusMediaRef.current?.({ url: slot.url, kind: slot.kind });
       }
