@@ -17,7 +17,7 @@ import { MediaTab } from "./debug/MediaTab";
 import { StyleTab } from "./debug/StyleTab";
 import { TimelineBar } from "./debug/TimelineBar";
 
-const STORAGE_KEY = "play-debug-v37";
+const STORAGE_KEY = "play-debug-v38";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 

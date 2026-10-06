@@ -140,7 +140,7 @@ export type TransitionConfig = {
   deckAimMix: number; // 0..1 — part de la visée (curseur / geste) dans la direction de la carte, le reste étant tout droit
   deckThrow: number; // Distance dont la carte part dans sa direction en se désagrégeant (px écran)
   deckSpin: number; // Rotation maximale de la carte lancée (degrés), selon sa direction
-  deckTilt: number; // Inclinaison 3D maximale de la carte et des layers selon la souris (degrés, négatif = inverse)
+  deckTilt: number; // Inclinaison 3D maximale de la carte et des layers selon la souris (degrés, négatif = inverse, 0 = carte plane au repos)
   deckTiltLayerGain: number; // Inclinaison supplémentaire des layers plus profonds (× par niveau)
   deckTiltSmooth: number; // Raideur de l'inclinaison (par seconde)
   deckDissolve: number; // Courbe d'évanouissement de la carte qui part (1 = linéaire, 2 = tardive)
@@ -303,7 +303,7 @@ const BASE_AMPLITUDES = {
   deckAimMix: 0.8,
   deckThrow: 180,
   deckSpin: 12,
-  deckTilt: 7,
+  deckTilt: 0,
   deckTiltLayerGain: 0.35,
   deckTiltSmooth: 8,
   deckDissolve: 3.6,
