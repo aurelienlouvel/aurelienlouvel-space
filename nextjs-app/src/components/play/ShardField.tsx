@@ -107,10 +107,10 @@ void main() {
 }
 `;
 
-// Un éclat : un carré net qui reprend le morceau d'image dont il est issu. À plat
-// (par défaut), il n'a qu'une couleur, la moyenne de son morceau ; sinon l'image
-// reste visible, avec en option un flou de profondeur de champ, des bords fondus et
-// un reflet irisé (les réglages d'avant la DA « Pixels »).
+// Un éclat : un carré aux coins à peine arrondis qui reprend le morceau d'image dont
+// il est issu. À plat (par défaut), il n'a qu'une couleur, la moyenne de son morceau ;
+// sinon l'image reste visible, avec en option un flou de profondeur de champ, des bords
+// fondus et un reflet irisé (les réglages d'avant la DA « Pixels »).
 const FRAGMENT = /* glsl */ `
 uniform sampler2D uMap;
 uniform float uHasMap;
@@ -122,6 +122,8 @@ uniform float uDaMix;
 uniform float uFlat;
 uniform float uOpacity;
 uniform float uSoft;
+uniform float uRadius;
+uniform float uAspect;
 uniform float uBlur;
 uniform float uIrid;
 uniform float uSeed;
@@ -166,9 +168,17 @@ void main() {
   col = mix(col, col * (0.6 + 0.8 * spec) + 0.06 * spec, uIrid);
   col += 0.1 * uIrid * smoothstep(0.55, 0.0, g);
 
+  // Coins arrondis : un rectangle dont le plus petit côté vaut 1, et dont le rayon des
+  // coins est la fraction uRadius de ce côté. Sa distance signée donne une découpe nette,
+  // lissée sur un pixel d'écran.
+  vec2 sz = uAspect >= 1.0 ? vec2(uAspect, 1.0) : vec2(1.0, 1.0 / uAspect);
+  vec2 q = abs((vUv - 0.5) * sz) - 0.5 * sz + uRadius;
+  float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uRadius;
+  float cover = clamp(0.5 - dist / max(fwidth(dist), 0.0001), 0.0, 1.0);
+
   // Bords fondus : l'opacité retombe vers le bord. À 0, la découpe est nette.
   float e = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
-  float a = smoothstep(0.0, max(uSoft, 0.01) * 0.5, e);
+  float a = cover * smoothstep(0.0, max(uSoft, 0.01) * 0.5, e);
   gl_FragColor = linearToOutputTexel(vec4(col, a * uOpacity));
 }
 `;
@@ -187,7 +197,8 @@ function toLinear(out: Color, c: RGB): Color {
  * L'image qui se sépare en morceaux : des carrés de tailles variées, chacun d'une
  * seule couleur (la moyenne de son morceau d'image, donc voisins, ils forment le
  * dégradé de l'image), répartis sur trois plans de profondeur (parallaxe et échelle
- * différentes), nets, sans flou ni bord fondu. S'utilise pour l'ouverture d'un
+ * différentes), nets, aux coins à peine arrondis (`da.pixelRadius`), sans flou ni bord
+ * fondu. S'utilise pour l'ouverture d'un
  * artifact et pour le passage d'une carte à la suivante : `source` dit quelle carte
  * décomposer et avec quelle intensité.
  */
@@ -222,6 +233,8 @@ export function ShardField({
             uFlat: { value: 1 },
             uOpacity: { value: 0 },
             uSoft: { value: 0 },
+            uRadius: { value: 0 },
+            uAspect: { value: 1 },
             uBlur: { value: 0 },
             uIrid: { value: 0 },
             uSeed: { value: hash01(i * 11.3 + 8.1) },
@@ -322,6 +335,8 @@ export function ShardField({
       const fadeIn = Math.min(1, life / 0.12);
       u.uOpacity.value = intensity * p.opacity * plane.opacity * fadeIn * Math.pow(1 - life, 1.1);
       u.uSoft.value = p.softness;
+      u.uRadius.value = debug.current.da.pixelRadius;
+      u.uAspect.value = w / h;
       u.uBlur.value = plane.blur;
       u.uIrid.value = p.iridescence;
       u.uTime.value = clock;

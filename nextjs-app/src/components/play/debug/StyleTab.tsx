@@ -97,11 +97,22 @@ export function StyleTab({
 
         "Pixels et degrades": folder(
           {
-            daNavPixels: num(da, "navPixels", { label: "Pastille play : opacite", min: 0, max: 3, step: 0.05 }),
+            daRadius: num(da, "pixelRadius", { label: "Pixels : coins arrondis (0 carre, 0.5 rond)", min: 0, max: 0.5, step: 0.01 }),
+            daNavPixels: num(da, "navPixels", { label: "Pastille play : opacite des pixels de couleur", min: 0, max: 3, step: 0.05 }),
+            daNavSize: num(da, "navPixelSize", { label: "Pastille play : taille d un pixel (rem)", min: 0.25, max: 0.6, step: 0.0625 }),
+            daNavGray: num(da, "navGray", { label: "Pastille play : fond gris (force)", min: 0, max: 3, step: 0.05 }),
             daNavDrift: num(da, "navDriftPeriod", { label: "Pastille play : defilement actif (s)", min: 3, max: 60, step: 1 }),
             daNavHoverDur: num(da, "navHoverDuration", { label: "Pastille play : vague au survol (s)", min: 0.3, max: 3, step: 0.05 }),
             daNavHoverSpread: num(da, "navHoverSpread", { label: "Pastille play : etalement de la vague (s)", min: 0.1, max: 2, step: 0.05 }),
             daPanelSize: num(da, "panelPixelSize", { label: "Pixels du panel (taille, rem)", min: 0.25, max: 1.5, step: 0.0625 }),
+            // La densité change les pixels rendus : React doit les refaire (comme l'opacité).
+            daPanelDensity: {
+              ...num(da, "panelPixelDensity", { label: "Pixels du panel (nombre, 1 = grille pleine)", min: 0, max: 1, step: 0.01 }),
+              onChange: (v: number) => {
+                da.panelPixelDensity = v;
+                onPanelChange?.();
+              },
+            },
             panelGlitch: {
               ...num(tr, "panelGlitch", { label: "Pixels du panel (opacite)", min: 0, max: 1, step: 0.01 }),
               onChange: (v: number) => {
@@ -110,6 +121,7 @@ export function StyleTab({
               },
             },
             daPanelSpread: num(da, "panelGradientSpread", { label: "Degrade du panel (etendue)", min: 0.4, max: 2.2, step: 0.05 }),
+            daPanelIrid: num(da, "panelGradientIrid", { label: "Degrade du panel (irisation, 0 = couleurs de la page)", min: 0, max: 1, step: 0.02 }),
             panelGradientStrength: num(tr, "panelGradientStrength", { label: "Degrade du panel (intensite)", min: 0, max: 1, step: 0.01 }),
             panelGradientSpeed: num(tr, "panelGradientSpeed", { label: "Degrade du panel (vitesse)", min: 0, max: 6, step: 0.1 }),
           },

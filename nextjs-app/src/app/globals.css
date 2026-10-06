@@ -432,10 +432,10 @@ body.body-project {
 }
 
 /* ── DA « Pixels » (cf. src/lib/da.ts) ─────────────────────────────────────
-   Des carrés plats, une couleur unie chacun, sans flou ni bord fondu : le dégradé
-   naît entre voisins, et les pixels s'allument puis redeviennent blancs. Animations
-   limitées à transform/opacity, composées sur le GPU et fluides même quand le
-   thread principal charge les textures. */
+   Des carrés plats aux coins à peine arrondis, une couleur unie chacun, sans flou ni
+   bord fondu : le dégradé naît entre voisins, et les pixels s'allument puis
+   redeviennent blancs. Animations limitées à transform/opacity, composées sur le GPU
+   et fluides même quand le thread principal charge les textures. */
 :root {
   --da-sky: #8fd0ff;
   --da-lilac: #a99bff;
@@ -443,6 +443,9 @@ body.body-project {
   --da-mint: #8ff0d8;
   --da-apricot: #ffd6a0;
   --da-ink: #4a6cff;
+  /* Rayon des coins d'un pixel, en fraction de son côté (DA_RADIUS dans lib/da.ts ;
+     le debug de /play l'écrase en direct). */
+  --da-radius: 28%;
 }
 
 /* Loader /play : apparition par paliers (steps), scintillement entre la couleur et
@@ -461,6 +464,11 @@ body.body-project {
 @keyframes ld-out {
   0% { opacity: var(--da-a, 1); transform: translate(0, 0) scale(1); }
   100% { opacity: 0; transform: translate(var(--ox, 0), var(--oy, 0)) scale(0.2); }
+}
+
+.ld-pixel,
+.ld-cell {
+  border-radius: var(--da-radius, 28%);
 }
 
 .ld-pixel {
@@ -488,11 +496,12 @@ body.body-project {
   animation: ld-cell-in 0.3s steps(3, end) both;
 }
 
-/* Pastille « play » de la navigation : un champ de petits carrés dont une partie
-   est allumée (couleur unie, en dégradé d'un voisin à l'autre) ; les autres restent
-   blancs. Actif : le champ défile doucement vers la droite, sans vague. Survol :
-   une vague balaie le champ de gauche à droite (--x décale chaque pixel), allume
-   d'autres pixels, puis chacun redevient blanc. */
+/* Pastille « play » de la navigation : un champ de carrés arrondis (--da-cell de
+   côté) dont une partie est allumée (couleur unie, en dégradé d'un voisin à l'autre),
+   une autre est un gris pâle qui fait le fond (--da-nav-gray règle sa force) ; le
+   reste est blanc. Actif : le champ défile doucement vers la droite, sans vague.
+   Survol : une vague balaie le champ de gauche à droite (--x décale chaque pixel),
+   allume d'autres pixels, puis chacun redevient blanc (ou gris, dessous). */
 @keyframes da-drift {
   from { transform: translateX(-50%); }
   to { transform: translateX(0); }
@@ -513,13 +522,20 @@ body.body-project {
   animation: da-drift var(--da-period, 14s) linear infinite;
 }
 
-/* Opacité d'un pixel allumé : sa force propre (--a) × le réglage de la nav, plafonnée à 1. */
 .da-cell {
+  border-radius: var(--da-radius, 28%);
+  /* Opacité d'un pixel allumé : sa force propre (--a) × le réglage de la nav, plafonnée à 1. */
   --lit: min(1, calc(var(--a, 0.8) * var(--da-nav-a, 1) * 0.5));
 }
 
-.da-field .da-cell {
+.da-field .da-cell-color {
   opacity: var(--lit);
+}
+
+/* Fond de la pastille : un gris neutre, plus ou moins transparent d'un pixel à l'autre
+   (--a, de 0.05 à 0.16 : des niveaux de gris pâles, jamais sombres). */
+.da-cell-gray {
+  background-color: rgb(24 24 27 / min(1, calc(var(--a, 0.1) * var(--da-nav-gray, 1))));
 }
 
 .da-field-hover .da-cell {
@@ -528,10 +544,13 @@ body.body-project {
   animation-delay: calc(var(--x, 0) * var(--da-hover-spread, 0.55s));
 }
 
-/* Panel : un champ de petits carrés dans le coin bas droit, qui scintillent sans
-   interruption, de --pg-lo à --pg-hi : jamais jusqu'à zéro, donc jamais de temps
-   mort. Le déphasage (--pg-delay) suit la distance au coin : de lentes pulsations
-   en rayonnent. --pg-size (debug) règle la taille d'un pixel. */
+/* Panel : un champ clairsemé de carrés arrondis dans le coin bas droit, qui
+   scintillent sans interruption, de --pg-lo à --pg-hi : jamais jusqu'à zéro, donc
+   jamais de temps mort. Le déphasage (--pg-delay) suit la distance au coin : de lentes
+   pulsations en rayonnent. --pg-size (debug) règle la taille d'un pixel. Les couleurs
+   sont celles de la page ouverte : --pg-c0 (au coin), --pg-c1 (le long du bord droit)
+   et --pg-c2 (le long du bas) sont posées sur le champ par usePanelGradient depuis la
+   palette du média ; tant qu'elle n'est pas calculée, le début du spectre de la DA. */
 @keyframes pg-twinkle {
   0%, 100% { opacity: var(--pg-lo, 0.14); }
   50% { opacity: var(--pg-hi, 0.95); }
@@ -543,10 +562,15 @@ body.body-project {
 }
 
 .pg-field {
+  --pg-c0: var(--da-rose);
+  --pg-c1: var(--da-lilac);
+  --pg-c2: var(--da-sky);
   animation: pg-fade-in 0.9s ease-out both;
 }
 
 .pg-cell {
+  border-radius: var(--da-radius, 28%);
+  background-color: var(--pg-c0);
   animation: pg-twinkle var(--pg-t, 3.6s) ease-in-out var(--pg-delay, 0s) infinite;
 }
 

@@ -17,6 +17,7 @@ import { Canvas, events, useFrame } from "@react-three/fiber";
 import { Stats, useTexture } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
 import { useActionBar } from "@/contexts/ActionBarContext";
+import { DA_RADIUS } from "@/lib/da";
 import { preloadArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
 import { fileRefToUrl, playMediaUrl } from "@/lib/sanity-utils";
@@ -53,7 +54,7 @@ import { CursorTrail } from "./CursorTrail";
 import { PlayCursor } from "./PlayCursor";
 import { ShardField, SHARD_DEFAULTS, type ShardParams, type ShardSource } from "./ShardField";
 import { CORNER_SMOOTHING } from "./rounded-frame";
-import { PanelPixels } from "./PanelPixels";
+import { PanelPixels, PANEL_PIXEL_DENSITY } from "./PanelPixels";
 import { SelectProgressOverlay } from "./SelectProgressOverlay";
 import {
   type TransitionConfig,
@@ -289,10 +290,20 @@ export const HOVER_DEFAULTS: HoverParams = {
   waveGlow: 0.6,
 };
 
-/** Réglages de la DA « Pixels » (cf. lib/da.ts) qui ne sont pas rendus par le canvas. */
+/**
+ * Réglages de la DA « Pixels » (cf. lib/da.ts). Les carrés de l'interface (nav, side
+ * panel, loader) les reçoivent en variables CSS sur `:root` ; le curseur et les éclats
+ * du canvas lisent le rayon ici.
+ */
 export type DaParams = {
-  /** Opacité des pixels de la pastille « play » dans la navigation (0 = coupés). */
+  /** Rayon des coins de tous les pixels, en fraction de leur côté (0 = carré net, 0.5 = rond). */
+  pixelRadius: number;
+  /** Opacité des pixels de couleur de la pastille « play » dans la navigation (0 = coupés). */
   navPixels: number;
+  /** Côté d'un pixel de la pastille « play » (rem). */
+  navPixelSize: number;
+  /** Force des pixels gris qui font le fond de la pastille « play » (× ; 0 = coupés). */
+  navGray: number;
   /** Durée d'un passage du champ de pixels de la pastille « play » active (s) : plus grand = plus chill. */
   navDriftPeriod: number;
   /** Durée de la vague de survol de la pastille « play » (s). */
@@ -301,17 +312,26 @@ export type DaParams = {
   navHoverSpread: number;
   /** Taille d'un pixel du coin bas droit du side panel (rem). */
   panelPixelSize: number;
+  /** Nombre de pixels du coin bas droit du side panel (0..1 ; la grille pleine en compte ~135). */
+  panelPixelDensity: number;
   /** Étendue du dégradé du side panel (×). */
   panelGradientSpread: number;
+  /** Irisation du dégradé du side panel (0 = les seules couleurs de la page ouverte, 1 = arc-en-ciel). */
+  panelGradientIrid: number;
 };
 
 export const DA_DEFAULTS: DaParams = {
+  pixelRadius: DA_RADIUS,
   navPixels: 2,
+  navPixelSize: 0.5,
+  navGray: 1,
   navDriftPeriod: 14,
   navHoverDuration: 1.1,
   navHoverSpread: 0.55,
   panelPixelSize: 0.5,
+  panelPixelDensity: PANEL_PIXEL_DENSITY,
   panelGradientSpread: 1.8,
+  panelGradientIrid: 0,
 };
 
 export type PlayDebugState = {
@@ -1141,21 +1161,20 @@ function CameraRig({
       );
     }
 
-    // DA : opacité des pixels de la nav et taille des pixels du panel (variables CSS).
+    // DA : rayon des pixels, pixels de la nav et du panel (variables CSS, écrites seulement quand elles changent).
     const da = debug.current.da;
     const rootStyle = document.documentElement.style;
-    if (rootStyle.getPropertyValue("--da-nav-a") !== String(da.navPixels)) {
-      rootStyle.setProperty("--da-nav-a", String(da.navPixels));
-    }
-    if (rootStyle.getPropertyValue("--pg-size") !== `${da.panelPixelSize}rem`) {
-      rootStyle.setProperty("--pg-size", `${da.panelPixelSize}rem`);
-    }
-    const navVars: [string, string][] = [
+    const daVars: [string, string][] = [
+      ["--da-radius", `${Math.round(da.pixelRadius * 1000) / 10}%`],
+      ["--da-nav-a", String(da.navPixels)],
+      ["--da-cell", `${da.navPixelSize}rem`],
+      ["--da-nav-gray", String(da.navGray)],
+      ["--pg-size", `${da.panelPixelSize}rem`],
       ["--da-period", `${da.navDriftPeriod}s`],
       ["--da-hover-dur", `${da.navHoverDuration}s`],
       ["--da-hover-spread", `${da.navHoverSpread}s`],
     ];
-    for (const [name, value] of navVars) {
+    for (const [name, value] of daVars) {
       if (rootStyle.getPropertyValue(name) !== value) rootStyle.setProperty(name, value);
     }
 
@@ -1681,7 +1700,9 @@ export function PlayCanvas({
     };
   }, [tile]);
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
-  usePanelGradient(panelEl, deckWeightsRef, palettesRef, debug);
+  // Le champ de pixels du coin bas droit : le hook y pose les couleurs de la page ouverte.
+  const panelPixelsRef = useRef<HTMLDivElement | null>(null);
+  usePanelGradient(panelEl, panelPixelsRef, deckWeightsRef, palettesRef, debug);
 
   const loadPalette = useCallback((media: { url: string; kind: "image" | "video" }) => {
     if (palettesRef.current.has(media.url)) return;
@@ -2230,7 +2251,7 @@ export function PlayCanvas({
       {active && <CursorTrail debug={debug} />}
 
       {selectedArtifactDetail && isDetailVisible && (
-        <PanelPixels intensity={debug.current.transition.panelGlitch} />
+        <PanelPixels debug={debug} fieldRef={panelPixelsRef} />
       )}
 
       <AnimatePresence mode="wait">

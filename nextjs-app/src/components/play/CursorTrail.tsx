@@ -23,8 +23,8 @@ const MAX_PARTICLES = 36;
 const GRADIENT_PERIOD = 8000;
 
 /**
- * Légère traînée de pixels derrière le curseur : de petits carrés unis, sans flou,
- * dont la couleur dérive lentement le long du dégradé de la DA (ciel → lilas →
+ * Légère traînée de pixels derrière le curseur : de petits carrés unis, aux coins à
+ * peine arrondis, sans flou, dont la couleur dérive lentement le long du dégradé de la DA (ciel → lilas →
  * rose) : d'un pixel au suivant, la teinte glisse. Dessinée sur un canvas 2D qui ne
  * tourne que tant qu'il reste des particules, donc gratuit au repos. Intensité
  * réglable (0 = coupée) dans le debug, onglet global.
@@ -71,7 +71,16 @@ export function CursorTrail({ debug }: { debug: PlayDebugRef }) {
         const y = Math.round(p.y / 2) * 2 - s / 2;
         ctx.globalAlpha = Math.pow(1 - f, 1.3) * 0.75;
         ctx.fillStyle = p.color;
-        ctx.fillRect(x, y, s, s);
+        // Coins à peine arrondis comme tous les pixels de la DA ; carré net quand le
+        // rayon est nul, ou quand le navigateur n'a pas `roundRect`.
+        const radius = Math.min(s / 2, s * debug.current.da.pixelRadius);
+        if (radius > 0.25 && ctx.roundRect) {
+          ctx.beginPath();
+          ctx.roundRect(x, y, s, s, radius);
+          ctx.fill();
+        } else {
+          ctx.fillRect(x, y, s, s);
+        }
       }
       ctx.globalAlpha = 1;
       particles = alive;

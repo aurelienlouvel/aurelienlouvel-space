@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, type MutableRefObject } from "react";
+import { daSpectrumRgb } from "@/lib/da";
 import type { RGB } from "@/lib/dominant-color";
 import type { PlayDebugRef } from "./PlayCanvas";
 
 export type DeckWeight = { url: string; kind: "image" | "video"; w: number };
 
 const WHITE: RGB = [255, 255, 255];
+/**
+ * Les couleurs de repli quand la page n'a pas (encore) de palette : le rose, le lilas
+ * et le ciel de la DA, dans l'ordre coin → milieu → bord du dégradé.
+ */
+const FALLBACK: RGB[] = [daSpectrumRgb(0.5), daSpectrumRgb(0.25), daSpectrumRgb(0)];
 
 function mix(list: { w: number; c: RGB }[], fallback: RGB): RGB {
   let total = 0;
@@ -47,9 +53,15 @@ const rgb = (c: RGB, a = 1) =>
  * Anime en continu le fond du side panel : trois teintes par média, mélangées
  * selon le poids de chaque carte visible (deux cartes à moitié passées = deux
  * palettes à parts égales), et des halos qui dérivent sans jamais s'arrêter.
+ *
+ * Les couleurs viennent de la page ouverte, pas d'un arc-en-ciel à part : le halo en
+ * reprend les teintes (délavées), et les pixels du coin bas droit (`pixelsRef`, voir
+ * `PanelPixels`) les reçoivent telles quelles par `--pg-c0`, `--pg-c1`, `--pg-c2`.
+ * `da.panelGradientIrid` (0 par défaut) y mêle un peu d'irisation, pour comparer.
  */
 export function usePanelGradient(
   el: HTMLElement | null,
+  pixelsRef: MutableRefObject<HTMLElement | null>,
   weightsRef: MutableRefObject<DeckWeight[]>,
   palettesRef: MutableRefObject<Map<string, RGB[]>>,
   debug: PlayDebugRef,
@@ -77,13 +89,25 @@ export function usePanelGradient(
         if (!pal || next < 0.002) continue;
         for (let i = 0; i < 3; i++) layers[i].push({ w: next, c: pal[i] });
       }
-      // Teintes du média, un peu délavées : le dégradé reste léger.
-      const c0 = tint(mix(layers[0], WHITE), 0.75);
-      const c1 = tint(mix(layers[1], WHITE), 0.75);
-      const c2 = tint(mix(layers[2], WHITE), 0.75);
+      // Les trois teintes de la page ; sans palette (pas encore chargée), celles de la DA.
+      const base = layers.map((layer, i) => mix(layer, FALLBACK[i]));
 
-      // Irisation : trois pastels qui glissent lentement le long du spectre, mêlés
-      // à moitié aux teintes du média pour rester accordés à ce qu'on regarde.
+      // Les pixels du coin ne changent qu'avec la palette : on n'écrit que ce qui bouge.
+      const field = pixelsRef.current;
+      if (field) {
+        base.forEach((c, i) => {
+          const value = rgb(c);
+          const name = `--pg-c${i}`;
+          if (field.style.getPropertyValue(name) !== value) field.style.setProperty(name, value);
+        });
+      }
+
+      // Teintes du média, un peu délavées : le dégradé reste léger.
+      const [c0, c1, c2] = base.map((c) => tint(c, 0.75));
+
+      // Irisation (0 par défaut) : trois pastels qui glissent lentement le long du
+      // spectre, mêlés aux teintes du média à hauteur de `panelGradientIrid`.
+      const irid = Math.min(1, Math.max(0, debug.current.da.panelGradientIrid));
       const ph = t * 0.045;
       const iri = (k: number): RGB => [
         215 + 40 * Math.cos(2 * Math.PI * (ph + k)),
@@ -91,13 +115,13 @@ export function usePanelGradient(
         215 + 40 * Math.cos(2 * Math.PI * (ph + k + 0.67)),
       ];
       const blend = (a: RGB, b: RGB): RGB => [
-        a[0] * 0.5 + b[0] * 0.5,
-        a[1] * 0.5 + b[1] * 0.5,
-        a[2] * 0.5 + b[2] * 0.5,
+        a[0] + (b[0] - a[0]) * irid,
+        a[1] + (b[1] - a[1]) * irid,
+        a[2] + (b[2] - a[2]) * irid,
       ];
-      const k0 = blend(iri(0), c0);
-      const k1 = blend(iri(0.3), c1);
-      const k2 = blend(iri(0.6), c2);
+      const k0 = blend(c0, iri(0));
+      const k1 = blend(c1, iri(0.3));
+      const k2 = blend(c2, iri(0.6));
 
       // Le dégradé occupe le bas du panel et monte le long du bord droit ; le haut
       // reste blanc. Les halos dérivent lentement autour du coin bas droit.
@@ -124,5 +148,5 @@ export function usePanelGradient(
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [el, weightsRef, palettesRef, debug]);
+  }, [el, pixelsRef, weightsRef, palettesRef, debug]);
 }

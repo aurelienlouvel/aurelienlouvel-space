@@ -2,18 +2,29 @@
  * DA « Pixels » — le langage visuel de /play, partagé par toutes les interfaces
  * concernées (loader, navigation, side panel, curseur, éclats du canvas).
  *
- * - Forme : des carrés, rien d'autre. Ni rectangles de formats variés, ni coins
- *   arrondis, ni dégradé à l'intérieur d'un pixel.
+ * - Forme : des carrés, rien d'autre, aux coins à peine arrondis (`DA_RADIUS`). Ni
+ *   rectangles de formats variés, ni dégradé à l'intérieur d'un pixel.
  * - Matière : un aplat net. Une couleur unie par pixel, sans flou, sans verre
- *   translucide, sans bord fondu. Un pixel éteint est blanc.
+ *   translucide, sans bord fondu. Un pixel éteint est blanc ; dans la pastille de
+ *   la nav, un fond de pixels gris pâles (niveaux de gris, à peine visibles) fait
+ *   le décor des pixels de couleur.
  * - Couleur : le dégradé naît ENTRE les pixels voisins (`daGradientAt`) : côte à
  *   côte, ils glissent d'une teinte à sa voisine du spectre pastel. On n'en montre
  *   qu'une fenêtre courte à la fois (`DA_WINDOW`), jamais tout le spectre d'un coup.
- *   Les mêmes valeurs vivent dans `globals.css` (`--da-*`) pour le CSS pur.
+ *   Les mêmes valeurs vivent dans `globals.css` (`--da-*`) pour le CSS pur. Dans le
+ *   panneau de détail, les couleurs viennent de la page ouverte (la palette de son
+ *   média) ; le spectre ci-dessous n'y sert que de repli.
  * - Mouvement : des pixels qui s'allument puis redeviennent blancs. La vague balaie
  *   la nav de gauche à droite et traverse les cartes au survol (une bande blanche
  *   lumineuse) ; le coin bas droit du panneau scintille en permanence.
  */
+
+/**
+ * Rayon des coins d'un pixel, en fraction de son côté (0 = carré net, 0.5 = rond).
+ * La même valeur vit dans `globals.css` (`--da-radius`, pour le CSS pur et le loader
+ * qui s'affiche avant le canvas) ; le debug de /play (Style) la règle en direct.
+ */
+export const DA_RADIUS = 0.28;
 
 export const DA_COLORS = {
   sky: "#8fd0ff",
