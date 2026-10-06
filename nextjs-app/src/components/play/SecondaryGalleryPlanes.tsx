@@ -19,6 +19,7 @@ import type { PlayDebugRef, PlayRuntimeRef } from "./PlayCanvas";
 import { buildImageUrl } from "@/lib/sanity-image";
 import { fileRefToUrl, playMediaUrl } from "@/lib/sanity-utils";
 import { thumbnailRatio } from "@/lib/thumbnail-ratios";
+import { CardShadow } from "./CardShadow";
 import {
   attachUniforms,
   CARD_TILT_GLSL,
@@ -428,6 +429,7 @@ function GallerySlotPlane({
         onBeforeCompile={roundCorners}
         customProgramCacheKey={roundCornersCacheKey}
       />
+      <CardShadow debug={debug} />
     </mesh>
   );
 }

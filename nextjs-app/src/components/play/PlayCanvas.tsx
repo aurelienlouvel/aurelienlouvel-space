@@ -357,7 +357,7 @@ export type PlayDebugState = {
   da: DaParams;
   cursor: CursorParams;
   background: BackgroundParams;
-  /** Ombre portée des cartes de la mosaïque (cf. CardShadow.tsx). */
+  /** Contour (ex-ombre portée) de toutes les cartes, mosaïque et deck (cf. CardShadow.tsx). */
   shadow: ShadowParams;
   /** Style visuel actif (une DA complète : « prism » pour l'instant). */
   style: { name: string };

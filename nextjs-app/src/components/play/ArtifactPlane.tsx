@@ -453,7 +453,7 @@ function ArtifactPlaneMesh({
         onBeforeCompile={roundCorners}
         customProgramCacheKey={roundCornersCacheKey}
       />
-      <CardShadow debug={debug} runtime={runtime} />
+      <CardShadow debug={debug} />
     </mesh>
   );
 }

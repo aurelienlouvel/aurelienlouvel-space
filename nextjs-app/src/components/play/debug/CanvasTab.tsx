@@ -5,7 +5,7 @@ import type { PlayDebugRef } from "../PlayCanvas";
 import type { LayoutStats } from "../layout-types";
 import { num, toggle } from "./controls";
 
-/** Canvas : la mosaïque (layout), le fond de points (plan de travail) et l'ombre des cartes. */
+/** Canvas : la mosaïque (layout) et le fond de points (plan de travail). */
 export function CanvasTab({
   state,
   stats,
@@ -17,7 +17,6 @@ export function CanvasTab({
 }) {
   const g = state.current.gravity;
   const bg = state.current.background;
-  const sh = state.current.shadow;
 
   const layoutNum = (
     key: "targetAspect" | "gap" | "repeatGap" | "repeat" | "iterations" | "seed",
@@ -56,17 +55,6 @@ export function CanvasTab({
       dotOpacity: num(bg, "dotOpacity", { label: "Opacite", min: 0, max: 0.6, step: 0.01 }),
       dotColor: { label: "Couleur", value: bg.dotColor, onChange: (v: string) => { bg.dotColor = v; } },
       parallax: num(bg, "parallax", { label: "Parallaxe (1 = colle au plan)", min: 0, max: 1.5, step: 0.02 }),
-    }),
-
-    Ombre: folder({
-      shadow: toggle(sh, "enabled", "Ombre portee"),
-      shadowOpacity: num(sh, "opacity", { label: "Opacite", min: 0, max: 0.6, step: 0.01 }),
-      shadowBlur: num(sh, "blur", { label: "Flou (monde)", min: 0, max: 120, step: 1 }),
-      shadowOffsetY: num(sh, "offsetY", { label: "Decalage bas (monde)", min: -40, max: 80, step: 1 }),
-      shadowOffsetX: num(sh, "offsetX", { label: "Decalage droite (monde)", min: -60, max: 60, step: 1 }),
-      shadowSpread: num(sh, "spread", { label: "Etalement (monde)", min: -40, max: 40, step: 1 }),
-      shadowLift: num(sh, "lift", { label: "Soulevement au survol", min: 0, max: 2, step: 0.05 }),
-      shadowColor: { label: "Couleur", value: sh.color, onChange: (v: string) => { sh.color = v; } },
     }),
 
     ...(stats
