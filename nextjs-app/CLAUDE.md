@@ -54,6 +54,13 @@ Pour passer en mode projet, placer dans la page :
 ```
 Le cleanup (retour en mode nav) se fait automatiquement au unmount.
 
+### Copyright (`SiteFooter`)
+`components/layout/SiteFooter.tsx` : « © 2026. Aurélien Louvel / All Rights Reserved » (année écrite en dur), dernier
+élément des pages qui défilent (work, projet, info), posé après le `<main>` dans le `PageShell` (sinon ce n'est plus un
+repère `contentinfo`). Il porte la marge basse qui dégage la fin de page de l'ActionBar flottante (`pb-36` : elle couvre
+3 à 7 rem au-dessus du bas de l'écran) : une nouvelle page qui défile n'ajoute pas son propre `pb-*` et finit par
+`<SiteFooter />`. Pas sur /play (rien à faire défiler) ni dans le layout racine.
+
 ### Fetches Sanity typés
 ```ts
 const projects = await client.fetch<ProjectListItem[]>(projectsListQuery);
