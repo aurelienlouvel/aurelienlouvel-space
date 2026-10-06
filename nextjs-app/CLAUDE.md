@@ -64,9 +64,14 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
 - DA commune (loader, nav, side panel, curseur, éclats) : `src/lib/da.ts` — rectangles de verre
   translucides, dégradés, bords fondus, spectre pastel, coins lissés à 32 % (`CORNER_SMOOTHING`
   côté shaders, `--da-corner-k` côté CSS).
+- Dézoom de la caméra en mouvement : lié au retard de la caméra sur sa cible
+  (`components/play/camera-dezoom.ts`), pas à une vitesse lissée à part : un lissage de plus sur le zoom
+  réintroduirait une animation de fin sur un canvas déjà statique. Au drag et à la molette, le zoom pivote
+  autour du pointeur (`dezoomAnchor`) ; réglages dans `/play#debug` › Global › Dezoom en mouvement.
 - La scène 3D vit dans le layout (`components/play/PlayHost.tsx`) : montée à la première visite de
   `/play`, puis gardée en vie (invisible, `frameloop="never"`) ; la page `/play` ne fait que lui passer
-  les artifacts via `<PlayMount>`. `html[data-play]` active les curseurs 56px de `/public/cursors/lg`.
+  les artifacts via `<PlayMount>`. `html[data-play]` n'active les curseurs SVG de `/public/cursors`
+  (`globals.css`) que sur `/play` : partout ailleurs, curseur système.
 - Empilement des cartes : au seul `renderOrder`, jamais à la profondeur. Les matériaux des cartes (mosaïque,
   deck) n'ont ni `depthTest` ni `depthWrite`, et `applyCardTilt` reste un warp 2D (z = 0) : un z réel
   ferait se découper deux cartes inclinées voisines. Ordre : mosaïque 0 · tuile qui s'ouvre 10 · vague de
@@ -75,4 +80,6 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
 - Réglages visuels : `/play#debug`, 5 onglets (global : caméra + curseur ; media ; canvas : layout + fond de points ;
   style : select « prism » ; animation : survol / ouverture / carte suivante, avec inspecteur et rejeu).
   Le code vit dans `components/play/debug/`. `window.__play` expose l'état.
-- Le curseur de /play est dessiné par `PlayCursor` (incliné selon le mouvement, grossit au survol, rétrécit au clic).
+- Le curseur de /play est dessiné par `PlayCursor` (incliné selon la vitesse du pointeur par un ressort
+  amorti sans retard, grossit au survol, rétrécit au clic). Il est rendu en portail dans `<body>` : la
+  surface de /play est un contexte d'empilement, un curseur placé dedans passerait sous l'ActionBar.
