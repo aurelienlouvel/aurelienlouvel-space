@@ -196,10 +196,14 @@ export type CursorParams = {
   size: number;
   /** Inclinaison maximale selon la direction du mouvement (degrés). */
   rotate: number;
-  /** Vitesse (px/s) à partir de laquelle l'inclinaison est maximale. */
-  rotateSpeedRef: number;
-  /** Raideur de l'inclinaison (par seconde). */
-  rotateSmooth: number;
+  /** Vitesse (px/s) à laquelle l'inclinaison atteint ~76 % du maximum (la réponse sature). */
+  tiltSpeedRef: number;
+  /** Part de la vitesse verticale dans l'inclinaison (négatif : descendre incline vers la gauche). */
+  tiltVertical: number;
+  /** Fréquence propre du ressort d'inclinaison (rad/s) : plus haut, plus nerveux. */
+  tiltFrequency: number;
+  /** Amortissement du ressort : 1 = sans rebond, en dessous = léger rebond. */
+  tiltDamping: number;
   /** Échelle au survol d'un artifact. */
   hoverScale: number;
   /** Échelle pendant le clic. */
@@ -212,8 +216,10 @@ export const CURSOR_DEFAULTS: CursorParams = {
   enabled: true,
   size: 56,
   rotate: 28,
-  rotateSpeedRef: 1400,
-  rotateSmooth: 14,
+  tiltSpeedRef: 900,
+  tiltVertical: -0.3,
+  tiltFrequency: 45,
+  tiltDamping: 0.8,
   hoverScale: 1.35,
   pressScale: 0.78,
   scaleSpeed: 16,
