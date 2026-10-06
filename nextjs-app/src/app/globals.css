@@ -540,17 +540,11 @@ body.body-project {
   animation-delay: calc(var(--x, 0) * var(--da-hover-spread, 0.55s));
 }
 
-/* Panel : une forme tramée de gros carrés dans le coin bas droit, qui respirent lentement
-   et peu (jamais de scintillement). Chaque pixel va de l'opacité 1 à 1 − --pg-pulse × --pg-k
-   (sa profondeur propre) et revient en --pg-period secondes, déphasé de --pg-ph (0..1) :
-   une onde lente rayonne depuis le coin. --pg-size (debug) règle la taille d'un pixel.
-   Les couleurs sont celles de la page ouverte : --pg-c0 (au coin), --pg-c1 (le long du bord
-   droit) et --pg-c2 (le long du bas) sont posées sur le champ par usePanelGradient depuis la
-   palette du média ; tant qu'elle n'est pas calculée, le début du spectre de la DA. */
-@keyframes pg-breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: calc(1 - var(--pg-pulse, 0.4) * var(--pg-k, 1)); }
-}
+/* Panel : une forme tramée de gros carrés dans le coin bas droit. Les cases ne bougent pas :
+   PanelPixels (JS) écrit à chaque image l'opacité et la couleur de chacune, car leur nombre et
+   leurs couleurs vivent (pixelFrame). Reste en CSS : la taille d'une case (--pg-size, debug), le
+   rayon (--da-radius) et l'apparition du champ. Une case part éteinte, du rose de la DA, tant
+   que la boucle ne lui a rien écrit ; sous prefers-reduced-motion, la boucle fige le champ. */
 
 /* Pas de « to » : l'apparition finit sur l'opacité du champ (celle du debug), au lieu de la
    figer à 1. */
@@ -559,35 +553,26 @@ body.body-project {
 }
 
 .pg-field {
-  --pg-c0: var(--da-rose);
-  --pg-c1: var(--da-lilac);
-  --pg-c2: var(--da-sky);
   animation: pg-fade-in 0.9s ease-out both;
 }
 
 .pg-cell {
   border-radius: var(--da-radius, 0%);
-  background-color: var(--pg-c0);
-  animation: pg-breathe var(--pg-period, 8s) ease-in-out infinite;
-  animation-delay: calc(var(--pg-period, 8s) * var(--pg-ph, 0) * -1);
+  opacity: 0;
+  background-color: var(--da-rose);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ld-cell,
   .da-drift,
   .da-field-hover .da-cell,
-  .pg-field,
-  .pg-cell {
+  .pg-field {
     animation: none;
   }
 
   .ld-cell {
     opacity: var(--lit);
     transform: scale(1);
-  }
-
-  .pg-cell {
-    opacity: calc(1 - var(--pg-pulse, 0.4) * 0.5);
   }
 }
 

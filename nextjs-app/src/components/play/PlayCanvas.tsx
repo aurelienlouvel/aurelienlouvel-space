@@ -28,7 +28,7 @@ import { formatMonth } from "@/lib/date-utils";
 import { RoleBlock } from "@/components/blocks/RoleBlock";
 import { DateAgo } from "@/components/blocks/DateAgo";
 import { paletteFromImageUrl, paletteFromVideo, type RGB } from "@/lib/dominant-color";
-import { usePanelGradient, type DeckWeight } from "./panel-gradient";
+import { PANEL_FALLBACK, usePanelGradient, type DeckWeight } from "./panel-gradient";
 import { getSharedVideoElement } from "./SecondaryGalleryPlanes";
 import { ArtifactGrid } from "./ArtifactGrid";
 import {
@@ -338,6 +338,16 @@ export type DaParams = {
   panelPixelPulse: number;
   /** Durée d'une respiration (s) : plus grand = plus calme. */
   panelPixelPeriod: number;
+  /** Variation du nombre de pixels : la densité monte et descend de ± cette part (0 = nombre fixe). */
+  panelPixelFlux: number;
+  /** Durée d'un cycle du nombre de pixels (s). */
+  panelPixelFluxPeriod: number;
+  /** Retard du coin au large dans ce cycle, en part de cycle (0 = tous ensemble, 1 = une onde entière). */
+  panelPixelRipple: number;
+  /** Dérive des couleurs des pixels le long de la palette de la page (0 = fixes, 1 = d'une couleur à la suivante). */
+  panelPixelShift: number;
+  /** Durée d'un cycle des couleurs (s). */
+  panelPixelShiftPeriod: number;
   /** Étendue du dégradé du side panel (×). */
   panelGradientSpread: number;
   /** Irisation du dégradé du side panel (0 = les seules couleurs de la page ouverte, 1 = arc-en-ciel). */
@@ -359,6 +369,11 @@ export const DA_DEFAULTS: DaParams = {
   panelPixelDensity: PANEL_PIXEL_DENSITY,
   panelPixelPulse: 0.4,
   panelPixelPeriod: 8,
+  panelPixelFlux: 0.1,
+  panelPixelFluxPeriod: 10,
+  panelPixelRipple: 0.5,
+  panelPixelShift: 0.75,
+  panelPixelShiftPeriod: 12,
   panelGradientSpread: 1.8,
   panelGradientIrid: 0,
 };
@@ -1210,8 +1225,6 @@ function CameraRig({
       ["--ld-irid", String(da.loaderIrid)],
       ["--ld-strength", String(Math.round(da.loaderStrength * daIridGain(da.loaderIrid) * 1000) / 1000)],
       ["--pg-size", `${da.panelPixelSize}rem`],
-      ["--pg-pulse", String(da.panelPixelPulse)],
-      ["--pg-period", `${da.panelPixelPeriod}s`],
       ["--da-period", `${da.navDriftPeriod}s`],
       ["--da-hover-dur", `${da.navHoverDuration}s`],
       ["--da-hover-spread", `${da.navHoverSpread}s`],
@@ -1793,9 +1806,9 @@ export function PlayCanvas({
     };
   }, [tile]);
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
-  // Le champ de pixels du coin bas droit : le hook y pose les couleurs de la page ouverte.
-  const panelPixelsRef = useRef<HTMLDivElement | null>(null);
-  usePanelGradient(panelEl, panelPixelsRef, deckWeightsRef, palettesRef, debug);
+  // Les trois couleurs de la page ouverte : le hook les tient à jour, les pixels du coin bas droit les lisent.
+  const panelPaletteRef = useRef<RGB[]>(PANEL_FALLBACK);
+  usePanelGradient(panelEl, panelPaletteRef, deckWeightsRef, palettesRef, debug);
 
   const loadPalette = useCallback((media: { url: string; kind: "image" | "video" }) => {
     if (palettesRef.current.has(media.url)) return;
@@ -2353,7 +2366,7 @@ export function PlayCanvas({
       {active && <CursorTrail debug={debug} />}
 
       {selectedArtifactDetail && isDetailVisible && (
-        <PanelPixels debug={debug} fieldRef={panelPixelsRef} />
+        <PanelPixels debug={debug} paletteRef={panelPaletteRef} />
       )}
 
       <AnimatePresence mode="wait">

@@ -12,7 +12,7 @@ const WHITE: RGB = [255, 255, 255];
  * Les couleurs de repli quand la page n'a pas (encore) de palette : le rose, le lilas
  * et le ciel de la DA, dans l'ordre coin → milieu → bord du dégradé.
  */
-const FALLBACK: RGB[] = [daSpectrumRgb(0.5), daSpectrumRgb(0.25), daSpectrumRgb(0)];
+export const PANEL_FALLBACK: RGB[] = [daSpectrumRgb(0.5), daSpectrumRgb(0.25), daSpectrumRgb(0)];
 
 function mix(list: { w: number; c: RGB }[], fallback: RGB): RGB {
   let total = 0;
@@ -55,13 +55,13 @@ const rgb = (c: RGB, a = 1) =>
  * palettes à parts égales), et des halos qui dérivent sans jamais s'arrêter.
  *
  * Les couleurs viennent de la page ouverte, pas d'un arc-en-ciel à part : le halo en
- * reprend les teintes (délavées), et les pixels du coin bas droit (`pixelsRef`, voir
- * `PanelPixels`) les reçoivent telles quelles par `--pg-c0`, `--pg-c1`, `--pg-c2`.
- * `da.panelGradientIrid` (0 par défaut) y mêle un peu d'irisation, pour comparer.
+ * reprend les teintes (délavées), et les pixels du coin bas droit (voir `PanelPixels`) les
+ * lisent telles quelles dans `paletteRef`, que ce hook réécrit à chaque image.
+ * `da.panelGradientIrid` (0 par défaut) mêle un peu d'irisation au halo, pour comparer.
  */
 export function usePanelGradient(
   el: HTMLElement | null,
-  pixelsRef: MutableRefObject<HTMLElement | null>,
+  paletteRef: MutableRefObject<RGB[]>,
   weightsRef: MutableRefObject<DeckWeight[]>,
   palettesRef: MutableRefObject<Map<string, RGB[]>>,
   debug: PlayDebugRef,
@@ -90,17 +90,10 @@ export function usePanelGradient(
         for (let i = 0; i < 3; i++) layers[i].push({ w: next, c: pal[i] });
       }
       // Les trois teintes de la page ; sans palette (pas encore chargée), celles de la DA.
-      const base = layers.map((layer, i) => mix(layer, FALLBACK[i]));
+      const base = layers.map((layer, i) => mix(layer, PANEL_FALLBACK[i]));
 
-      // Les pixels du coin ne changent qu'avec la palette : on n'écrit que ce qui bouge.
-      const field = pixelsRef.current;
-      if (field) {
-        base.forEach((c, i) => {
-          const value = rgb(c);
-          const name = `--pg-c${i}`;
-          if (field.style.getPropertyValue(name) !== value) field.style.setProperty(name, value);
-        });
-      }
+      // Les pixels du coin lisent ces trois couleurs telles quelles.
+      paletteRef.current = base;
 
       // Teintes du média, un peu délavées : le dégradé reste léger.
       const [c0, c1, c2] = base.map((c) => tint(c, 0.75));
@@ -148,5 +141,5 @@ export function usePanelGradient(
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [el, pixelsRef, weightsRef, palettesRef, debug]);
+  }, [el, paletteRef, weightsRef, palettesRef, debug]);
 }
