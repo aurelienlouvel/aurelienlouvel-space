@@ -184,7 +184,7 @@ function roundCorners(
 }
 
 function roundCornersCacheKey() {
-  return "play-secondary-planes-motion-blur-tilt-dissolve";
+  return "play-secondary-planes-motion-blur-tilt-dissolve-flat-tilt";
 }
 
 // ── Cache global de textures vidéo partagées (1 seul élément vidéo HTML5 par URL) ──
@@ -418,6 +418,10 @@ function GallerySlotPlane({
         color={activeTexture ? "#ffffff" : "#000000"}
         opacity={activeTexture ? 1 : 0}
         transparent
+        // Empilement au seul `renderOrder` (posé frame par frame sur le mesh) :
+        // à la profondeur, deux cartes inclinées voisines se découperaient.
+        depthTest={false}
+        depthWrite={false}
         defines={FRAME_DEFINES}
         onBeforeCompile={roundCorners}
         customProgramCacheKey={roundCornersCacheKey}
@@ -688,8 +692,11 @@ export function SecondaryGalleryPlanes({
       ty /= tl;
       const mixAim = Math.min(1, Math.max(0, cfg.deckAimMix ?? 0.8));
       const straightY = pullShown < 0 ? -1 : 1;
+      // Le curseur règle le côté et l'inclinaison de la trajectoire, jamais son
+      // sens vertical : scroller vers le bas fait toujours monter la carte, même
+      // avec le curseur sous son centre (`ty < 0` l'aurait fait descendre).
       let mx = tx * mixAim;
-      let my = ty * mixAim + straightY * (1 - mixAim);
+      let my = straightY * (Math.abs(ty) * mixAim + (1 - mixAim));
       const ml = Math.hypot(mx, my) || 1;
       mx /= ml;
       my /= ml;

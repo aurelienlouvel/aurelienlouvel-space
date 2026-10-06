@@ -72,6 +72,11 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   `/play`, puis gardée en vie (invisible, `frameloop="never"`) ; la page `/play` ne fait que lui passer
   les artifacts via `<PlayMount>`. `html[data-play]` n'active les curseurs SVG de `/public/cursors`
   (`globals.css`) que sur `/play` : partout ailleurs, curseur système.
+- Empilement des cartes : au seul `renderOrder`, jamais à la profondeur. Les matériaux des cartes (mosaïque,
+  deck) n'ont ni `depthTest` ni `depthWrite`, et `applyCardTilt` reste un warp 2D (z = 0) : un z réel
+  ferait se découper deux cartes inclinées voisines. Ordre : mosaïque 0 · tuile qui s'ouvre 10 · vague de
+  sélection 20 · deck `100 − d·10` (≈ 65 à 110 avec `stackDepth` à 3) · carte qui revient 200 · éclats 300.
+  Toute nouvelle couche prend une valeur dans cet ordre.
 - Réglages visuels : `/play#debug`, 5 onglets (global : caméra + curseur ; media ; canvas : layout + fond de points ;
   style : select « prism » ; animation : survol / ouverture / carte suivante, avec inspecteur et rejeu).
   Le code vit dans `components/play/debug/`. `window.__play` expose l'état.
