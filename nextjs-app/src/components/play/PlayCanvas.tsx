@@ -149,11 +149,11 @@ export const OVERLAY_DEFAULTS: SelectOverlayParams = {
   waveAmplitude: 0.15,
   waveFrequency: 6,
   waveSpeed: 2.6,
-  iridescence: 0.64,
+  iridescence: 1,
   baseOpacity: 0.64,
   glowIntensity: 1,
-  zoomBlur: 0.8,
-  zoomPunch: 0.48,
+  zoomBlur: 1.2,
+  zoomPunch: 0.8,
   bulge: 0.4,
   lensWidth: 0.4,
   lensTrail: 0,
@@ -229,11 +229,11 @@ export type CursorParams = {
 export const CURSOR_DEFAULTS: CursorParams = {
   enabled: true,
   size: 56,
-  rotate: 28,
-  tiltSpeedRef: 900,
-  tiltVertical: -0.3,
-  tiltFrequency: 45,
-  tiltDamping: 0.8,
+  rotate: 23,
+  tiltSpeedRef: 200,
+  tiltVertical: -1,
+  tiltFrequency: 60,
+  tiltDamping: 1.4,
   hoverScale: 1.35,
   pressScale: 0.78,
   scaleSpeed: 16,
@@ -625,20 +625,21 @@ function applyArrowNavigation(
 }
 
 // ── Ouverture — image ────────────────────────────────────────────────────
-const PLANE_RADIUS = 45;
-/** Lissage des coins façon Apple (0..1) : 32 % par défaut. */
-const CORNER_SMOOTHING_DEFAULT = 0.2;
+const PLANE_RADIUS = 24;
+/** Lissage des coins façon Apple (0..1) : 16 % par défaut. */
+const CORNER_SMOOTHING_DEFAULT = 0.16;
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
 const INDICATOR_FADE_SPEED = 26;
 const INDICATOR_MOVE_SPEED = 6;
 
 // ── Ouverture — caméra ────────────────────────────────────────────────────
-const CAMERA_ZOOM = 0.8;
+const CAMERA_ZOOM = 0.9;
 const CAMERA_MOTION_BLUR_ENABLED = false;
 const CAMERA_MOTION_BLUR_STRENGTH = 4.0;
 const CAMERA_MOTION_BLUR_MAX = 0.25;
-const CAMERA_SETTLE_SPEED = 8;
+const CAMERA_FOLLOW_SPEED = 4;
+const CAMERA_SETTLE_SPEED = 1;
 /** Vitesse d'extinction des reliquats de courbe : assez rapide pour disparaître
  *  sous la seconde, assez lente pour ne jamais se voir comme un saut. */
 const SETTLE_DECAY_SPEED = 12;
@@ -961,7 +962,7 @@ function stepCamera(
     // Lissage léger du suivi : les deltas discrets de la molette ne sautent plus
     // d'une frame à l'autre. Le recentrage (flèches, sélection) est plus doux.
     const rate = following
-      ? (camCfg?.followSpeed ?? 22)
+      ? (camCfg?.followSpeed ?? CAMERA_FOLLOW_SPEED)
       : (camCfg?.settleSpeed ?? CAMERA_SETTLE_SPEED);
 
     // Inertie du geste : la cible avance avant que le retard soit mesuré. Sa
@@ -1288,14 +1289,14 @@ export function PlayCanvas({
       motionBlur: CAMERA_MOTION_BLUR_ENABLED,
       motionBlurStrength: CAMERA_MOTION_BLUR_STRENGTH,
       motionBlurMax: CAMERA_MOTION_BLUR_MAX,
-      speedDezoom: 0.2,
-      speedDezoomRef: 1800,
-      speedDezoomAttack: 30,
+      speedDezoom: 0.16,
+      speedDezoomRef: 5000,
+      speedDezoomAttack: 200,
       dezoomAnchor: true,
       cursorTrail: 0.2,
       cursorTrailLife: 160,
-      followSpeed: 22,
-      settleSpeed: 8,
+      followSpeed: CAMERA_FOLLOW_SPEED,
+      settleSpeed: CAMERA_SETTLE_SPEED,
       wheelSpeed: 1,
     },
     cursor: { ...CURSOR_DEFAULTS },

@@ -70,9 +70,9 @@ export type ShardParams = {
 };
 
 export const SHARD_DEFAULTS: ShardParams = {
-  count: 34,
+  count: 17,
   minSize: 14,
-  maxSize: 110,
+  maxSize: 61,
   aspect: 1,
   travel: 170,
   travelFar: 0.45,
@@ -89,7 +89,7 @@ export const SHARD_DEFAULTS: ShardParams = {
   speed: 0.9,
   spin: 0,
   upBias: 0.25,
-  seed: 1,
+  seed: 640,
 };
 
 /** Repli tant que la palette du média n'est pas calculée : le début du spectre de la DA (cf. lib/da.ts). */
