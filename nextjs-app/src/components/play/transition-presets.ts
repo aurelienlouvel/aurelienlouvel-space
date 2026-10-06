@@ -90,6 +90,10 @@ export type TransitionConfig = {
   rewindEasing: EasingName; // Courbe du rewind (easeInOut = effet cinématique)
   rewindLayerFade: number; // Retour : durée (s) de la disparition des cartes derrière la carte gardée
   fxBurstBoost: number; // Surintensité des éclats au moment du burst (×, 0 = aucune)
+  twistSettleStart: number; // Fin du tortillement : début du retour à plat, en s après la fin de la vague (négatif = pendant la vague)
+  twistSettle: number; // Fin du tortillement : durée (s) du retour à plat de la torsion, de la bascule et du gonflement
+  twistSettleEasing: EasingName; // Fin du tortillement : courbe du retour à plat (easeInOut = départ et arrivée doux)
+  twistSettleBlend: number; // 0..1 — part du détachement du boom qui s'ajoute au gonflement encore présent (0 = le plus grand des deux, 1 = les deux s'additionnent)
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
   lock: TrackSpec; // Impact : la carte se détache au boom
@@ -233,14 +237,24 @@ export function passEndTime(config: TransitionConfig): number {
   return holdTime(config) + Math.max(0.05, config.waveDuration);
 }
 
-/** Instant auquel la dernière piste de la séquence d'entrée se termine. */
+/**
+ * Instants (absolus) où le retour à plat de la fin du tortillement commence et finit.
+ * Il ne démarre jamais avant le hold : tant que le pack charge, la carte continue de se tordre.
+ */
+export function twistSettleBounds(config: TransitionConfig): { start: number; end: number } {
+  const start = Math.max(holdTime(config), passEndTime(config) + (config.twistSettleStart ?? -0.3));
+  return { start, end: start + Math.max(0.05, config.twistSettle ?? 1) };
+}
+
+/** Instant auquel la dernière piste de la séquence d'entrée se termine, retour à plat de la torsion compris. */
 export function timelineEnd(config: TransitionConfig): number {
   let end = 0;
   for (const name of ["lock", "reveal", "columnFade", "dezoom"] as const) {
     const track = config[name];
     end = Math.max(end, track.start + track.duration);
   }
-  return passEndTime(config) + Math.max(0.05, end);
+  const passEnd = passEndTime(config);
+  return Math.max(passEnd + Math.max(0.05, end), twistSettleBounds(config).end);
 }
 
 /** Instant (absolu) où la caméra a fini de cadrer la pile. */
@@ -266,6 +280,10 @@ const BASE_AMPLITUDES = {
   rewindEasing: "easeInOutQuint" as EasingName,
   rewindLayerFade: 0.25,
   fxBurstBoost: 1,
+  twistSettleStart: -0.3,
+  twistSettle: 1,
+  twistSettleEasing: "easeInOutCubic" as EasingName,
+  twistSettleBlend: 0.5,
   lockScalePunch: 0.08,
   overlayExitDuration: 0.35,
   scatterDistance: 1000,
@@ -329,12 +347,16 @@ export const TRANSITION_PRESETS: Record<
   cinematic: {
     ...BASE_AMPLITUDES,
     waveDuration: 1.3,
+    twistSettleStart: -0.33,
+    twistSettle: 1.1,
     approachZoom: 2.7,
     ...scaleTracks(1.1),
   },
   snappy: {
     ...BASE_AMPLITUDES,
     waveDuration: 0.8,
+    twistSettleStart: -0.23,
+    twistSettle: 0.78,
     lockScalePunch: 0.11,
     overlayExitDuration: 0.22,
     approachZoom: 2.4,
@@ -345,6 +367,8 @@ export const TRANSITION_PRESETS: Record<
   dramatic: {
     ...BASE_AMPLITUDES,
     waveDuration: 1.6,
+    twistSettleStart: -0.42,
+    twistSettle: 1.4,
     lockScalePunch: 0.1,
     overlayExitDuration: 0.4,
     scatterDistance: 3400,

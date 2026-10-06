@@ -19,6 +19,7 @@ import {
   timelineEnd,
   trackAt,
   trackRaw,
+  twistSettleBounds,
   type TransitionConfig,
 } from "./transition-presets";
 
@@ -181,11 +182,16 @@ function samplePlaying(
   frame.scatter = config.scatterDistance * burstT;
   frame.mosaicOpacity = 1 - burstT;
 
-  // ── 3. Tortillement de l'artifact, du clic jusqu'à la fin de la vague ───────
+  // ── 3. Tortillement de l'artifact, du clic jusqu'à son retour à plat ───────
   // Il démarre au clic, pas au burst : l'approche, le burst et le tortillement
-  // se jouent en même temps au lieu de se passer le relais.
+  // se jouent en même temps au lieu de se passer le relais. Il ne s'arrête pas
+  // net à la fin de la vague : son amplitude redescend sur `twistSettle` secondes,
+  // avec sa propre courbe, et déborde sur le boom (la carte du deck reprend la
+  // torsion restante, cf. SecondaryGalleryPlanes).
   const wiggleIn = smoothstep(t / 0.35);
-  const wiggleOut = 1 - smoothstep((t - hold - waveDuration * 0.6) / (waveDuration * 0.4 + 0.001));
+  const settle = twistSettleBounds(config);
+  const wiggleOut =
+    1 - evaluateEasing(config.twistSettleEasing ?? "easeInOutCubic", (t - settle.start) / (settle.end - settle.start));
   const env = wiggleIn * wiggleOut;
   const w = clock.wall * (config.wiggleSpeed ?? 7);
   const amp = config.packShake ?? 0.05;
@@ -194,12 +200,14 @@ function samplePlaying(
   frame.tileTiltY = env * amp * 0.8 * Math.cos(w * 0.9);
   const grow = (config.loadGrow ?? 0.1) * (1 - Math.exp(-Math.max(0, clock.wall) * 1.1));
   const breathe = (config.breathe ?? 0.025) * (0.5 + 0.5 * Math.sin(clock.wall * 3.1));
-  frame.tileScale = 1 + env * (grow + breathe);
+  const swell = env * (grow + breathe);
+  frame.tileScale = 1 + swell;
 
-  // Effets visuels (glitch, pixels) : même enveloppe que le tortillement, avec
-  // un pic au moment où la mosaïque explose.
+  // Effets visuels (pixels d'ouverture) : ils s'arrêtent avec la vague, pas avec le retour
+  // à plat de la carte, et ont un pic au moment où la mosaïque explose.
+  const fxOut = 1 - smoothstep((t - hold - waveDuration * 0.6) / (waveDuration * 0.4 + 0.001));
   const burstPulse = Math.sin(Math.PI * Math.min(1, Math.max(0, (t - config.scatter.start) / 0.9)));
-  frame.fx = env * (1 + (config.fxBurstBoost ?? 0) * burstPulse);
+  frame.fx = wiggleIn * fxOut * (1 + (config.fxBurstBoost ?? 0) * burstPulse);
 
   // ── 4. Vague : boucle pendant l'attente, puis traverse l'artifact ───────
   if (clock.holding) {
@@ -224,11 +232,13 @@ function samplePlaying(
   frame.columnOpacity = trackAt(config.columnFade, tp);
 
   if (tp > 0) {
-    const popWeight = lockPopEnvelope(trackRaw(config.lock, tp));
-    frame.tileScale = 1 + (config.lockScalePunch ?? 0.02) * popWeight;
-    frame.tileRoll = 0;
-    frame.tileTiltX = 0;
-    frame.tileTiltY = 0;
+    // Le détachement du boom se pose sur le gonflement qui retombe : le plus grand des
+    // deux, plus `twistSettleBlend` du plus petit. Sans ça la carte rétrécirait jusqu'à
+    // sa taille de repos avant de regonfler (le « V » qui rendait la fin brusque).
+    const pop = (config.lockScalePunch ?? 0.02) * lockPopEnvelope(trackRaw(config.lock, tp));
+    const blend = Math.min(1, Math.max(0, config.twistSettleBlend ?? 0.5));
+    frame.tileScale = 1 + Math.max(swell, pop) + blend * Math.min(swell, pop);
+    // Roulis et bascule continuent de s'éteindre (`env`) : plus remis à zéro d'un coup.
     frame.overlayExit = 1;
     frame.waveProgress = 1;
   }

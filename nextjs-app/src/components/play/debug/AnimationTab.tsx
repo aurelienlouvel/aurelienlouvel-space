@@ -157,6 +157,10 @@ export function AnimationTab({
           {
             waveDuration: num(tr, "waveDuration", { label: "Duree (s)", min: 0.2, max: 3, step: 0.05 }),
             waveEasing: easingControl(tr, "waveEasing"),
+            twistSettleStart: num(tr, "twistSettleStart", { label: "Fin du tortillement : debut (s apres la vague)", min: -2, max: 1, step: 0.05 }),
+            twistSettle: num(tr, "twistSettle", { label: "Fin du tortillement : duree du retour a plat (s)", min: 0.05, max: 3, step: 0.05 }),
+            twistSettleEasing: easingControl(tr, "twistSettleEasing", "Fin du tortillement : courbe (easeInOut = doux)"),
+            twistSettleBlend: num(tr, "twistSettleBlend", { label: "Fin du tortillement : detachement ajoute au gonflement (0 = le plus grand, 1 = somme)", min: 0, max: 1, step: 0.05 }),
           },
           { collapsed: true },
         ),

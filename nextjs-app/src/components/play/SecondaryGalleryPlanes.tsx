@@ -737,8 +737,14 @@ export function SecondaryGalleryPlanes({
     tiltRef.current.x += ((tiltOn ? -ny * tiltRad : 0) - tiltRef.current.x) * tk;
     tiltRef.current.y += ((tiltOn ? nx * tiltRad : 0) - tiltRef.current.y) * tk;
 
-    const mainStartW = Math.min(maxW, principalPoint.width * frame.tileScale);
-    const mainStartH = Math.min(maxH, principalPoint.height * frame.tileScale);
+    // La carte prend la place de la tuile à l'image près : elle part de sa taille
+    // réelle à l'écran, jamais plafonnée par `maxW` / `maxH`. Le plafond ne valait
+    // que pour une des deux cotes (la tuile zoomée dépasse `maxW` bien avant `maxH`),
+    // et la carte arrivait étroite et haute, écrasée d'un tiers au moment du
+    // remplacement. Le plafond s'applique à l'arrivée (`targetW` / `targetH`) :
+    // `reveal` y conduit la carte.
+    const mainStartW = principalPoint.width * frame.tileScale;
+    const mainStartH = principalPoint.height * frame.tileScale;
 
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
@@ -761,6 +767,8 @@ export function SecondaryGalleryPlanes({
       let opacity = 1;
       let shade = 1;
       let roll = 0;
+      let twistX = 0;
+      let twistY = 0;
       let dissolve = 0;
       let dissolveX = 0;
       let dissolveY = 1;
@@ -889,6 +897,14 @@ export function SecondaryGalleryPlanes({
         }
       }
 
+      // La torsion de l'ouverture n'est pas coupée au boom : elle s'éteint doucement
+      // (`twistSettle`) et la carte qui prend la place de la tuile la reprend telle quelle.
+      if (isMain && (returning || tr.phase === "playing")) {
+        roll += frame.tileRoll;
+        twistX = frame.tileTiltX;
+        twistY = frame.tileTiltY;
+      }
+
       const visible = opacity > 0.002;
       mesh.visible = visible;
       if (!visible) return;
@@ -904,7 +920,7 @@ export function SecondaryGalleryPlanes({
         if (uniforms?.uMotionBlur) uniforms.uMotionBlur.value = 0;
         // Les layers plus profonds s'inclinent un peu plus : un effet de parallaxe.
         const layerGain = 1 + (cfg.deckTiltLayerGain ?? 0) * Math.max(0, dv);
-        uniforms?.uCardTilt.value.set(tiltRef.current.x * layerGain, tiltRef.current.y * layerGain);
+        uniforms?.uCardTilt.value.set(tiltRef.current.x * layerGain + twistX, tiltRef.current.y * layerGain + twistY);
         if (uniforms) {
           uniforms.uDissolve.value = dissolve;
           uniforms.uDissolveDir.value.set(dissolveX, dissolveY);
