@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { daHash } from "@/lib/da";
+import { daHash, daIrid } from "@/lib/da";
 
 /** Durée du fondu final avant de démonter le loader (ms), un peu plus que sa transition. */
 const OUT_DURATION_MS = 800;
@@ -10,13 +10,22 @@ const OUT_DURATION_MS = 800;
 const PITCH = 40;
 /** Part des cases qui portent un pixel ; les autres restent blanches. */
 const SHARE = 0.5;
-/** Bornes de la force propre d'un pixel (l'opacité d'un gris neutre à son maximum). */
-const MIN_ALPHA = 0.08;
-const MAX_ALPHA = 0.2;
+/**
+ * Bornes de la force propre d'un pixel (son opacité à son maximum, avant le gain des reflets) :
+ * à peine plus que le champ de la pastille « play », dont les pixels sont quatre fois plus petits.
+ */
+const MIN_ALPHA = 0.05;
+const MAX_ALPHA = 0.11;
 /** Part de la largeur de la vague qui vient de la rangée : un front à peine penché. */
 const SLANT = 0.12;
+/** Les tours de palette (reflets de la vague de survol des cartes) de la gauche à la droite, puis du haut au bas. */
+const HUE_ACROSS = 0.8;
+const HUE_DOWN = 0.3;
+/** Écart de teinte (en tours) d'un pixel à l'autre : la grille ne dessine pas un dégradé trop lisse. */
+const HUE_JITTER = 0.08;
 
-type Cell = { key: number; col: number; row: number; x: number; a: number };
+/** `hue` : le reflet irisé du pixel, que `--ld-irid` mêle ou non au gris. */
+type Cell = { key: number; col: number; row: number; x: number; a: number; hue: string };
 
 const subscribeResize = (onChange: () => void) => {
   window.addEventListener("resize", onChange);
@@ -39,7 +48,7 @@ function useViewportGrid() {
 }
 
 /**
- * Chargement de /play : fond blanc et, sur toute la page, le champ de pixels gris de la
+ * Chargement de /play : fond blanc et, sur toute la page, le champ de pixels irisés de la
  * pastille « play » de la nav que balaie sa vague de survol, à l'échelle de la page. Une
  * vague va de la gauche vers la droite, puis une autre, jusqu'à ce que tout soit prêt
  * (`isReady`) : le loader s'efface alors par fondu et se démonte. Pas de barre, pas de
@@ -47,7 +56,8 @@ function useViewportGrid() {
  * donc fluide même quand le thread principal décode les textures.
  *
  * Chaque pixel est un tirage de sa case (rangée, colonne) : agrandir la fenêtre en ajoute
- * sans redistribuer les autres.
+ * sans redistribuer les autres. Sa teinte, elle, suit sa place dans la page : la vague
+ * allume un dégradé qui va du rouge au bleu, comme les reflets de la vague des cartes.
  */
 export function PlayLoader({ isReady = false }: { isReady?: boolean }) {
   const { cols, rows } = useViewportGrid();
@@ -65,7 +75,8 @@ export function PlayLoader({ isReady = false }: { isReady?: boolean }) {
           col: c + 1,
           row: r + 1,
           x: Math.round((across * (1 - SLANT) + down * SLANT) * 1000) / 1000,
-          a: Math.round((MIN_ALPHA + daHash(r * 17.3 + c * 3.1 + 5) * (MAX_ALPHA - MIN_ALPHA)) * 100) / 100,
+          a: Math.round((MIN_ALPHA + daHash(r * 17.3 + c * 3.1 + 5) * (MAX_ALPHA - MIN_ALPHA)) * 1000) / 1000,
+          hue: daIrid(across * HUE_ACROSS + down * HUE_DOWN + (daHash(r * 5.7 + c * 2.3 + 9) - 0.5) * HUE_JITTER),
         });
       }
     }
@@ -105,6 +116,7 @@ export function PlayLoader({ isReady = false }: { isReady?: boolean }) {
               gridRow: c.row,
               ["--x" as string]: c.x,
               ["--a" as string]: c.a,
+              ["--c" as string]: c.hue,
             }}
           />
         ))}

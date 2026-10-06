@@ -320,6 +320,10 @@ export type DaParams = {
    * `daIridGain`, pour que les deux se valent).
    */
   navIrid: number;
+  /** Irisation du loader (0 = le gris neutre d'avant, 1 = les reflets de la vague de survol des cartes). */
+  loaderIrid: number;
+  /** Force de la vague du loader (× ; 0 = coupée), avec le même gain des reflets que la pastille. */
+  loaderStrength: number;
   /** Durée d'un passage du champ de pixels de la pastille « play » active (s) : plus grand = plus chill. */
   navDriftPeriod: number;
   /** Durée de la vague de survol de la pastille « play » (s). */
@@ -346,6 +350,8 @@ export const DA_DEFAULTS: DaParams = {
   navPixelSize: 0.5,
   navRest: 1,
   navIrid: 1,
+  loaderIrid: 1,
+  loaderStrength: 1,
   navDriftPeriod: 14,
   navHoverDuration: 1.1,
   navHoverSpread: 0.55,
@@ -1201,6 +1207,8 @@ function CameraRig({
       ["--da-nav-wave", String(Math.round(da.navWave * navGain * 1000) / 1000)],
       ["--da-cell", `${da.navPixelSize}rem`],
       ["--da-nav-rest", String(Math.round(da.navRest * navGain * 1000) / 1000)],
+      ["--ld-irid", String(da.loaderIrid)],
+      ["--ld-strength", String(Math.round(da.loaderStrength * daIridGain(da.loaderIrid) * 1000) / 1000)],
       ["--pg-size", `${da.panelPixelSize}rem`],
       ["--pg-pulse", String(da.panelPixelPulse)],
       ["--pg-period", `${da.panelPixelPeriod}s`],

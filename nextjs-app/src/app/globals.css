@@ -453,12 +453,18 @@ body.body-project {
   --da-nav-irid: 1;
   --da-nav-rest: 2;
   --da-nav-wave: 2;
+  /* Loader : irisation et force de la vague (gain des reflets compris), comme pour la
+     pastille : il s'affiche avant que le canvas écrive les valeurs du debug. */
+  --ld-irid: 1;
+  --ld-strength: 2;
 }
 
-/* Loader /play : un champ de carrés gris pâles sur toute la page, qu'une vague balaie de
+/* Loader /play : un champ de carrés à peine opaques sur toute la page, qu'une vague balaie de
    gauche à droite, en boucle (c'est l'effet de la pastille « play » au survol, à l'échelle
    de la page). --x (0..1) est la place du pixel dans la largeur : elle décale son départ,
-   d'où la vague ; --a est sa force propre, plafonnée à 1 une fois × --ld-strength. */
+   d'où la vague ; --a est sa force propre, plafonnée à 1 une fois × --ld-strength. Chaque
+   pixel a son reflet (--c, dans la palette de la vague de survol des cartes) que --ld-irid
+   mêle au gris neutre : 1 = le reflet, 0 = le gris d'avant. */
 @keyframes ld-wave {
   0% { opacity: 0; transform: scale(0.4); }
   12% { opacity: var(--lit); transform: scale(1); }
@@ -469,8 +475,14 @@ body.body-project {
   width: var(--ld-cell, 2rem);
   height: var(--ld-cell, 2rem);
   border-radius: var(--da-radius, 0%);
-  background-color: rgb(24 24 27);
-  --lit: min(1, calc(var(--a, 0.1) * var(--ld-strength, 1)));
+  /* La première déclaration est le repli d'un navigateur sans color-mix : le reflet seul. */
+  background-color: var(--c, rgb(24 24 27));
+  background-color: color-mix(
+    in srgb,
+    var(--c, rgb(24 24 27)) calc(var(--ld-irid, 1) * 100%),
+    rgb(24 24 27)
+  );
+  --lit: min(1, calc(var(--a, 0.08) * var(--ld-strength, 2)));
   opacity: 0;
   animation: ld-wave var(--ld-period, 2.6s) ease-in-out infinite;
   animation-delay: calc(var(--x, 0) * var(--ld-spread, 1.5s));

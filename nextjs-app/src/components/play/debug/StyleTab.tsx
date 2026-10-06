@@ -106,6 +106,9 @@ export function StyleTab({
             daNavDrift: num(da, "navDriftPeriod", { label: "Pastille play : defilement actif (s)", min: 3, max: 60, step: 1 }),
             daNavHoverDur: num(da, "navHoverDuration", { label: "Pastille play : vague au survol (s)", min: 0.3, max: 3, step: 0.05 }),
             daNavHoverSpread: num(da, "navHoverSpread", { label: "Pastille play : etalement de la vague (s)", min: 0.1, max: 2, step: 0.05 }),
+            // Le loader n'existe que pendant le chargement : recharger la page pour le revoir.
+            daLoaderIrid: num(da, "loaderIrid", { label: "Loader : irisation (0 = gris neutre, a recharger)", min: 0, max: 1, step: 0.02 }),
+            daLoaderStrength: num(da, "loaderStrength", { label: "Loader : force de la vague (a recharger)", min: 0, max: 3, step: 0.05 }),
             daPanelSize: num(da, "panelPixelSize", { label: "Pixels du panel (taille d une case, rem)", min: 0.25, max: 2, step: 0.0625 }),
             daPanelPulse: num(da, "panelPixelPulse", { label: "Pixels du panel (respiration, 0 = fixes)", min: 0, max: 1, step: 0.05 }),
             daPanelPeriod: num(da, "panelPixelPeriod", { label: "Pixels du panel (duree d une respiration, s)", min: 2, max: 20, step: 0.5 }),
