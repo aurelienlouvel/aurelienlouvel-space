@@ -357,6 +357,7 @@ function stepKinematicMeshes(
           uniforms.uHoverWaveAmp.value = hover.waveAmp;
           uniforms.uHoverWaveWidth.value = hover.waveWidth;
           uniforms.uHoverWaveGlow.value = hover.waveGlow;
+          uniforms.uHoverWaveIrid.value = hover.waveIrid;
           uniforms.uTime.value = (performance.now() / 1000) % 1000;
         }
       }

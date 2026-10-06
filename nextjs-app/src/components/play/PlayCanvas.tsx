@@ -279,16 +279,19 @@ export type HoverParams = {
   waveDuration: number;
   /** Éclat lumineux au cœur de la bande (0 = juste un voile blanc). */
   waveGlow: number;
+  /** Irisation de la bande (0 = blanc pur, 1 = reflets pastel bien marqués, qui glissent avec elle). */
+  waveIrid: number;
 };
 
 export const HOVER_DEFAULTS: HoverParams = {
   scale: 0.045,
   rotate: 0,
   speed: 10,
-  waveAmp: 0.8,
-  waveWidth: 0.18,
-  waveDuration: 0.75,
-  waveGlow: 0.6,
+  waveAmp: 0.75,
+  waveWidth: 0.6,
+  waveDuration: 0.6,
+  waveGlow: 1.2,
+  waveIrid: 0.5,
 };
 
 /**

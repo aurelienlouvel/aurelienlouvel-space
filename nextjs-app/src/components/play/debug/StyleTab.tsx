@@ -71,6 +71,7 @@ export function StyleTab({
             hoverWaveWidth: num(hover, "waveWidth", { label: "Largeur de la bande", min: 0.05, max: 0.6, step: 0.01 }),
             hoverWaveDuration: num(hover, "waveDuration", { label: "Duree (s)", min: 0.25, max: 2.5, step: 0.05 }),
             hoverWaveGlow: num(hover, "waveGlow", { label: "Eclat lumineux (coeur de la bande)", min: 0, max: 2, step: 0.05 }),
+            hoverWaveIrid: num(hover, "waveIrid", { label: "Irisation (0 = blanc pur)", min: 0, max: 1, step: 0.05 }),
           },
           { collapsed: true },
         ),

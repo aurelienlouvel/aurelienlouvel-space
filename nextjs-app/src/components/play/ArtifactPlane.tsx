@@ -53,6 +53,7 @@ export type PlaneUniforms = {
   uHoverWaveAmp: IUniform<number>;
   uHoverWaveWidth: IUniform<number>;
   uHoverWaveGlow: IUniform<number>;
+  uHoverWaveIrid: IUniform<number>;
   uTime: IUniform<number>;
 };
 
@@ -94,6 +95,7 @@ uniform float uHoverWave;
 uniform float uHoverWaveAmp;
 uniform float uHoverWaveWidth;
 uniform float uHoverWaveGlow;
+uniform float uHoverWaveIrid;
 uniform float uTime;
 
 /**
@@ -170,7 +172,9 @@ const MOTION_BLUR_MAP = /* glsl */ `
   }
   // Vague de survol : une bande blanche et lumineuse qui traverse la carte du bas
   // gauche vers le haut droit, suivie d'une traîne douce. Elle éclaircit l'image vers
-  // le blanc, sans aucune teinte, et son cœur (plus étroit) la fait briller au-delà.
+  // le blanc, et son cœur (plus étroit) la fait briller au-delà. uHoverWaveIrid y mêle
+  // des reflets pastel façon film mince : leur teinte change d'un bord de la bande à
+  // l'autre, le long de la crête et dans le temps (0 : blanc pur).
   // uHoverWave = 0 : éteinte ; 0..1 : progression.
   if (uHoverWave > 0.001) {
     float along = (vUv.x + vUv.y) * 0.5;
@@ -183,8 +187,11 @@ const MOTION_BLUR_MAP = /* glsl */ `
     float fade = 1.0 - smoothstep(0.82, 1.0, uHoverWave);
     float milk = clamp((band + tail) * fade * uHoverWaveAmp, 0.0, 1.0);
     float core = exp(-(dw * dw) / (w * w * 0.12)) * fade;
-    sampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb, vec3(1.0), milk * 0.6)
-      + vec3(core * uHoverWaveAmp * uHoverWaveGlow * 0.5);
+    float huePhase = dw / w * 0.22 + across * 0.45 + uTime * 0.25;
+    vec3 hue = 0.62 + 0.38 * cos(6.28318 * (huePhase + vec3(0.0, 0.33, 0.67)));
+    vec3 sheen = mix(vec3(1.0), hue, clamp(uHoverWaveIrid, 0.0, 1.0));
+    sampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb, sheen, milk * 0.6)
+      + sheen * (core * uHoverWaveAmp * uHoverWaveGlow * 0.5);
   }
   float blurLen = length(uMotionBlur);
   if (blurLen > 0.0008) {
@@ -237,6 +244,7 @@ function roundCorners(
     uHoverWaveAmp: { value: 0.8 },
     uHoverWaveWidth: { value: 0.18 },
     uHoverWaveGlow: { value: 0.6 },
+    uHoverWaveIrid: { value: 0.5 },
     uTime: { value: 0 },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
@@ -256,7 +264,7 @@ function roundCorners(
  * matériaux qui injectent du code.
  */
 function roundCornersCacheKey() {
-  return "play-artifact-grid-motion-blur-lens-hover-white-flat-tilt";
+  return "play-artifact-grid-motion-blur-lens-hover-irid-flat-tilt";
 }
 
 /**
