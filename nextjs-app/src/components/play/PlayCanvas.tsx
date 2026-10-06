@@ -2032,8 +2032,20 @@ export function PlayCanvas({
 
       const rc = runtime.current;
       if (rc.transition.phase === "isolated") {
+        const tr = rc.transition;
+        // Pendant un rewind, les gestes ne conduisent plus rien (comme la molette).
+        if (tr.rewinding) return;
         const next = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : -1;
-        rc.transition.targetColumnScrollY = Math.round(rc.transition.targetColumnScrollY) + next;
+        // Au clavier, pas de curseur ni de drag pour viser : la carte part tout
+        // droit, vers le haut en avançant (comme un cran de molette vers le bas),
+        // vers le bas en reculant. Sans ça elle repartait avec le cap périmé du
+        // dernier geste. Le cap n'est posé qu'à l'arrêt : une carte déjà en vol
+        // garde le sien, sinon elle sauterait de l'autre côté.
+        if (Math.abs(tr.columnScrollY - tr.targetColumnScrollY) < 0.05) {
+          tr.deckAimCommit.x = 0;
+          tr.deckAimCommit.y = next;
+        }
+        tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + next;
         return;
       }
       if (rc.transition.phase !== "idle") return;

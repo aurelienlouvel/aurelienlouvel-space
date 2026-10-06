@@ -301,6 +301,10 @@ function stepKinematicMeshes(
       }
 
       mesh.position.set(pt.x + curDx, pt.y + curDy, 0);
+      // Les matériaux n'écrivent ni ne testent la profondeur : la tuile qui
+      // s'ouvre (et s'incline) passe devant ses voisines au seul `renderOrder`,
+      // sous le deck (≥ 70) et la vague de sélection (20).
+      mesh.renderOrder = isTarget && !idle ? 10 : 0;
       mesh.scale.set(pt.width * scale, pt.height * scale, 1);
       // Contrairement à la bascule X/Y (aplatie par la caméra orthographique,
       // cf. ArtifactPlane.tsx), une rotation Z reste un pur tourni dans le
@@ -316,6 +320,8 @@ function stepKinematicMeshes(
         if (mat.opacity !== targetOpacity) {
           mat.opacity = targetOpacity;
         }
+        // Mosaïque effacée : inutile de dessiner une tuile à opacité 0.
+        mesh.visible = targetOpacity > 0.002;
         // Bascule 3D : un warp de perspective locale dans le shader (cf.
         // ArtifactPlane.tsx), pas une rotation Object3D — sous la caméra
         // orthographique de la scène, une rotation ne produirait qu'un
