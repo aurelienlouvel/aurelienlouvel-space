@@ -641,24 +641,31 @@ body.body-project {
     }
 }
 
-/* Curseurs du site : des SVG dans /public/cursors (flèche, main, poing, I-beam).
-   Les deux nombres sont le point actif (hotspot) dans l'image de 32px. */
-html {
+/* Curseurs de /play : des SVG dans /public/cursors (flèche, main, poing, I-beam).
+   Les deux nombres sont le point actif (hotspot) dans l'image de 32px.
+   Réservés à /play (`html[data-play]`, posé par PlayHost) : ailleurs, le curseur système. */
+html[data-play] {
   cursor: url("/cursors/default.svg") 4 2, auto;
 }
-a,
-button,
-select,
-summary,
-label[for],
-[role="button"],
-[data-cursor="link"],
-[class*="cursor-pointer"] {
+html[data-play]
+  :is(
+    a,
+    button,
+    select,
+    summary,
+    label[for],
+    [role="button"],
+    [data-cursor="link"],
+    [class*="cursor-pointer"]
+  ) {
   cursor: url("/cursors/pointer.svg") 11 2, pointer;
 }
-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-textarea,
-[contenteditable="true"] {
+html[data-play]
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    textarea,
+    [contenteditable="true"]
+  ) {
   cursor: url("/cursors/text.svg") 16 16, text;
 }
 

@@ -337,7 +337,9 @@ export function SelectProgressOverlay({
   });
 
   return (
-    <mesh ref={meshRef} visible={false} raycast={() => null}>
+    // renderOrder 20 : au-dessus de la tuile qui s'ouvre (10), qui ne passe plus
+    // par le depth buffer ; le deck (≥ 70) reste au-dessus de la vague.
+    <mesh ref={meshRef} visible={false} renderOrder={20} raycast={() => null}>
       <planeGeometry args={[1, 1]} />
       <primitive ref={materialRef} object={material} attach="material" />
     </mesh>
