@@ -17,7 +17,7 @@ import { Canvas, events, useFrame } from "@react-three/fiber";
 import { Stats, useTexture } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
 import { useActionBar } from "@/contexts/ActionBarContext";
-import { DA_RADIUS } from "@/lib/da";
+import { DA_RADIUS, daIridGain } from "@/lib/da";
 import { preloadArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
 import { fileRefToUrl, playMediaUrl } from "@/lib/sanity-utils";
@@ -308,12 +308,18 @@ export const HOVER_DEFAULTS: HoverParams = {
 export type DaParams = {
   /** Rayon des coins de tous les pixels, en fraction de leur côté (0 = carré net, 0.5 = rond). */
   pixelRadius: number;
-  /** Force de la vague de survol de la pastille « play », en gris (× ; 0 = coupée). */
+  /** Force de la vague de survol de la pastille « play » (× ; 0 = coupée). */
   navWave: number;
   /** Côté d'un pixel de la pastille « play » (rem). */
   navPixelSize: number;
-  /** Force des pixels gris qui font le fond de la pastille « play » au repos (× ; 0 = coupés). */
-  navGray: number;
+  /** Force des pixels qui font le fond de la pastille « play » au repos (× ; 0 = coupés). */
+  navRest: number;
+  /**
+   * Irisation de la pastille « play » : 0 = le gris neutre d'avant, 1 = les reflets de la
+   * vague de survol des cartes (la force, `navRest` et `navWave`, y reçoit en plus le gain
+   * `daIridGain`, pour que les deux se valent).
+   */
+  navIrid: number;
   /** Durée d'un passage du champ de pixels de la pastille « play » active (s) : plus grand = plus chill. */
   navDriftPeriod: number;
   /** Durée de la vague de survol de la pastille « play » (s). */
@@ -338,7 +344,8 @@ export const DA_DEFAULTS: DaParams = {
   pixelRadius: DA_RADIUS,
   navWave: 1,
   navPixelSize: 0.5,
-  navGray: 1,
+  navRest: 1,
+  navIrid: 1,
   navDriftPeriod: 14,
   navHoverDuration: 1.1,
   navHoverSpread: 0.55,
@@ -1186,11 +1193,14 @@ function CameraRig({
     // DA : rayon des pixels, pixels de la nav et du panel (variables CSS, écrites seulement quand elles changent).
     const da = debug.current.da;
     const rootStyle = document.documentElement.style;
+    // Les reflets irisés pèsent moins que le gris à opacité égale : leur force reçoit un gain.
+    const navGain = daIridGain(da.navIrid);
     const daVars: [string, string][] = [
       ["--da-radius", `${Math.round(da.pixelRadius * 1000) / 10}%`],
-      ["--da-nav-wave", String(da.navWave)],
+      ["--da-nav-irid", String(da.navIrid)],
+      ["--da-nav-wave", String(Math.round(da.navWave * navGain * 1000) / 1000)],
       ["--da-cell", `${da.navPixelSize}rem`],
-      ["--da-nav-gray", String(da.navGray)],
+      ["--da-nav-rest", String(Math.round(da.navRest * navGain * 1000) / 1000)],
       ["--pg-size", `${da.panelPixelSize}rem`],
       ["--pg-pulse", String(da.panelPixelPulse)],
       ["--pg-period", `${da.panelPixelPeriod}s`],

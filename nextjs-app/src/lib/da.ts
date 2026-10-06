@@ -6,18 +6,21 @@
  *   arrondir). Ni rectangles de formats variés, ni dégradé à l'intérieur d'un pixel.
  * - Matière : un aplat net. Une couleur unie par pixel, sans flou, sans verre
  *   translucide, sans bord fondu. Un pixel éteint est blanc.
- * - Gris : la pastille « play » de la nav et le loader n'ont que des pixels gris
- *   très pâles (un gris neutre à faible opacité), aucune couleur.
+ * - Irisation : la pastille « play » de la nav et le loader n'ont que des pixels très
+ *   pâles (à peine opaques), dans les reflets de la vague de survol des cartes
+ *   (`daIrid`, le même cosinus pastel que le shader d'`ArtifactPlane`). Un réglage les
+ *   ramène au gris neutre (`da.navIrid`, `da.loaderIrid` à 0).
  * - Couleur : le dégradé naît ENTRE les pixels voisins (`daGradientAt`) : côte à
  *   côte, ils glissent d'une teinte à sa voisine du spectre pastel. On n'en montre
  *   qu'une fenêtre courte à la fois (`DA_WINDOW`), jamais tout le spectre d'un coup.
  *   Les mêmes valeurs vivent dans `globals.css` (`--da-*`) pour le CSS pur. Dans le
  *   panneau de détail, les couleurs viennent de la page ouverte (la palette de son
  *   média) ; le spectre ci-dessous n'y sert que de repli.
- * - Mouvement : des pixels qui s'allument puis redeviennent blancs. Une vague grise
- *   balaie la pastille de la nav au survol et la page entière pendant le chargement ;
- *   une bande blanche, un peu irisée, traverse les cartes au survol ; le coin bas
- *   droit du panneau respire lentement.
+ * - Mouvement : des pixels qui s'allument puis redeviennent blancs. Une vague balaie
+ *   la pastille de la nav au survol et la page entière pendant le chargement ; une
+ *   bande blanche, un peu irisée, traverse les cartes au survol ; dans le coin bas
+ *   droit du panneau, le nombre de pixels et leurs couleurs varient lentement, sur
+ *   une grille dont les cases ne bougent pas.
  */
 
 /**
@@ -104,6 +107,37 @@ export function daGradientAt(x: number, from = 0): string {
 /** Comme `daGradientAt`, en composantes 0..255 (pour un shader ou un canvas). */
 export function daGradientRgb(x: number, from = 0): RGB3 {
   return daSpectrumRgb(windowed(x, from));
+}
+
+/**
+ * Les reflets de la vague de survol des cartes (`ArtifactPlane`, `vec3 hue`) : un cosinus
+ * pastel par canal, décalés d'un tiers de tour. `phase` en tours (de période 1) : la
+ * pastille, le loader et le panneau le parcourent avec leurs propres phases, sans en
+ * dériver d'une autre palette.
+ */
+export function daIridRgb(phase: number): RGB3 {
+  const channel = (offset: number) =>
+    Math.round(255 * (0.62 + 0.38 * Math.cos(2 * Math.PI * (phase + offset))));
+  return [channel(0), channel(0.33), channel(0.67)];
+}
+
+/** Le reflet irisé à `phase`, en `rgb()` CSS. */
+export function daIrid(phase: number): string {
+  const [r, g, b] = daIridRgb(phase);
+  return `rgb(${r} ${g} ${b})`;
+}
+
+/**
+ * Ces reflets sont plus clairs que le gris neutre des pixels : à opacité égale ils pèsent
+ * environ trois fois moins sur le blanc. On leur en rend un peu pour que le même réglage de
+ * force donne un poids comparable avec ou sans irisation, sans qu'ils redeviennent opaques
+ * (le gain monte avec l'irisation, de 1 pour le gris à `DA_IRID_GAIN` pour les reflets).
+ */
+export const DA_IRID_GAIN = 2;
+
+/** Le multiplicateur d'opacité qui accompagne une irisation `irid` (0..1). */
+export function daIridGain(irid: number): number {
+  return 1 + (DA_IRID_GAIN - 1) * Math.min(1, Math.max(0, irid));
 }
 
 /**

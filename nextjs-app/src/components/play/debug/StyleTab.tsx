@@ -99,9 +99,10 @@ export function StyleTab({
         "Pixels et degrades": folder(
           {
             daRadius: num(da, "pixelRadius", { label: "Pixels : coins arrondis (0 carre, 0.5 rond)", min: 0, max: 0.5, step: 0.01 }),
-            daNavWave: num(da, "navWave", { label: "Pastille play : force de la vague (gris)", min: 0, max: 3, step: 0.05 }),
+            daNavIrid: num(da, "navIrid", { label: "Pastille play : irisation (0 = gris neutre)", min: 0, max: 1, step: 0.02 }),
+            daNavWave: num(da, "navWave", { label: "Pastille play : force de la vague", min: 0, max: 3, step: 0.05 }),
             daNavSize: num(da, "navPixelSize", { label: "Pastille play : taille d un pixel (rem)", min: 0.25, max: 0.6, step: 0.0625 }),
-            daNavGray: num(da, "navGray", { label: "Pastille play : gris au repos (force)", min: 0, max: 3, step: 0.05 }),
+            daNavRest: num(da, "navRest", { label: "Pastille play : force du fond au repos", min: 0, max: 3, step: 0.05 }),
             daNavDrift: num(da, "navDriftPeriod", { label: "Pastille play : defilement actif (s)", min: 3, max: 60, step: 1 }),
             daNavHoverDur: num(da, "navHoverDuration", { label: "Pastille play : vague au survol (s)", min: 0.3, max: 3, step: 0.05 }),
             daNavHoverSpread: num(da, "navHoverSpread", { label: "Pastille play : etalement de la vague (s)", min: 0.1, max: 2, step: 0.05 }),
