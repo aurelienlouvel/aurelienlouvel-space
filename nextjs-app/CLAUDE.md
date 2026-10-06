@@ -74,11 +74,16 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   (`globals.css`) que sur `/play` : partout ailleurs, curseur système.
 - Empilement des cartes : au seul `renderOrder`, jamais à la profondeur. Les matériaux des cartes (mosaïque,
   deck) n'ont ni `depthTest` ni `depthWrite`, et `applyCardTilt` reste un warp 2D (z = 0) : un z réel
-  ferait se découper deux cartes inclinées voisines. Ordre : mosaïque 0 · tuile qui s'ouvre 10 · vague de
-  sélection 20 · deck `100 − d·10` (≈ 65 à 110 avec `stackDepth` à 3) · carte qui revient 200 · éclats 300.
-  Toute nouvelle couche prend une valeur dans cet ordre.
-- Réglages visuels : `/play#debug`, 5 onglets (global : caméra + curseur ; media ; canvas : layout + fond de points ;
-  style : select « prism » ; animation : survol / ouverture / carte suivante, avec inspecteur et rejeu).
+  ferait se découper deux cartes inclinées voisines. Ordre : ombres des cartes −10 · mosaïque 0 · tuile qui
+  s'ouvre 10 · vague de sélection 20 · deck `100 − d·10` (≈ 65 à 110 avec `stackDepth` à 3) · carte qui revient
+  200 · éclats 300. Toute nouvelle couche prend une valeur dans cet ordre.
+- Canvas : fond de points CSS (`updateBackgroundDots`), cartes à plat (`plane.rotationRange` et `hover.rotate`
+  à 0) et ombre portée douce (`components/play/CardShadow.tsx`) pour les détacher des points. L'ombre est un
+  quad SDF enfant du mesh de la carte : elle hérite de sa position, relit sa taille à chaque frame, s'efface
+  avec la mosaïque à l'ouverture d'une carte et n'existe pas sur le deck. Son `raycast` est neutralisé : R3F
+  teste aussi les enfants d'un mesh à écouteurs, et une ombre plus grande que la carte élargirait le survol.
+- Réglages visuels : `/play#debug`, 5 onglets (global : caméra + curseur ; media ; canvas : layout + fond de points
+  + ombre ; style : select « prism » ; animation : survol / ouverture / carte suivante, avec inspecteur et rejeu).
   Le code vit dans `components/play/debug/`. `window.__play` expose l'état.
 - Le curseur de /play est dessiné par `PlayCursor` (incliné selon la vitesse du pointeur par un ressort
   amorti sans retard, grossit au survol, rétrécit au clic). Il est rendu en portail dans `<body>` : la
