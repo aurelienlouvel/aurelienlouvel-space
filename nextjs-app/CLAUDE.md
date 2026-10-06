@@ -62,22 +62,39 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
 
 ### /play — DA « Pixels » et scène persistante
 - DA commune (loader, nav, side panel, curseur, éclats) : `src/lib/da.ts` — des carrés unis et rien d'autre :
-  une couleur par pixel, ni flou, ni verre translucide, ni bord fondu ; un pixel éteint est blanc. Tous ont
-  de légers coins arrondis (`DA_RADIUS` côté JS et shaders, `--da-radius` côté CSS ; réglable). Le dégradé
-  naît entre pixels voisins (`daGradientAt` : une fenêtre `DA_WINDOW` du spectre pastel à la fois, jamais
-  tout le spectre). Ce que la DA anime : la pastille « play » de la nav est un champ de pixels de 0.5rem
-  (`--da-cell`), en partie de couleur (le dégradé), en partie d'un gris pâle, à peine visible, qui fait le
-  fond ; la vague de survol allume d'autres pixels de couleur puis les éteint ; au survol d'une carte, une
-  bande blanche lumineuse la traverse (`ArtifactPlane`, réglage `waveGlow`) ; les pixels du coin bas droit
-  du panneau (`PanelPixels`, taille `panelPixelSize`, nombre `panelPixelDensity` : 36 par défaut, 137 à pleine densité) scintillent
-  en continu. Les couleurs du panneau viennent de la page ouverte, pas du spectre de la DA :
-  `usePanelGradient` (`panel-gradient.ts`) mélange la palette des médias (`lib/dominant-color.ts`) selon le
-  poids de chaque carte du deck, pour le halo derrière le panneau et, par `--pg-c0/1/2`, pour ses pixels (le
-  rose, le lilas et le ciel de la DA ne servent que de repli ; `panelGradientIrid` ajoute de l'irisation au
-  halo, 0 par défaut). Les éclats d'ouverture sont des carrés d'une couleur (celle de leur morceau d'image,
-  ou le dégradé de la DA avec `tint`). Les coins des cartes restent lissés (`CORNER_SMOOTHING` côté shaders,
+  une couleur par pixel, ni flou, ni verre translucide, ni bord fondu ; un pixel éteint est blanc. Sans
+  rayon par défaut (`DA_RADIUS` côté JS et shaders, `--da-radius` côté CSS, `da.pixelRadius` dans le debug :
+  le curseur « coins arrondis » existe toujours, 0 = carré net, 0.5 = rond). Le dégradé naît entre pixels
+  voisins (`daGradientAt` : une fenêtre `DA_WINDOW` du spectre pastel à la fois, jamais tout le spectre).
+  Ce que la DA anime :
+  - la pastille « play » de la nav et le loader n'ont que du gris : un champ de pixels `rgb(24 24 27)` à
+    faible opacité, sans aucune couleur. Sur la pastille (`PlayPillPixels`, cases de 0.5rem, `--da-cell`),
+    un champ dérive doucement quand la page est active et la vague de survol (`da-cell-wave`) allume puis
+    éteint les pixels de gauche à droite ; `da.navWave` règle sa force, `da.navGray` la teinte du fond.
+  - le loader (`PlayLoader`) est cette même vague à l'échelle de la page : une grille de pixels gris sur
+    tout l'écran que la vague balaie en boucle (`ld-wave`, CSS pur) jusqu'à ce que la scène soit prête
+    (`isReady`), puis fondu. Ni barre, ni pourcentage.
+  - au survol d'une carte, une bande blanche lumineuse la traverse (`ArtifactPlane`, réglage `waveGlow`) ;
+    `waveIrid` la teinte d'un reflet irisé (0 = blanc pur, 1 = arc-en-ciel ; 0.5 par défaut).
+  - les pixels du coin bas droit du panneau (`PanelPixels`) forment une forme tramée dans une grille de
+    12 × 8 cases : un quart d'ellipse dense au coin, comparé à une matrice de Bayer, donc des pixels bien
+    répartis plutôt qu'agglutinés. Gros et peu nombreux (20 par défaut, 36 à pleine densité), ils respirent
+    lentement (`pg-breathe`, une onde partie du coin), jamais de scintillement. Réglages : `panelPixelSize`,
+    `panelPixelDensity`, `panelPixelPulse`, `panelPixelPeriod`.
+  Les couleurs du panneau viennent de la page ouverte, pas du spectre de la DA : `usePanelGradient`
+  (`panel-gradient.ts`) mélange la palette des médias (`lib/dominant-color.ts`) selon le poids de chaque
+  carte du deck, pour le halo derrière le panneau et, par `--pg-c0/1/2`, pour ses pixels (le rose, le lilas
+  et le ciel de la DA ne servent que de repli ; `panelGradientIrid` ajoute de l'irisation au halo, 0 par
+  défaut). Les éclats d'ouverture sont des carrés d'une couleur (celle de leur morceau d'image, ou le
+  dégradé de la DA avec `tint`). Les coins des cartes restent lissés (`CORNER_SMOOTHING` côté shaders,
   `--da-corner-k` côté CSS). Réglages dans `/play#debug` › Style › « Pixels et degrades » : les valeurs déjà
-  enregistrées par le navigateur passent avant les défauts, d'où le bouton Reset.
+  enregistrées par le navigateur passent avant les défauts, d'où `STORAGE_KEY` (`PlayDebug.tsx`), qu'on
+  incrémente quand les défauts changent exprès, et le bouton Reset.
+- Retour de l'ouverture d'une carte (Échap ou bouton retour de la barre) : seul le média en cours de la pile est
+  gardé ; les autres cartes et le panneau s'effacent vite (`rewindLayerFade`) et ce média revient dans la
+  mosaïque. Quand ce n'est pas le premier média du projet, il se fond en douceur dans la carte de la
+  mosaïque (`keepOther`, `rewindLandMix`). Un second Échap en plein retour repart de l'état courant, sans
+  rien dérouler. Durée et courbe : `rewindDuration`, `rewindEasing` (onglet Animation).
 - Dézoom de la caméra en mouvement : lié au retard de la caméra sur sa cible
   (`components/play/camera-dezoom.ts`), pas à une vitesse lissée à part : un lissage de plus sur le zoom
   réintroduirait une animation de fin sur un canvas déjà statique. Au drag et à la molette, le zoom pivote
