@@ -99,13 +99,15 @@ export function StyleTab({
         "Pixels et degrades": folder(
           {
             daRadius: num(da, "pixelRadius", { label: "Pixels : coins arrondis (0 carre, 0.5 rond)", min: 0, max: 0.5, step: 0.01 }),
-            daNavPixels: num(da, "navPixels", { label: "Pastille play : opacite des pixels de couleur", min: 0, max: 3, step: 0.05 }),
+            daNavWave: num(da, "navWave", { label: "Pastille play : force de la vague (gris)", min: 0, max: 3, step: 0.05 }),
             daNavSize: num(da, "navPixelSize", { label: "Pastille play : taille d un pixel (rem)", min: 0.25, max: 0.6, step: 0.0625 }),
-            daNavGray: num(da, "navGray", { label: "Pastille play : fond gris (force)", min: 0, max: 3, step: 0.05 }),
+            daNavGray: num(da, "navGray", { label: "Pastille play : gris au repos (force)", min: 0, max: 3, step: 0.05 }),
             daNavDrift: num(da, "navDriftPeriod", { label: "Pastille play : defilement actif (s)", min: 3, max: 60, step: 1 }),
             daNavHoverDur: num(da, "navHoverDuration", { label: "Pastille play : vague au survol (s)", min: 0.3, max: 3, step: 0.05 }),
             daNavHoverSpread: num(da, "navHoverSpread", { label: "Pastille play : etalement de la vague (s)", min: 0.1, max: 2, step: 0.05 }),
-            daPanelSize: num(da, "panelPixelSize", { label: "Pixels du panel (taille, rem)", min: 0.25, max: 1.5, step: 0.0625 }),
+            daPanelSize: num(da, "panelPixelSize", { label: "Pixels du panel (taille d une case, rem)", min: 0.25, max: 2, step: 0.0625 }),
+            daPanelPulse: num(da, "panelPixelPulse", { label: "Pixels du panel (respiration, 0 = fixes)", min: 0, max: 1, step: 0.05 }),
+            daPanelPeriod: num(da, "panelPixelPeriod", { label: "Pixels du panel (duree d une respiration, s)", min: 2, max: 20, step: 0.5 }),
             // La densité change les pixels rendus : React doit les refaire (comme l'opacité).
             daPanelDensity: {
               ...num(da, "panelPixelDensity", { label: "Pixels du panel (nombre, 1 = grille pleine)", min: 0, max: 1, step: 0.01 }),

@@ -302,11 +302,11 @@ export const HOVER_DEFAULTS: HoverParams = {
 export type DaParams = {
   /** Rayon des coins de tous les pixels, en fraction de leur côté (0 = carré net, 0.5 = rond). */
   pixelRadius: number;
-  /** Opacité des pixels de couleur de la pastille « play » dans la navigation (0 = coupés). */
-  navPixels: number;
+  /** Force de la vague de survol de la pastille « play », en gris (× ; 0 = coupée). */
+  navWave: number;
   /** Côté d'un pixel de la pastille « play » (rem). */
   navPixelSize: number;
-  /** Force des pixels gris qui font le fond de la pastille « play » (× ; 0 = coupés). */
+  /** Force des pixels gris qui font le fond de la pastille « play » au repos (× ; 0 = coupés). */
   navGray: number;
   /** Durée d'un passage du champ de pixels de la pastille « play » active (s) : plus grand = plus chill. */
   navDriftPeriod: number;
@@ -314,10 +314,14 @@ export type DaParams = {
   navHoverDuration: number;
   /** Étalement de la vague de survol de gauche à droite (s). */
   navHoverSpread: number;
-  /** Taille d'un pixel du coin bas droit du side panel (rem). */
+  /** Côté d'une case de la forme tramée du coin bas droit du side panel (rem) : le pixel en occupe 80 %. */
   panelPixelSize: number;
-  /** Nombre de pixels du coin bas droit du side panel (0..1 ; la grille pleine en compte ~135). */
+  /** Nombre de pixels de cette forme (0..1 ; la forme pleine en compte 36). */
   panelPixelDensity: number;
+  /** Amplitude de leur respiration (0 = fixes, 1 = ils s'effacent presque). */
+  panelPixelPulse: number;
+  /** Durée d'une respiration (s) : plus grand = plus calme. */
+  panelPixelPeriod: number;
   /** Étendue du dégradé du side panel (×). */
   panelGradientSpread: number;
   /** Irisation du dégradé du side panel (0 = les seules couleurs de la page ouverte, 1 = arc-en-ciel). */
@@ -326,14 +330,16 @@ export type DaParams = {
 
 export const DA_DEFAULTS: DaParams = {
   pixelRadius: DA_RADIUS,
-  navPixels: 2,
+  navWave: 1,
   navPixelSize: 0.5,
   navGray: 1,
   navDriftPeriod: 14,
   navHoverDuration: 1.1,
   navHoverSpread: 0.55,
-  panelPixelSize: 0.5,
+  panelPixelSize: 1,
   panelPixelDensity: PANEL_PIXEL_DENSITY,
+  panelPixelPulse: 0.4,
+  panelPixelPeriod: 8,
   panelGradientSpread: 1.8,
   panelGradientIrid: 0,
 };
@@ -1163,10 +1169,12 @@ function CameraRig({
     const rootStyle = document.documentElement.style;
     const daVars: [string, string][] = [
       ["--da-radius", `${Math.round(da.pixelRadius * 1000) / 10}%`],
-      ["--da-nav-a", String(da.navPixels)],
+      ["--da-nav-wave", String(da.navWave)],
       ["--da-cell", `${da.navPixelSize}rem`],
       ["--da-nav-gray", String(da.navGray)],
       ["--pg-size", `${da.panelPixelSize}rem`],
+      ["--pg-pulse", String(da.panelPixelPulse)],
+      ["--pg-period", `${da.panelPixelPeriod}s`],
       ["--da-period", `${da.navDriftPeriod}s`],
       ["--da-hover-dur", `${da.navHoverDuration}s`],
       ["--da-hover-spread", `${da.navHoverSpread}s`],
@@ -2164,7 +2172,7 @@ export function PlayCanvas({
       aria-hidden={!active}
       className={`fixed inset-0 bg-white ${active ? "" : "invisible pointer-events-none"}`}
     >
-      <PlayLoader loaded={loaded} total={total} isReady={isReady} />
+      <PlayLoader isReady={isReady} />
 
       <div
         className={`h-full w-full transition-opacity duration-700 ease-out ${isReady ? "opacity-100" : "pointer-events-none opacity-0"
