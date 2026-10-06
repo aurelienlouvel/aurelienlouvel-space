@@ -256,10 +256,10 @@ export type BackgroundParams = {
 
 export const BACKGROUND_DEFAULTS: BackgroundParams = {
   dots: true,
-  dotSize: 1.6,
-  dotSpacing: 44,
-  dotOpacity: 0.16,
-  dotColor: "#1b2a4a",
+  dotSize: 3.2,
+  dotSpacing: 64,
+  dotOpacity: 0.04,
+  dotColor: "#000000",
   parallax: 1,
 };
 
@@ -648,11 +648,11 @@ const INDICATOR_FADE_SPEED = 26;
 const INDICATOR_MOVE_SPEED = 6;
 
 // ── Ouverture — caméra ────────────────────────────────────────────────────
-const CAMERA_ZOOM = 0.9;
+const CAMERA_ZOOM = 0.8;
 const CAMERA_MOTION_BLUR_ENABLED = false;
 const CAMERA_MOTION_BLUR_STRENGTH = 4.0;
 const CAMERA_MOTION_BLUR_MAX = 0.25;
-const CAMERA_FOLLOW_SPEED = 4;
+const CAMERA_FOLLOW_SPEED = 8;
 const CAMERA_SETTLE_SPEED = 1;
 /** Vitesse d'extinction des reliquats de courbe : assez rapide pour disparaître
  *  sous la seconde, assez lente pour ne jamais se voir comme un saut. */
@@ -1282,7 +1282,7 @@ export function PlayCanvas({
     plane: {
       radius: PLANE_RADIUS,
       cornerSmoothing: CORNER_SMOOTHING_DEFAULT,
-      rotationRange: 0,
+      rotationRange: 1.5,
     },
     indicator: { fadeSpeed: INDICATOR_FADE_SPEED, moveSpeed: INDICATOR_MOVE_SPEED },
     camera: {

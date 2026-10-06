@@ -36,13 +36,13 @@ export type ShadowParams = {
 
 export const SHADOW_DEFAULTS: ShadowParams = {
   enabled: true,
-  opacity: 0.2,
-  blur: 32,
+  opacity: 0.04,
+  blur: 0,
   offsetX: 0,
-  offsetY: 14,
-  spread: -6,
+  offsetY: 0,
+  spread: 8,
   lift: 0.6,
-  color: "#0c1429",
+  color: "#000000",
 };
 
 /**
