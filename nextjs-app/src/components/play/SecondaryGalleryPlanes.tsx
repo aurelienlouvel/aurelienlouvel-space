@@ -725,12 +725,12 @@ export function SecondaryGalleryPlanes({
       tx /= tl;
       ty /= tl;
       const mixAim = Math.min(1, Math.max(0, cfg.deckAimMix ?? 0.8));
-      const straightY = pullShown < 0 ? -1 : 1;
-      // Le curseur règle le côté et l'inclinaison de la trajectoire, jamais son
-      // sens vertical : scroller vers le bas fait toujours monter la carte, même
-      // avec le curseur sous son centre (`ty < 0` l'aurait fait descendre).
+      // Le curseur (ou le doigt) règle le côté et l'inclinaison de la trajectoire, jamais son
+      // sens vertical : la carte part toujours vers le haut, même avec le curseur sous son
+      // centre (`ty < 0` l'aurait fait descendre). Le sens du scroll ne change rien : le deck
+      // n'avance que dans un sens.
       let mx = tx * mixAim;
-      let my = straightY * (Math.abs(ty) * mixAim + (1 - mixAim));
+      let my = Math.abs(ty) * mixAim + (1 - mixAim);
       const ml = Math.hypot(mx, my) || 1;
       mx /= ml;
       my /= ml;

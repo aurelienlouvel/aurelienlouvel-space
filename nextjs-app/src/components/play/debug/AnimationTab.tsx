@@ -13,12 +13,12 @@ function applyFreeze(runtime: RuntimeRef, freeze: { on: boolean; value: number }
   if (rc) rc.transition.deckFreeze = freeze.on ? freeze.value : null;
 }
 
-/** Simule un geste complet vers la carte suivante / précédente (vue détail uniquement). */
-function stepCard(runtime: RuntimeRef, dir: 1 | -1) {
+/** Simule un geste complet vers la carte suivante (vue détail uniquement ; le deck ne recule pas). */
+function stepCard(runtime: RuntimeRef) {
   const rc = runtime?.current;
   if (!rc || rc.transition.phase !== "isolated") return;
   rc.transition.deckLockUntil = 0;
-  rc.transition.deckPullRaw = dir * 1.001;
+  rc.transition.deckPullRaw = 1.001;
   rc.transition.deckInputAt = performance.now();
 }
 
@@ -68,8 +68,7 @@ export function AnimationTab({
         "Rejouer le survol": () => replayHover(runtime, hover.waveDuration * 1000 + 700),
       }),
       "Carte suivante": buttonGroup({
-        "Precedente": () => stepCard(runtime, -1),
-        "Suivante": () => stepCard(runtime, 1),
+        "Suivante": () => stepCard(runtime),
       }),
       playbackSpeed: {
         label: "Vitesse de lecture",
@@ -89,9 +88,9 @@ export function AnimationTab({
         },
       },
       freezeValue: {
-        label: "Traction maintenue (-1 a 1)",
+        label: "Traction maintenue (0 a 1)",
         value: 0.6,
-        min: -1,
+        min: 0,
         max: 1,
         step: 0.01,
         onChange: (v: number) => {

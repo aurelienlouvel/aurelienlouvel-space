@@ -132,6 +132,14 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   non d'un coup (`twistSettleStart`, `twistSettle`, `twistSettleEasing`, `twistSettleBlend`, onglet
   Animation › « 4 Vague » ; `transition-presets.ts`). La carte du deck n'est plus inclinée par la souris au
   repos (`deckTilt` à 0 ; le réglage reste dans le debug).
+- Défilement du deck (carte suivante) : tout geste de scroll compte, dans un sens comme dans l'autre, comme un
+  cran vers la carte suivante : la molette et le drag cumulent leur valeur absolue (`stepDeckPull`,
+  `PlayCanvas.tsx`), le deck tourne en boucle et ne recule jamais, et au clavier toutes les flèches avancent.
+  La carte part toujours vers le haut : le curseur (ou le doigt, au drag) ne règle que le côté et
+  l'inclinaison de sa trajectoire, jamais le sens vertical, même sous la carte (`deckAimMix`, 0.8, la
+  ramène d'autant vers « tout droit » ; `SecondaryGalleryPlanes.tsx`), et son cap est figé au changement de
+  carte (`deckAimCommit`). Au clavier, rien pour viser : la carte part tout droit (`deckAimCommit` remis à
+  (0, 1)).
 - Dézoom de la caméra en mouvement : lié au retard de la caméra sur sa cible
   (`components/play/camera-dezoom.ts`), pas à une vitesse lissée à part : un lissage de plus sur le zoom
   réintroduirait une animation de fin sur un canvas déjà statique. Au drag et à la molette, le zoom pivote
