@@ -239,6 +239,10 @@ export const playArtifactsQuery = defineQuery(`
     _id,
     title,
     "slug": slug.current,
+    "mediaCount": count(gallery[
+      (_type == "galleryImage" && defined(image.asset)) ||
+      (_type == "galleryVideo" && (defined(file.asset) || defined(url)))
+    ]),
     "media": gallery[
       (_type == "galleryImage" && defined(image.asset)) ||
       (_type == "galleryVideo" && (defined(file.asset) || defined(url)))
@@ -269,6 +273,12 @@ export type PlayArtifact = {
   _id: string;
   title: string;
   slug: string;
+  /**
+   * Nombre de médias exploitables de la galerie (mêmes critères que le filtre
+   * ci-dessus) : c'est le nombre de cartes que la pile de l'artifact boucle,
+   * affiché dans la pastille au survol.
+   */
+  mediaCount: number;
   media: {
     _type: "galleryImage" | "galleryVideo";
     imageRef: string | null;
