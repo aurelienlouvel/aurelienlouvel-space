@@ -173,9 +173,11 @@ export type TransitionConfig = {
   deckAimMix: number; // 0..1 — courbure de la trajectoire vers le côté du curseur, de part et d'autre de la direction du geste (0 = droit devant)
   deckThrow: number; // Distance dont la carte part dans sa direction en se désagrégeant (px écran)
   deckSpin: number; // Rotation maximale de la carte lancée (degrés), selon sa direction
-  deckTilt: number; // Inclinaison 3D maximale de la carte et des layers selon la souris (degrés, négatif = inverse, 0 = carte plane au repos)
-  deckTiltLayerGain: number; // Inclinaison supplémentaire des layers plus profonds (× par niveau)
-  deckTiltSmooth: number; // Raideur de l'inclinaison (par seconde)
+  deckTilt: number; // Rotation 3D maximale de toute la pile (groupe) selon la souris (degrés, le côté du curseur recule ; négatif = inverse, 0 = pile à plat)
+  deckTiltLayerGain: number; // Rotation supplémentaire propre aux layers plus profonds, en plus de celle du groupe (× par niveau)
+  deckTiltSmooth: number; // Raideur de la rotation (par seconde)
+  stackDepthZ: number; // Écart en profondeur entre deux layers de la pile (px écran) : c'est lui qui crée la parallaxe quand le groupe tourne
+  stackPerspective: number; // Perspective de chaque carte quand la pile tourne (0 = rotation sans trapèze, 1 = naturelle)
   deckDissolve: number; // Courbe d'évanouissement de la carte qui part (1 = linéaire, 2 = tardive)
   dragPxPerCard: number; // Distance de drag (px) pour passer une carte
 
@@ -381,9 +383,11 @@ const BASE_AMPLITUDES = {
   deckAimMix: 0.8,
   deckThrow: 180,
   deckSpin: 12,
-  deckTilt: 0,
-  deckTiltLayerGain: 0.35,
+  deckTilt: 7,
+  deckTiltLayerGain: 0,
   deckTiltSmooth: 8,
+  stackDepthZ: 80,
+  stackPerspective: 1,
   deckDissolve: 3.6,
   dragPxPerCard: 580,
   repulseReturnDelay: 0.25,

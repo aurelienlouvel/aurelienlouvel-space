@@ -608,18 +608,24 @@ export function SecondaryGalleryPlanes({
       layerFadeRef.current = 1;
     }
 
-    if (tr.phase !== "playing" && tr.phase !== "isolated" && tr.phase !== "returning") {
+    // Pile masquée : la rotation repart de zéro, la prochaine ouverture ne reprend pas l'ancienne.
+    const hide = () => {
       group.visible = false;
+      tiltRef.current.x = 0;
+      tiltRef.current.y = 0;
+    };
+    if (tr.phase !== "playing" && tr.phase !== "isolated" && tr.phase !== "returning") {
+      hide();
       return;
     }
     // Avant le reveal, la tuile reste affichée par ArtifactGrid : pas de doublon.
     if (tr.phase === "playing" && frame.reveal < 0.001) {
-      group.visible = false;
+      hide();
       return;
     }
     // Entrée annulée avant le réveil : la tuile de la mosaïque n'a jamais été remplacée.
     if (tr.phase === "returning" && tr.returnFrom && tr.returnFrom.reveal < 0.001) {
-      group.visible = false;
+      hide();
       return;
     }
     group.visible = true;
@@ -757,14 +763,27 @@ export function SecondaryGalleryPlanes({
       tr.deckAim.y += (my - tr.deckAim.y) * ak;
     }
 
-    // ── Inclinaison 3D selon la souris (carte + layers) ─────────────────────
-    const tiltOn = tr.phase === "isolated" && !tr.rewinding;
+    // ── Rotation 3D de la pile selon la souris ──────────────────────────────
+    // Toute la pile est un groupe qui pivote autour du centre de la carte du dessus : le côté du
+    // curseur recule (`deckTilt` négatif = l'inverse). Les layers sont espacés en profondeur
+    // (`stackDepthZ`), donc la rotation les décale les uns par rapport aux autres : c'est la parallaxe.
+    // Chaque carte reçoit aussi la même inclinaison dans son shader (`uCardTilt`), qui lui donne sa
+    // perspective, car la caméra est orthographique. Le pointeur n'est lu qu'une fois vu, et la pile
+    // se remet à plat pendant le retour.
+    const tiltOn = tr.phase === "isolated" && !tr.rewinding && ptr.seen;
     const tiltRad = ((cfg.deckTilt ?? 0) * Math.PI) / 180;
     const nx = Math.max(-1, Math.min(1, (ptr.x - cardSX) / Math.max(1, size.width / 2)));
     const ny = Math.max(-1, Math.min(1, -(ptr.y - cardSY) / Math.max(1, size.height / 2)));
     const tk = 1 - Math.exp(-delta * (cfg.deckTiltSmooth ?? 8));
     tiltRef.current.x += ((tiltOn ? -ny * tiltRad : 0) - tiltRef.current.x) * tk;
     tiltRef.current.y += ((tiltOn ? nx * tiltRad : 0) - tiltRef.current.y) * tk;
+    // Même ordre que le warp du shader (X puis Y) : le groupe et les cartes tournent dans le même sens.
+    if (group.rotation.order !== "YXZ") group.rotation.order = "YXZ";
+    group.rotation.set(tiltRef.current.x, tiltRef.current.y, 0);
+    // Écart en z entre deux layers : défini en px écran, borné pour que six layers restent dans le
+    // frustum (far = 1000 depuis z = 100).
+    const zGap = Math.min(140, Math.max(0, cfg.stackDepthZ ?? 80) / curZoom);
+    const warpGain = Math.max(0, cfg.stackPerspective ?? 1);
 
     // La carte prend la place de la tuile à l'image près : elle part de sa taille
     // réelle à l'écran, jamais plafonnée par `maxW` / `maxH`. Le plafond ne valait
@@ -956,7 +975,9 @@ export function SecondaryGalleryPlanes({
       mesh.visible = visible;
       if (!visible) return;
 
-      mesh.position.set(posX, posY, 0.01 - Math.max(0, d) * 0.001);
+      // Chaque layer recule de `zGap` (continu pendant la traction, comme son échelle et son décalage) ;
+      // la carte qui part reste devant. L'empilement visible reste celui de `renderOrder`.
+      mesh.position.set(posX, posY, 0.01 - (d >= 0 ? Math.min(dv, STACK_DEPTH_MAX + 1) * zGap : 0));
       mesh.rotation.set(0, 0, roll);
       mesh.renderOrder = isMain && returning ? 200 : Math.round(100 - d * 10);
       mesh.scale.set(drawW, drawH, 1);
@@ -965,8 +986,9 @@ export function SecondaryGalleryPlanes({
       if (mat) {
         const uniforms = uniformsOf<PlaneUniforms>(mat);
         if (uniforms?.uMotionBlur) uniforms.uMotionBlur.value = 0;
-        // Les layers plus profonds s'inclinent un peu plus : un effet de parallaxe.
-        const layerGain = 1 + (cfg.deckTiltLayerGain ?? 0) * Math.max(0, dv);
+        // Perspective de la carte (`stackPerspective`), avec en plus une inclinaison propre aux layers
+        // profonds (`deckTiltLayerGain`, 0 par défaut : ils suivent le groupe, rigides).
+        const layerGain = warpGain * (1 + (cfg.deckTiltLayerGain ?? 0) * Math.max(0, dv));
         uniforms?.uCardTilt.value.set(tiltRef.current.x * layerGain + twistX, tiltRef.current.y * layerGain + twistY);
         if (uniforms) {
           uniforms.uDissolve.value = dissolve;
@@ -995,33 +1017,38 @@ export function SecondaryGalleryPlanes({
     return null;
   }
 
+  // Deux groupes imbriqués : l'extérieur pivote autour du centre de la carte du dessus, l'intérieur
+  // ramène l'origine au monde. Les cartes gardent donc leurs coordonnées monde, et la rotation de la
+  // pile les fait tourner autour de ce point (`deckTop`, `deckFx` et les autres restent en monde).
   return (
-    <group ref={groupRef}>
-      {pool.map((item, idx) => {
-        const isCenter = idx === centerSlotIdx;
-        const fallbackTex =
-          item.kind === "video"
-            ? (sharedVideoTextures.get(item.url)?.texture ?? null)
-            : (sharedImageTextures.get(item.url) ?? null);
+    <group ref={groupRef} position={[principalPoint.x, principalPoint.y, 0]}>
+      <group position={[-principalPoint.x, -principalPoint.y, 0]}>
+        {pool.map((item, idx) => {
+          const isCenter = idx === centerSlotIdx;
+          const fallbackTex =
+            item.kind === "video"
+              ? (sharedVideoTextures.get(item.url)?.texture ?? null)
+              : (sharedImageTextures.get(item.url) ?? null);
 
-        return (
-          <GallerySlotPlane
-            key={isCenter ? "main-slot-m0" : item.key}
-            url={item.url}
-            kind={item.kind}
-            x={principalPoint.x}
-            y={principalPoint.y}
-            width={principalPoint.width}
-            height={principalPoint.height}
-            debug={debug}
-            isMain={isCenter}
-            fallbackTexture={fallbackTex}
-            meshRef={(mesh) => {
-              meshRefs.current[idx] = mesh;
-            }}
-          />
-        );
-      })}
+          return (
+            <GallerySlotPlane
+              key={isCenter ? "main-slot-m0" : item.key}
+              url={item.url}
+              kind={item.kind}
+              x={principalPoint.x}
+              y={principalPoint.y}
+              width={principalPoint.width}
+              height={principalPoint.height}
+              debug={debug}
+              isMain={isCenter}
+              fallbackTexture={fallbackTex}
+              meshRef={(mesh) => {
+                meshRefs.current[idx] = mesh;
+              }}
+            />
+          );
+        })}
+      </group>
     </group>
   );
 }

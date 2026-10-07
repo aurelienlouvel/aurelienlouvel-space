@@ -17,7 +17,7 @@ import { MediaTab } from "./debug/MediaTab";
 import { StyleTab } from "./debug/StyleTab";
 import { TimelineBar } from "./debug/TimelineBar";
 
-const STORAGE_KEY = "play-debug-v41";
+const STORAGE_KEY = "play-debug-v42";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -36,7 +36,7 @@ const TAB_KEYWORDS: Record<DebugTab, string[]> = {
   media: ["media", "width", "height", "scale", "variance", "radius", "border", "corner", "smoothing", "rotation", "range", "contour", "ombre", "shadow", "epaisseur", "decalage", "soulevement"],
   canvas: ["canvas", "layout", "gap", "repeat", "aspect", "seed", "iterations", "background", "points", "dots", "parallax"],
   style: ["style", "prism", "vague", "wave", "glow", "lumiere", "irisation", "opacite", "eclats", "shard", "pixels", "degrade", "panel", "lentille", "aplat", "flat", "carres", "taille", "blanc", "gris", "gray", "radius", "arrondi", "coins", "densite", "nombre", "pastille", "play", "nav", "couleurs", "page"],
-  animation: ["animation", "survol", "hover", "ouverture", "transition", "approche", "burst", "attente", "cascade", "layers", "retour", "carte", "deck", "traction", "rejouer", "detail", "panneau", "easing", "duration", "tortillement", "torsion", "vague", "fond", "ambiance", "atmosphere", "pixels", "arrivee", "recul", "cadrage", "molette", "scroll", "drag", "inverser", "axe", "courbure"],
+  animation: ["animation", "survol", "hover", "ouverture", "transition", "approche", "burst", "attente", "cascade", "layers", "retour", "carte", "deck", "traction", "rejouer", "detail", "panneau", "easing", "duration", "tortillement", "torsion", "vague", "fond", "ambiance", "atmosphere", "pixels", "arrivee", "recul", "cadrage", "molette", "scroll", "drag", "inverser", "axe", "courbure", "rotation", "souris", "pile", "profondeur", "parallaxe", "perspective", "inclinaison"],
 };
 
 function loadSavedTab(): DebugTab {

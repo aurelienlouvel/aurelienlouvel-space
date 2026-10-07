@@ -130,8 +130,7 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   d'origine).
 - Fin du tortillement de la carte (après la vague d'ouverture) : elle revient à plat par un retour doux et
   non d'un coup (`twistSettleStart`, `twistSettle`, `twistSettleEasing`, `twistSettleBlend`, onglet
-  Animation › « 4 Vague » ; `transition-presets.ts`). La carte du deck n'est plus inclinée par la souris au
-  repos (`deckTilt` à 0 ; le réglage reste dans le debug).
+  Animation › « 4 Vague » ; `transition-presets.ts`).
 - Arrivée de la carte (juste avant qu'elle se pose) : dès que le pack est chargé, la caméra recule d'un cran
   puis revient vers le cadrage de la vue détail (`arrivalDip`, 0.22 : la part du zoom perdue au creux ;
   0 = l'ancienne trajectoire, à l'identique). Le creux tombe exactement quand la piste `dezoom` démarre et le
@@ -172,6 +171,21 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   fort de ses cases. Les images ne se chargent qu'une fois par url (`pendingImageLoads`), les vidéos partagent
   déjà leur texture. Le dernier layer garde son opacité entière (`layerOpacityAt`), au-delà la carte s'efface
   sur un pas.
+- Rotation 3D de la pile (vue détail, `SecondaryGalleryPlanes.tsx`) : toute la pile est un groupe three qui
+  pivote autour du centre de la carte du dessus selon la position de la souris, le côté du curseur reculant
+  (`deckTilt`, 7° au plus ; négatif = l'inverse, 0 = à plat). Deux groupes imbriqués (l'extérieur pivote, l'intérieur
+  ramène l'origine au monde) : les cartes gardent leurs coordonnées monde, donc `deckTop`, `deckFx` et la
+  traction restent exprimés hors rotation (les éclats et l'origine des pixels de fond ne suivent pas la
+  rotation, d'environ 2 px à 7°). Chaque layer recule en z (`stackDepthZ`, 80 px écran, borné à 140 unités
+  monde) : c'est cet écart qui fait la parallaxe, un layer de plus se décale d'environ `stackDepthZ × sin(rotation)`.
+  L'empilement visible reste celui de `renderOrder` (pas de test de profondeur). La caméra est orthographique :
+  chaque carte reçoit en plus la même inclinaison dans son shader (`uCardTilt`, `applyCardTilt` de
+  `rounded-frame.ts`) pour avoir une perspective, réglée par `stackPerspective` (0 = rotation sans trapèze,
+  1 = naturelle). Le groupe et le warp tournent dans le même ordre (X puis Y, Euler « YXZ ») et le même sens.
+  `deckTiltLayerGain` ajoute une inclinaison propre aux layers profonds (0 : ils suivent le groupe, rigides).
+  La rotation suit le pointeur dès qu'il a bougé sur /play (`runtime.pointer.seen`), se lisse
+  (`deckTiltSmooth`) et revient à plat pendant le retour ; la pile masquée repart de zéro. Réglages :
+  Animation › « Carte suivante » › « Rotation 3D de la pile (souris) ».
 - Dézoom de la caméra en mouvement : lié au retard de la caméra sur sa cible
   (`components/play/camera-dezoom.ts`), pas à une vitesse lissée à part : un lissage de plus sur le zoom
   réintroduirait une animation de fin sur un canvas déjà statique. Au drag et à la molette, le zoom pivote
