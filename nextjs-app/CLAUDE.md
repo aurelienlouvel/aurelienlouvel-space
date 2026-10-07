@@ -98,8 +98,11 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
     valeur change (`pixelFrame`, `pixelRgb`) : le nombre monte et descend par une onde de densité partie
     du coin (`panelPixelFlux`, `panelPixelFluxPeriod`, `panelPixelRipple`), les couleurs glissent le long
     de la palette de la page (`panelPixelShift`, `panelPixelShiftPeriod`) et l'opacité respire
-    (`panelPixelPulse`, `panelPixelPeriod`). Jamais de scintillement ; avec `prefers-reduced-motion` le
-    champ reste figé à sa forme moyenne. Autres réglages : `panelPixelSize`, `panelPixelDensity`.
+    (`panelPixelPulse`, `panelPixelPeriod`). Des cycles de 5 à 7 s, assez vifs pour se voir d'un coup
+    d'œil (≈ 6 pixels qui naissent ou s'éteignent par seconde sur le champ entier) mais jamais de
+    scintillement, puisque chaque case suit l'onde du coin avec son retard ; avec
+    `prefers-reduced-motion` le champ reste figé à sa forme moyenne. Autres réglages : `panelPixelSize`,
+    `panelPixelDensity`.
   - tant qu'un projet est ouvert, quelques pixels très discrets dérivent derrière la pile et donnent une
     atmosphère (`ShardField` en mode ambiant ; onglet Animation › « 8 Pixels de fond » : nombre, opacité,
     taille, dérive, vitesse, fondu). Ils démarrent quand la pile est en place, prennent les couleurs de la
