@@ -160,6 +160,18 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   sans courbure pendant un drag, où la carte suit le doigt ; le cap est figé au changement de carte
   (`deckAimCommit`) et la carte part de là où la traction l'a laissée (`deckLeaveFrom`), donc d'à plat quand
   rien ne l'a tirée, au clavier.
+- Pile de cartes en boucle : la carte du dessus et `stackDepth` layers dessous (2 par défaut, donc trois cartes
+  visibles ; 6 au plus, `STACK_DEPTH_MAX`), même quand le projet n'a qu'un ou deux médias : la même carte revient
+  alors derrière elle-même. Le deck parcourt un anneau de cases (`components/play/deck-ring.ts`, sans three ni
+  React, donc testable hors navigateur) : la case s montre toujours le média `s mod K` et l'anneau compte un
+  multiple de K cases, au moins `2 × STACK_DEPTH_MAX + 4` (16 pour 1 ou 2 médias, 18 pour 3, 20 pour 5). La
+  case qui passe de la tête de la pile à son fond le fait hors de vue (profondeur ≥ `stackDepth` + 1, donc
+  opacité 0), et revient en fondu sur un pas à mesure que la pile avance. Un média peut donc occuper plusieurs
+  cases : une seule est « principale » (celle de la tuile à l'ouverture, celle du dessus au retour, `keptSlot`),
+  les autres s'effacent avec le reste de la pile, et le poids d'un média pour le dégradé du panneau est le plus
+  fort de ses cases. Les images ne se chargent qu'une fois par url (`pendingImageLoads`), les vidéos partagent
+  déjà leur texture. Le dernier layer garde son opacité entière (`layerOpacityAt`), au-delà la carte s'efface
+  sur un pas.
 - Dézoom de la caméra en mouvement : lié au retard de la caméra sur sa cible
   (`components/play/camera-dezoom.ts`), pas à une vitesse lissée à part : un lissage de plus sur le zoom
   réintroduirait une animation de fin sur un canvas déjà statique. Au drag et à la molette, le zoom pivote
@@ -172,7 +184,8 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   deck) n'ont ni `depthTest` ni `depthWrite`, et `applyCardTilt` reste un warp 2D (z = 0) : un z réel
   ferait se découper deux cartes inclinées voisines. Ordre : contour de chaque carte = le rang de sa carte
   − 0.5 (donc juste sous elle) · mosaïque 0 · tuile qui s'ouvre 10 · vague de sélection 20 · pixels de fond
-  50 (`AMBIENT_RENDER_ORDER`) · deck `100 − d·10` (≈ 65 à 110 avec `stackDepth` à 3) · carte qui revient 200 ·
+  50 (`AMBIENT_RENDER_ORDER`) · deck `100 − d·10` (≈ 65 à 110 avec `stackDepth` à 2 ; au-delà de 4 layers, les
+  plus profonds passent sous les pixels de fond, à une opacité déjà quasi nulle) · carte qui revient 200 ·
   éclats 300. Toute nouvelle couche prend une valeur dans cet ordre. Un champ d'éclats, lui, se pose en
   `groupOrder` sur son groupe, pas en `renderOrder` sur ses meshes : three trie d'abord par le rang du
   groupe le plus proche, et ce rang l'emporte sur celui des enfants.

@@ -3,6 +3,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { button, buttonGroup, folder, useControls } from "leva";
 import type { PlayDebugRef, PlayRuntimeState } from "../PlayCanvas";
+import { STACK_DEPTH_MAX } from "../transition-presets";
 import { easingControl, num, toggle, trackControls } from "./controls";
 
 type RuntimeRef = RefObject<PlayRuntimeState> | undefined;
@@ -178,7 +179,7 @@ export function AnimationTab({
               arrivalEasing: easingControl(tr, "arrivalEasing", "Recul : courbe (easeInOut = doux)"),
             }),
             Layers: folder({
-              stackDepth: num(tr, "stackDepth", { label: "Layers visibles dessous", min: 0, max: 8, step: 1 }),
+              stackDepth: num(tr, "stackDepth", { label: "Layers visibles dessous (la pile boucle)", min: 0, max: STACK_DEPTH_MAX, step: 1 }),
               stackOpacity: num(tr, "stackOpacity", { label: "Opacite du 1er layer", min: 0, max: 1, step: 0.01 }),
               stackOpacityFalloff: num(tr, "stackOpacityFalloff", { label: "Decroissance par layer", min: 0, max: 1, step: 0.01 }),
               stackSaturation: num(tr, "stackSaturation", { label: "Saturation des layers dessous (1 = couleurs d origine)", min: 0, max: 1, step: 0.01 }),

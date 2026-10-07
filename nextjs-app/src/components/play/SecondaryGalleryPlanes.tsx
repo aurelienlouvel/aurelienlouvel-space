@@ -30,6 +30,8 @@ import {
   GLSL_PIXEL_WIDTH,
   uniformsOf,
 } from "./rounded-frame";
+import { layerOpacityAt, ringDepth, ringSizeFor } from "./deck-ring";
+import { STACK_DEPTH_MAX } from "./transition-presets";
 import { rewindLandMix } from "./transition-timeline";
 
 type SecondaryGalleryPlanesProps = {
@@ -51,7 +53,8 @@ type PoolSlot = {
   kind: "image" | "video";
   ratio: number;
   galleryIdx: number;
-  relativeIdx: number;
+  /** Rang du média dans `uniqueMedia` (≠ `galleryIdx` quand un média sans url a été écarté). */
+  mediaIdx: number;
 };
 
 type PlaneUniforms = {
@@ -245,6 +248,9 @@ export function getOrCreateVideoTexture(url: string, colorSpace?: string): Video
 }
 
 const sharedImageTextures = new Map<string, Texture>();
+// Chargements en cours, par url : les cartes du deck qui montrent le même média (la pile boucle
+// sur un ou deux médias) s'abonnent au même chargement au lieu d'en lancer un chacune.
+const pendingImageLoads = new Map<string, ((texture: Texture) => void)[]>();
 let globalTextureLoader: TextureLoader | null = null;
 
 /** Texture déjà chargée d'un média (image ou vidéo), pour les effets qui la reprennent en morceaux. */
@@ -284,6 +290,14 @@ export function getOrCreateImageTexture(
 
   if (typeof document === "undefined") return null;
 
+  const waiting = pendingImageLoads.get(url);
+  if (waiting) {
+    if (onLoad) waiting.push(onLoad);
+    return null;
+  }
+  const listeners = onLoad ? [onLoad] : [];
+  pendingImageLoads.set(url, listeners);
+
   if (!globalTextureLoader) {
     globalTextureLoader = new TextureLoader();
     globalTextureLoader.setCrossOrigin("anonymous");
@@ -295,11 +309,13 @@ export function getOrCreateImageTexture(
       tex.colorSpace = SRGBColorSpace;
       tex.needsUpdate = true;
       sharedImageTextures.set(url, tex);
-      onLoad?.(tex);
+      pendingImageLoads.delete(url);
+      listeners.forEach((listener) => listener(tex));
     },
     undefined,
     () => {
-      // Ignoré silencieusement pour ne pas bloquer le rendu
+      // Ignoré silencieusement pour ne pas bloquer le rendu ; un prochain appel réessaiera
+      pendingImageLoads.delete(url);
     },
   );
   return null;
@@ -471,13 +487,11 @@ export function SecondaryGalleryPlanes({
   // Détection responsive : desktop (>= 1024px et paysage) vs mobile
   const isDesktop = size.width >= 1024 && size.width >= size.height;
 
-  // Préparation du pool symétrique d'items :
-  // Le média principal (M0) est exactement au centre (centerSlotIdx, à anchorY).
-  // Les slots s'étendent symétriquement vers le haut (offsets négatifs) et vers le bas (offsets positifs)
-  // pour couvrir l'intégralité de l'écran dès la frame 0 sans aucun trou.
-  const { pool, uniqueCount, totalCycles, centerSlotIdx, uniqueMedia } = useMemo(() => {
+  // Préparation du pool d'items : le média principal (M0) occupe la case centrale (centerSlotIdx),
+  // celle de la carte du dessus à l'ouverture.
+  const { pool, uniqueCount, centerSlotIdx, uniqueMedia } = useMemo(() => {
     if (!principalPoint) {
-      return { pool: [], uniqueCount: 0, totalCycles: 0, centerSlotIdx: 0, uniqueMedia: [] };
+      return { pool: [], uniqueCount: 0, centerSlotIdx: 0, uniqueMedia: [] };
     }
 
     const secondaryItems =
@@ -531,39 +545,29 @@ export function SecondaryGalleryPlanes({
       }
     }
 
+    // Anneau de cartes (cf. `deck-ring.ts`) : la case s montre toujours le média `s mod K`, et le deck
+    // les parcourt en boucle, donc la pile garde ses layers même avec un ou deux médias.
     const K = uMedia.length;
-    // Estimation de la hauteur moyenne d'un cycle pour dimensionner le pool
-    const approxCycleHeight = uMedia.reduce((acc, m) => acc + (450 / Math.max(0.3, m.ratio)) + 32, 0);
-    // Couvre au moins 3600px de span vertical pour garantir un enroulement sans rupture
-    const minCycles = Math.ceil(3600 / Math.max(300, approxCycleHeight));
-    const baseCycles = Math.max(3, minCycles);
-    // Nombre impair de cycles C garantissant une symétrie parfaite autour du slot central
-    const C = 1;
-    void baseCycles;
-    const halfCycles = Math.floor(C / 2);
-    const totalSlots = C * K;
-    const centerIdx = halfCycles * K;
+    const ringSize = ringSizeFor(K);
 
     const slots: PoolSlot[] = [];
-    for (let s = 0; s < totalSlots; s++) {
-      const offset = s - centerIdx;
-      const itemIdx = ((offset % K) + K) % K;
-      const m = uMedia[itemIdx];
+    for (let s = 0; s < ringSize; s++) {
+      const mediaIdx = s % K;
+      const m = uMedia[mediaIdx];
       slots.push({
-        key: `slot-${s}-off${offset}-g${m.galleryIdx}`,
+        key: `slot-${s}-g${m.galleryIdx}`,
         url: m.url,
         kind: m.kind,
         ratio: m.ratio,
         galleryIdx: m.galleryIdx,
-        relativeIdx: offset,
+        mediaIdx,
       });
     }
 
     return {
       pool: slots,
       uniqueCount: K,
-      totalCycles: C,
-      centerSlotIdx: centerIdx,
+      centerSlotIdx: 0,
       uniqueMedia: uMedia,
     };
   }, [gallery, principalPoint, primaryMedia]);
@@ -635,8 +639,13 @@ export function SecondaryGalleryPlanes({
       : screenH * (cfg.mobileMediaHeightRatio ?? 0.34);
 
     const K = Math.max(1, uniqueCount);
-    // Au retour, la carte gardée est celle que le deck visait ; sinon, c'est le média de la tuile.
-    const keptI = rewinding ? ((Math.round(tr.rewindFromDeck) % K) + K) % K : 0;
+    const ringSize = pool.length;
+    // Au retour, la carte gardée est celle que le deck visait ; sinon, c'est celle de la tuile (case
+    // centrale). Une seule case est « principale » : la pile peut montrer le même média plusieurs fois.
+    const keptSlot = rewinding
+      ? ((Math.round(tr.rewindFromDeck) % ringSize) + ringSize) % ringSize
+      : centerSlotIdx;
+    const keptI = pool[keptSlot]?.mediaIdx ?? 0;
     tr.keepOther = rewinding && keptI !== 0;
     if (rewinding) {
       layerFadeRef.current = Math.max(
@@ -674,7 +683,7 @@ export function SecondaryGalleryPlanes({
 
     if (lastPhaseRef.current !== tr.phase) {
       if (tr.phase === "returning") {
-        const m0 = meshRefs.current[0];
+        const m0 = meshRefs.current[keptSlot];
         const mat0 = m0?.material as MeshBasicMaterial | undefined;
         exitStartRef.current = m0
           ? {
@@ -692,7 +701,7 @@ export function SecondaryGalleryPlanes({
     const deckPos = tr.columnScrollY;
     const stackScale = cfg.stackScale ?? 0.9;
     const peek = (cfg.stackPeek ?? 22) / curZoom;
-    const depthMax = cfg.stackDepth ?? 3;
+    const depthMax = Math.min(STACK_DEPTH_MAX, Math.max(0, cfg.stackDepth ?? 2));
     const stackOpacity = cfg.stackOpacity ?? 0.55;
     const stackFalloff = cfg.stackOpacityFalloff ?? 0.55;
     const stackSaturation = Math.min(1, Math.max(0, cfg.stackSaturation ?? 1));
@@ -766,15 +775,20 @@ export function SecondaryGalleryPlanes({
     const mainStartW = principalPoint.width * frame.tileScale;
     const mainStartH = principalPoint.height * frame.tileScale;
 
+    // Un média peut occuper plusieurs cases : son poids est le plus fort des siennes.
+    weightEntries.forEach((entry) => {
+      entry.w = 0;
+    });
+
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
       if (!mesh) return;
-      const i = slot.galleryIdx % K;
-      const isMain = i === keptI;
+      const i = slot.mediaIdx;
+      const isMain = s === keptSlot;
 
-      // Profondeur cyclique signée : 0 = carte du dessus, >0 = derrière, <0 = partie.
-      let d = i - deckPos;
-      d -= K * Math.round(d / K);
+      // Profondeur signée sur l'anneau : 0 = carte du dessus, >0 = derrière, <0 = partie. L'anneau
+      // est assez grand pour que la case qui boucle (de −ringSize/2 à +ringSize/2) soit invisible.
+      const d = ringDepth(s, deckPos, ringSize);
 
       const returning = tr.phase === "returning";
       const targetW = widths[i];
@@ -805,9 +819,7 @@ export function SecondaryGalleryPlanes({
         posY = baseBottom - peek * dv + drawH / 2;
         // Opacité : 1 pour la carte du dessus, `stackOpacity` pour le premier
         // layer, puis `stackOpacityFalloff` à chaque layer suivant.
-        const layerOpacity =
-          dv <= 1 ? 1 + (stackOpacity - 1) * dv : stackOpacity * Math.pow(stackFalloff, dv - 1);
-        opacity = layerOpacity * Math.max(0, Math.min(1, depthMax + 0.5 - dv));
+        opacity = layerOpacityAt(dv, depthMax, stackOpacity, stackFalloff);
         shade = 1 - 0.06 * Math.min(dv, 3);
       } else if (d > -1) {
         const u = -d;
@@ -867,7 +879,8 @@ export function SecondaryGalleryPlanes({
         }
       }
 
-      weightEntries[i].w = returning ? 0 : weight * (tr.phase === "playing" ? frame.columnOpacity || 1 : 1);
+      const weightHere = returning ? 0 : weight * (tr.phase === "playing" ? frame.columnOpacity || 1 : 1);
+      weightEntries[i].w = Math.max(weightEntries[i].w, weightHere);
 
       // Carte du dessus : l'origine des pixels de fond. Prise avant la traction, pour que
       // les pixels ne suivent pas la carte qu'on tire.

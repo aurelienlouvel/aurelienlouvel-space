@@ -75,6 +75,12 @@ export function trackAt(track: TrackSpec, t: number): number {
   return evaluateEasing(track.easing, trackRaw(track, t));
 }
 
+/**
+ * Plus grand nombre de layers visibles sous la carte du dessus (`stackDepth`). Il dimensionne l'anneau
+ * de cartes du deck (cf. `SecondaryGalleryPlanes`) : un réglage au-delà serait ramené à cette valeur.
+ */
+export const STACK_DEPTH_MAX = 6;
+
 export type TransitionPresetName = "cinematic" | "snappy" | "dramatic" | "custom";
 
 export type TransitionConfig = {
@@ -136,7 +142,7 @@ export type TransitionConfig = {
   detailScrollDamping: number; // Amortissement du passage d'une carte à l'autre
   stackScale: number; // Échelle de chaque carte de plus dans la pile (ex: 0.9)
   stackPeek: number; // Décalage vers le haut de chaque carte de la pile (unités monde)
-  stackDepth: number; // Nombre de layers visibles sous la première carte
+  stackDepth: number; // Nombre de layers visibles sous la première carte (même média en boucle s'il y en a moins ; au plus STACK_DEPTH_MAX)
   stackOpacity: number; // Opacité du premier layer sous la carte (0..1)
   stackOpacityFalloff: number; // Facteur d'opacité appliqué à chaque layer suivant (0..1)
   stackSaturation: number; // Saturation des layers derrière la carte du dessus (1 = couleurs d'origine, 0 = noir et blanc)
@@ -344,7 +350,7 @@ const BASE_AMPLITUDES = {
   detailScrollDamping: 8,
   stackScale: 0.9,
   stackPeek: 22,
-  stackDepth: 4,
+  stackDepth: 2,
   stackOpacity: 0.55,
   stackOpacityFalloff: 0.55,
   stackSaturation: 0.45,
