@@ -155,6 +155,20 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   page où elle rétrécit pendant l'ouverture (mobile : la tuile prend presque toute la largeur), le punch ne fait
   que ralentir ce rétrécissement. Réglages : Animation › « 5 Cascade et cadrage » (`lockScalePunch`,
   `lockPunchAttack`) et dossier « Layers » (`stackDrop`) ; l'inspecteur a un canal « punch ».
+- Pastille du nombre de médias (au survol d'une carte, en haut à droite) : `mediaCount`, le nombre de médias
+  utilisables de la galerie (images avec fichier, vidéos avec fichier ou url : le même compte que les cartes de
+  la pile), arrive avec la liste chargée par `/play` (`playArtifactsQuery`, `PlayArtifact`) ; `PlayCanvas` le passe
+  en `counts`, indexé comme `LayoutPoint.artifactIndex`. `HoverCountPill` est un nœud DOM de la surface, sans
+  état React, que `HoverCountDriver` (dans le Canvas, monté après la mosaïque) déplace à chaque frame : il projette
+  le coin haut droit de la carte survolée avec la caméra de cette frame (grossissement de survol, rotation de
+  repos, retrait `countInset`, 8 px de marge au bord de l'écran) et écrit position, opacité et texte dans le DOM.
+  Elle ne glisse jamais d'une carte à l'autre : en changeant de carte elle s'efface sur place, puis la suivante
+  apparaît ; quand le pointeur quitte la carte, elle reste accrochée à son coin le temps de s'effacer. Pas pendant
+  l'ouverture d'une carte ; « Rejouer le survol » (debug) l'affiche sur la carte sélectionnée. Un projet à un seul
+  média affiche « 1 » : `countMin` la réserve aux projets de N médias ou plus. Elle ignore le fisheye et
+  l'inclinaison de la tuile, et n'est pas filtrée sur tactile (un toucher la fait apparaître un instant, comme la
+  vague de survol). Réglages : Animation › « Survol » › « Pastille medias » (`hover.countOpacity`, 0 = masquée ;
+  `countMin`, `countInset`, `countScale`, `countSpeed`).
 - Défilement du deck (carte suivante) : le geste est signé et la carte part du côté où on la tire. La molette,
   le drag et les flèches tirent un vecteur (`deckPullVec`, axes du monde : x à droite, y en haut, en cartes) et
   la carte passe quand sa longueur atteint 1 (`stepDeckPull`, `PlayCanvas.tsx`). Tant qu'elle n'est pas

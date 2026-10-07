@@ -52,6 +52,7 @@ import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types"
 import { PlayLoader } from "./PlayLoader";
 import { CursorTrail } from "./CursorTrail";
 import { PlayCursor } from "./PlayCursor";
+import { HoverCountDriver, HoverCountPill } from "./PlayHoverCount";
 import { SHADOW_DEFAULTS, type ShadowParams } from "./CardShadow";
 import {
   AMBIENT_RENDER_ORDER,
@@ -287,6 +288,16 @@ export type HoverParams = {
   waveGlow: number;
   /** Irisation de la bande (0 = blanc pur, 1 = reflets pastel bien marqués, qui glissent avec elle). */
   waveIrid: number;
+  /** Opacité de la pastille du nombre de médias, en haut à droite de la carte survolée (0 = pas de pastille). */
+  countOpacity: number;
+  /** Nombre de médias à partir duquel la pastille s'affiche (1 = toujours, 2 = seulement les artifacts à plusieurs médias). */
+  countMin: number;
+  /** Retrait de la pastille depuis le coin haut droit de la carte (px écran). */
+  countInset: number;
+  /** Taille de la pastille (1 = texte de 13 px). */
+  countScale: number;
+  /** Vitesse d'apparition et de disparition de la pastille (par seconde). */
+  countSpeed: number;
 };
 
 export const HOVER_DEFAULTS: HoverParams = {
@@ -298,6 +309,11 @@ export const HOVER_DEFAULTS: HoverParams = {
   waveDuration: 0.6,
   waveGlow: 1.2,
   waveIrid: 0.5,
+  countOpacity: 1,
+  countMin: 1,
+  countInset: 10,
+  countScale: 1,
+  countSpeed: 14,
 };
 
 /**
@@ -1604,6 +1620,12 @@ export function PlayCanvas({
 
   const media = useMemo(() => artifacts.map(resolveArtifactMedia), [artifacts]);
 
+  // Nombre de médias de chaque artifact, récupéré avec la liste au chargement de /play :
+  // la pastille du survol n'a donc rien à attendre ni à demander.
+  const mediaCounts = useMemo(() => artifacts.map((a) => a.mediaCount), [artifacts]);
+  const hoverCountPillRef = useRef<HTMLDivElement>(null);
+  const hoverCountLabelRef = useRef<HTMLSpanElement>(null);
+
   // Détection dynamique du ratio réel des vidéos pour rattraper immédiatement
   // tout nouvel asset vidéo dont le ratio différerait ou ne serait pas encore en cache.
   useEffect(() => {
@@ -2430,6 +2452,14 @@ export function PlayCanvas({
               dragMoved={dragMoved}
               onStartSelect={handleStartSelect}
             />
+            <HoverCountDriver
+              runtime={runtime}
+              debug={debug}
+              points={tile.points}
+              counts={mediaCounts}
+              pillRef={hoverCountPillRef}
+              labelRef={hoverCountLabelRef}
+            />
             {selectedArtifactIndex !== null && principalPoint && primaryMedia && (
               <SecondaryGalleryPlanes
                 gallery={artifacts[selectedArtifactIndex]?.gallery ?? selectedArtifactDetail?.gallery ?? []}
@@ -2458,6 +2488,10 @@ export function PlayCanvas({
           </Canvas>
         )}
       </div>
+
+      {/* Pastille du nombre de médias au survol d'une carte : placée par HoverCountDriver
+          (dans le Canvas), sous le curseur et le side panel. */}
+      <HoverCountPill pillRef={hoverCountPillRef} labelRef={hoverCountLabelRef} />
 
       {/* Side panel : posé à droite, décollé du haut, bord léger, sans ombre,
           grand arrondi en haut à gauche. Fond dégradé teinté par le média au
