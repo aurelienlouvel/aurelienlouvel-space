@@ -227,6 +227,33 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   `/play`, puis gardée en vie (invisible, `frameloop="never"`) ; la page `/play` ne fait que lui passer
   les artifacts via `<PlayMount>`. `html[data-play]` n'active les curseurs SVG de `/public/cursors`
   (`globals.css`) que sur `/play` : partout ailleurs, curseur système.
+- Apparition et disparition de la page : la scène vit dans le layout, elle ne passe donc pas par les
+  `<ViewTransition>` des autres pages ; la surface (`#play-surface`) s'anime elle-même, par des transitions CSS
+  (`globals.css`) que pilote `data-presence`, posé par `PlayCanvas` : « in » (page affichée), « out » (sortie en
+  cours : la scène est encore rendue, la surface n'est plus cliquable) et « off » (masquée, `frameloop="never"`).
+  À l'entrée, un léger zoom (de `1 − zoom` à 1) avec un fondu ; à la sortie, un léger dézoom avec un fondu par-dessus
+  la page qui arrive, déjà cliquable. Même courbe que les autres pages (`--view-transition-ease`) ; `visibility` ne
+  bascule qu'à la fin de la sortie. `shown`, l'état qui commande le rendu et la remise à zéro de la scène, suit
+  `active` à l'ouverture et le retarde à la fermeture (`exitMs` + `PAGE_EXIT_MARGIN_MS`, 80 ms ; le minuteur est
+  annulé si l'on revient) : la phase, la caméra, le projet ouvert et le panneau ne se remettent à zéro qu'une fois
+  la page disparue, et un retour en pleine sortie retrouve la scène telle qu'on l'a quittée (la transition CSS
+  repart de sa valeur courante). Le curseur, sa traînée et la barre de projet suivent la route (`active`), pas la
+  sortie. Rien ne retient la page quittée (pas de `<ViewTransition>` sur `/play`) : elle disparaît d'un coup, donc
+  à l'entrée la surface apparaît en fondu sur du blanc (la première visite aussi, voir `@starting-style` plus bas) ;
+  à la sortie, la scène continue de tourner pendant le fondu et un projet ouvert reste tel quel.
+  Réglages : Global › « Transition de page » (`page.enterMs` 650, `page.exitMs` 650, `page.zoom` 0.04 ; 0 =
+  instantané, et 0 pour le zoom = fondu seul), lus à chaque changement de route : un réglage agit à la navigation
+  suivante, et ce groupe, nouveau, n'a pas demandé de nouvelle `STORAGE_KEY`. `prefers-reduced-motion` ramène durées
+  et zoom à 0 (lu à chaque navigation). `PlayCanvas` les pose en variables CSS (`--play-enter-ms`,
+  `--play-exit-ms`, `--play-page-scale`) sur `<html>`, dont la surface hérite, dans un `useInsertionEffect`, pas dans
+  un effet de layout : la durée d'une transition CSS est celle du premier calcul de style qui voit `data-presence`
+  changer, et l'effet de layout du Canvas, un enfant, peut le forcer avant le nôtre (la transition partait alors avec
+  les valeurs de la navigation précédente). Sur `<html>` et non sur la surface, parce qu'à la première visite elle
+  naît dans ce même commit, déjà à l'état « in » : il n'y a alors aucun changement d'état à animer, et c'est
+  `@starting-style` (`globals.css` : départ à `opacity: 0` et `scale(1 − zoom)`) qui joue l'entrée ; son premier
+  calcul de style doit déjà trouver les variables. Les valeurs par défaut sont les replis des `var(…)` de
+  `globals.css` (650 ms, 0.96). À l'état « in », la surface n'a pas de `transform` (`none`, pas `scale(1)`) : un
+  `transform` permanent ferait d'elle le bloc conteneur de ses descendants `fixed`.
 - Empilement des cartes : au seul `renderOrder`, jamais à la profondeur. Les matériaux des cartes (mosaïque,
   deck) n'ont ni `depthTest` ni `depthWrite`, et `applyCardTilt` reste un warp 2D (z = 0) : un z réel
   ferait se découper deux cartes inclinées voisines. Ordre : contour de chaque carte = le rang de sa carte

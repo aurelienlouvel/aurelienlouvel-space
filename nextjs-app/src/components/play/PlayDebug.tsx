@@ -32,7 +32,7 @@ const TABS: { id: DebugTab; label: string }[] = [
 ];
 
 const TAB_KEYWORDS: Record<DebugTab, string[]> = {
-  global: ["camera", "zoom", "pan", "inertia", "friction", "dezoom", "motion", "blur", "fisheye", "cursor", "curseur", "trail", "trainee", "rotate", "inclinaison"],
+  global: ["camera", "zoom", "pan", "inertia", "friction", "dezoom", "motion", "blur", "fisheye", "cursor", "curseur", "trail", "trainee", "rotate", "inclinaison", "apparition", "disparition", "entree", "sortie", "navigation"],
   media: ["media", "width", "height", "scale", "variance", "radius", "border", "corner", "smoothing", "rotation", "range", "contour", "ombre", "shadow", "epaisseur", "decalage", "soulevement"],
   canvas: ["canvas", "layout", "gap", "repeat", "aspect", "seed", "iterations", "background", "points", "dots", "parallax"],
   style: ["style", "prism", "vague", "wave", "glow", "lumiere", "irisation", "opacite", "eclats", "shard", "pixels", "degrade", "panel", "lentille", "aplat", "flat", "carres", "taille", "blanc", "gris", "gray", "radius", "arrondi", "coins", "densite", "nombre", "pastille", "play", "nav", "couleurs", "page"],

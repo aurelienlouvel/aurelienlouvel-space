@@ -9,6 +9,7 @@ export function GlobalTab({ state }: { state: PlayDebugRef }) {
   const cam = state.current.camera;
   const pan = state.current.pan;
   const cursor = state.current.cursor;
+  const page = state.current.page;
 
   useControls("Global", () => ({
     Camera: folder({
@@ -65,6 +66,13 @@ export function GlobalTab({ state }: { state: PlayDebugRef }) {
         cursorTrail: num(cam, "cursorTrail", { label: "Intensite (0 = coupee)", min: 0, max: 1, step: 0.05 }),
         cursorTrailLife: num(cam, "cursorTrailLife", { label: "Longueur (ms)", min: 60, max: 1200, step: 10 }),
       }),
+    }),
+
+    // Lus à chaque changement de page : un réglage agit à la navigation suivante.
+    "Transition de page": folder({
+      pageEnterMs: num(page, "enterMs", { label: "Apparition de /play (ms, 0 = instantanee)", min: 0, max: 2500, step: 10 }),
+      pageExitMs: num(page, "exitMs", { label: "Disparition de /play (ms, 0 = instantanee)", min: 0, max: 2500, step: 10 }),
+      pageZoom: num(page, "zoom", { label: "Zoom (0 = fondu seul, 0.04 = leger)", min: 0, max: 0.2, step: 0.005 }),
     }),
   }));
 

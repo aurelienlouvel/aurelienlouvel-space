@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useInsertionEffect,
   useMemo,
   useRef,
   useState,
@@ -179,6 +180,27 @@ export const STUDIO_DEFAULTS: AnimationStudioParams = {
   loopLock: false,
   scrubMode: false,
   scrubProgress: 0,
+};
+
+/**
+ * Apparition et disparition de la page /play (la scène vit dans le layout, hors
+ * des <ViewTransition> des autres pages). Même courbe que ces pages
+ * (`--view-transition-ease`) ; les durées et le zoom sont posés en variables CSS
+ * sur <html> au changement de route (cf. globals.css, `#play-surface`).
+ */
+export type PageTransitionParams = {
+  /** Durée de l'apparition en arrivant sur /play (ms, 0 = instantané). */
+  enterMs: number;
+  /** Durée de la disparition en quittant /play (ms, 0 = instantané). */
+  exitMs: number;
+  /** Zoom : hors champ la page est à `1 - zoom` (0 = fondu seul, 0.04 = léger). */
+  zoom: number;
+};
+
+export const PAGE_TRANSITION_DEFAULTS: PageTransitionParams = {
+  enterMs: 650,
+  exitMs: 650,
+  zoom: 0.04,
 };
 
 export type CameraDebugParams = {
@@ -420,6 +442,8 @@ export type PlayDebugState = {
   fisheye: FisheyeParams;
   overlay: SelectOverlayParams;
   studio: AnimationStudioParams;
+  /** Apparition / disparition de la page /play au changement de route. */
+  page: PageTransitionParams;
 };
 
 export type PlayDebugRef = RefObject<PlayDebugState>;
@@ -1467,18 +1491,54 @@ function CameraRig({
   return null;
 }
 
+/** Marge après la fin de la transition CSS avant de couper le rendu (ms). */
+const PAGE_EXIT_MARGIN_MS = 80;
+
+/**
+ * Durées et échelle de la transition de page, `prefers-reduced-motion` compris
+ * (alors : pas d'animation). Lues à chaque changement de route : un réglage du
+ * debug agit à la navigation suivante.
+ */
+function pageTransitionTimings(p: PageTransitionParams) {
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return {
+    enterMs: reduced ? 0 : Math.max(0, p.enterMs),
+    exitMs: reduced ? 0 : Math.max(0, p.exitMs),
+    scale: reduced ? 1 : Math.min(1, Math.max(0.5, 1 - p.zoom)),
+  };
+}
+
+/** Pose les réglages en variables CSS (lues, par héritage, par `#play-surface`, globals.css). */
+function applyPageTransitionVars(el: HTMLElement, p: PageTransitionParams) {
+  const t = pageTransitionTimings(p);
+  el.style.setProperty("--play-enter-ms", `${t.enterMs}ms`);
+  el.style.setProperty("--play-exit-ms", `${t.exitMs}ms`);
+  el.style.setProperty("--play-page-scale", String(t.scale));
+}
+
 export function PlayCanvas({
   artifacts,
   active = true,
 }: {
   artifacts: PlayArtifact[];
   /**
-   * /play est la page affichée. Inactif, le canvas reste monté (la scène 3D
-   * n'est jamais recréée) mais invisible, sans rendu et sans écouteurs.
+   * /play est la page affichée. Inactif, la surface se dézoome en fondu par-dessus
+   * la page qui arrive (la scène continue d'être rendue le temps de la sortie), puis
+   * le canvas reste monté (la scène 3D n'est jamais recréée) mais invisible, sans
+   * rendu et sans écouteurs.
    */
   active?: boolean;
 }) {
   const activeRef = useRef(active);
+  // `shown` suit `active` mais retombe une fois la sortie jouée : la surface reste
+  // visible, la scène rendue, pendant que la page disparaît. Le rendu qui voit
+  // `active` changer rouvre `shown` dans la foulée.
+  const [shown, setShown] = useState(active);
+  const [seenActive, setSeenActive] = useState(active);
+  if (active !== seenActive) {
+    setSeenActive(active);
+    if (active) setShown(true);
+  }
   const debug = useRef<PlayDebugState>({
     plane: {
       radius: PLANE_RADIUS,
@@ -1519,6 +1579,7 @@ export function PlayCanvas({
     fisheye: { ...FISHEYE_DEFAULTS },
     overlay: { ...OVERLAY_DEFAULTS },
     studio: { ...STUDIO_DEFAULTS },
+    page: { ...PAGE_TRANSITION_DEFAULTS },
   });
 
   const runtime = useRef<PlayRuntimeState>({
@@ -1789,11 +1850,37 @@ export function PlayCanvas({
 
   const { setProject, clearProject } = useActionBar();
 
-  // Quitter /play : on referme tout sans animation (le rendu est en pause, une
-  // animation de retour ne pourrait pas se jouer) pour retrouver /play au repos.
   useEffect(() => {
     activeRef.current = active;
-    if (active) return;
+  }, [active]);
+
+  // Apparition / disparition de la page : les réglages du debug sont posés en
+  // variables CSS avant que la transition (globals.css, `#play-surface`) ne démarre.
+  // Sur <html>, pas sur la surface : à la première visite elle naît dans ce même
+  // commit, et son premier calcul de style (le départ de l'entrée, `@starting-style`)
+  // doit déjà les trouver. Un effet d'insertion, pas de layout : la durée d'une
+  // transition CSS est celle du premier calcul de style qui voit `data-presence`
+  // changer, et un effet de layout d'un enfant (le Canvas) peut le forcer avant le
+  // nôtre, avec les anciennes valeurs.
+  useInsertionEffect(() => {
+    applyPageTransitionVars(document.documentElement, debug.current.page);
+  }, [active]);
+
+  // Fin de la sortie : une fois la surface disparue, on coupe le rendu.
+  useEffect(() => {
+    if (active || !shown) return;
+    const id = window.setTimeout(
+      () => setShown(false),
+      pageTransitionTimings(debug.current.page).exitMs + PAGE_EXIT_MARGIN_MS,
+    );
+    return () => window.clearTimeout(id);
+  }, [active, shown]);
+
+  // Surface masquée (sortie jouée) : on referme tout sans animation (le rendu est
+  // en pause, une animation de retour ne pourrait pas se jouer) pour retrouver /play
+  // au repos. Pendant la sortie la scène reste telle quelle : c'est elle qui se dézoome.
+  useEffect(() => {
+    if (shown) return;
     selectionToken.current++;
     const rc = runtime.current;
     rc.transition.phase = "idle";
@@ -1820,7 +1907,7 @@ export function PlayCanvas({
     setSelectedArtifactIndex(null);
     setApiStatus("idle");
     clearProject();
-    }, [active, clearProject]);
+  }, [shown, clearProject]);
 
   const handleCloseDetail = useCallback(() => {
     selectionToken.current++;
@@ -2470,8 +2557,11 @@ export function PlayCanvas({
     <div
       id="play-surface"
       data-lenis-prevent
+      // « in » : page affichée ; « out » : sortie en cours (encore rendue) ; « off » :
+      // masquée, rendu en pause. L'animation est dans globals.css.
+      data-presence={active ? "in" : shown ? "out" : "off"}
       aria-hidden={!active}
-      className={`fixed inset-0 bg-white ${active ? "" : "invisible pointer-events-none"}`}
+      className="fixed inset-0 bg-white"
     >
       <PlayLoader isReady={isReady} />
 
@@ -2482,9 +2572,9 @@ export function PlayCanvas({
         {isCalculated && tile && tile.points.length > 0 && (
           <Canvas
             flat
-            // Hors /play : plus aucune frame, mais la scène (contexte WebGL,
-            // textures, layout) reste intacte pour le retour.
-            frameloop={active ? "always" : "never"}
+            // Hors /play (une fois la sortie jouée) : plus aucune frame, mais la
+            // scène (contexte WebGL, textures, layout) reste intacte pour le retour.
+            frameloop={shown ? "always" : "never"}
             orthographic
             dpr={[1, 1.5]}
             camera={{ position: [0, 0, 100], zoom: CAMERA_ZOOM, near: 0.1, far: 1000 }}
