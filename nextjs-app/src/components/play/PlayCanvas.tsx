@@ -497,20 +497,34 @@ export type PlayRuntimeState = {
     arrivalWait: number;
     /** Ce que cette attente durera au total, connu dès que le pack arrive : le reste du cycle de la vague (s). */
     arrivalSpan: number;
-    /** Traction du deck : cumul brut, jamais négatif (1 = seuil de changement de carte). Tout geste le fait monter, quel que soit son sens. */
+    /**
+     * Traction du deck : le cumul des gestes, signé, en « cartes » (x vers la droite, y vers le haut,
+     * monde ; sa longueur 1 = seuil de changement de carte). Il se garde tant que la carte n'est pas
+     * partie : défiler dans un sens puis dans l'autre le ramène, et passé le seuil, dans n'importe quel
+     * sens, la carte part de ce côté.
+     */
+    deckPullVec: { x: number; y: number };
+    /** `deckPullVec` après la courbe de résistance, lissé : le déplacement affiché de la carte. */
+    deckShownVec: { x: number; y: number };
+    /** Longueur de `deckPullVec` (miroir pour l'inspecteur, écrit par `stepDeckPull`). */
     deckPullRaw: number;
-    /** Traction affichée (courbe de résistance appliquée, lissée). */
+    /** Longueur de `deckShownVec` : l'amplitude de la traction affichée (écrite par `stepDeckPull`). */
     deckPullShown: number;
     /** Instant (ms) du dernier geste de défilement. */
     deckInputAt: number;
     /** Gestes ignorés jusqu'à cet instant (ms) : verrou après un changement de carte. */
     deckLockUntil: number;
-    /** Direction (monde, unitaire) dans laquelle la carte du dessus part : curseur / geste + tout droit. */
+    /** Un drag tire le deck : la carte suit alors exactement le doigt, sans se courber vers le curseur. */
+    deckDragging: boolean;
+    /** Direction (monde, unitaire) dans laquelle la carte du dessus part : le sens du geste, courbé vers le curseur. */
     deckAim: { x: number; y: number };
     /** `deckAim` figé au moment du changement de carte : la carte qui part garde ce cap. */
     deckAimCommit: { x: number; y: number };
-    /** Vecteur de drag cumulé depuis le début du geste (px écran). */
-    deckDrag: { x: number; y: number };
+    /**
+     * Traction affichée (0..1) au moment du changement de carte : la carte qui part en reprend le
+     * déplacement et la désagrégation au lieu de sauter d'un coup à fond (au clavier, au repos, elle part de 0).
+     */
+    deckLeaveFrom: number;
     /** Rewind : avancement 0..1 (avant courbe), état d'où il part (t de la timeline, position du deck). */
     rewindU: number;
     rewindFromT: number;
@@ -551,6 +565,17 @@ export type PlayRuntimeState = {
 };
 export type PlayRuntimeRef = RefObject<PlayRuntimeState>;
 
+/** Remet la traction du deck à zéro (le cap de la carte, lui, ne bouge pas). */
+function resetDeckPull(tr: PlayRuntimeState["transition"]) {
+  tr.deckPullVec.x = 0;
+  tr.deckPullVec.y = 0;
+  tr.deckShownVec.x = 0;
+  tr.deckShownVec.y = 0;
+  tr.deckPullRaw = 0;
+  tr.deckPullShown = 0;
+  tr.deckDragging = false;
+}
+
 /** Remet l'horloge et le hold à zéro, sans toucher à la phase. */
 function rewindTransition(rc: PlayRuntimeState) {
   rc.transition.t = 0;
@@ -580,8 +605,7 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
   rc.transition.holding = false;
   rc.transition.rewinding = false;
   rc.transition.rewindU = 0;
-  rc.transition.deckPullRaw = 0;
-  rc.transition.deckPullShown = 0;
+  resetDeckPull(rc.transition);
   rc.transition.deckLockUntil = 0;
   rc.transition.passed = false;
   rc.transition.releaseAt = null;
@@ -619,8 +643,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
       tr.rewindFromDeck = tr.phase === "isolated" ? Math.round(tr.targetColumnScrollY) : 0;
     }
     tr.targetColumnScrollY = tr.rewindFromDeck;
-    tr.deckPullRaw = 0;
-    tr.deckPullShown = 0;
+    resetDeckPull(tr);
     tr.deckFreeze = null;
     tr.rewinding = true;
     tr.phase = "playing";
@@ -922,35 +945,96 @@ function resistCurve(x: number, power: number): number {
   return 1 - Math.pow(1 - t, Math.max(1, power));
 }
 
+/** Un trackpad dérive toujours un peu sur l'axe secondaire : un axe qui écrase l'autre d'autant le remplace. */
+const DECK_AXIS_LOCK = 2.5;
+
 /**
- * Traction du deck : le geste s'accumule dans `deckPullRaw`, la carte suit la
- * courbe de résistance, retombe si on lâche avant le seuil, et au seuil elle
- * part (changement de carte). Le deck ne recule jamais : tout geste fait monter
- * la traction, quel que soit son sens. Retourne 1 au changement de carte, sinon 0.
+ * Ajoute un geste à la traction du deck. `x` et `y` sont en « cartes », dans le sens où la carte doit
+ * aller (x vers la droite, y vers le haut) ; les réglages d'inversion retournent l'axe pour tous les gestes.
+ */
+function addDeckPull(tr: PlayRuntimeState["transition"], config: TransitionConfig, x: number, y: number) {
+  tr.deckPullVec.x += config.deckInvertX ? -x : x;
+  tr.deckPullVec.y += config.deckInvertY ? -y : y;
+}
+
+/**
+ * Traction du deck : les gestes s'accumulent, signés, dans `deckPullVec` ; la carte suit leur direction
+ * avec la courbe de résistance, et au seuil (longueur 1) elle part de ce côté, haut, bas, gauche ou
+ * droite : changement de carte. Tant qu'elle n'est pas partie rien ne se perd : défiler dans un sens
+ * puis dans l'autre la ramène, et seule `deckRelease` (0 = jamais) la fait retomber quand on lâche.
+ * Une carte partie ne revient pas : le deck n'avance que dans un sens. Retourne 1 au changement de
+ * carte, sinon 0.
  */
 function stepDeckPull(tr: PlayRuntimeState["transition"], config: TransitionConfig, dt: number): number {
   const now = performance.now();
+  const pull = tr.deckPullVec;
+  const shown = tr.deckShownVec;
   let committed = 0;
-  if (tr.deckFreeze !== null) tr.deckPullRaw = tr.deckFreeze;
-  if (tr.deckPullRaw >= 1) {
+  if (tr.deckFreeze !== null) {
+    pull.x = 0;
+    pull.y = tr.deckFreeze;
+  }
+  let len = Math.hypot(pull.x, pull.y);
+  if (len >= 1) {
     committed = 1;
-    tr.deckAimCommit.x = tr.deckAim.x;
-    tr.deckAimCommit.y = tr.deckAim.y;
+    const dx = pull.x / len;
+    const dy = pull.y / len;
+    // Le cap est la visée (le geste courbé vers le curseur) tant qu'elle va dans le sens du geste. Elle
+    // retarde d'une image sur lui : un geste qui franchit le seuil d'un coup, ou vient de changer de
+    // sens, n'a pas encore de visée valable, et la carte part alors droit dans le sens du geste.
+    const aim = tr.deckAim;
+    const aimLen = Math.hypot(aim.x, aim.y);
+    const aligned = aimLen > 0.001 && (aim.x * dx + aim.y * dy) / aimLen > 0.5;
+    tr.deckAimCommit.x = aligned ? aim.x / aimLen : dx;
+    tr.deckAimCommit.y = aligned ? aim.y / aimLen : dy;
+    tr.deckLeaveFrom = tr.deckPullShown;
     tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + committed;
-    tr.deckPullRaw = 0;
+    pull.x = 0;
+    pull.y = 0;
+    len = 0;
     tr.deckLockUntil = now + config.stepCooldown * 1000;
   } else if (
     tr.deckFreeze === null &&
-    tr.deckPullRaw > 0.0005 &&
+    config.deckRelease > 0 &&
+    len > 0.0005 &&
     now - tr.deckInputAt > config.deckHold * 1000
   ) {
-    // Geste relâché avant le seuil : la carte redescend.
-    tr.deckPullRaw = dampTowards(tr.deckPullRaw, 0, config.deckRelease, dt);
+    // Geste relâché avant le seuil, et un retour demandé : la carte retombe.
+    pull.x = dampTowards(pull.x, 0, config.deckRelease, dt);
+    pull.y = dampTowards(pull.y, 0, config.deckRelease, dt);
+    len = Math.hypot(pull.x, pull.y);
   }
-  const target = resistCurve(tr.deckPullRaw, config.deckResist);
-  tr.deckPullShown = dampTowards(tr.deckPullShown, target, 22, dt);
-  if (tr.deckPullShown < 0.0005) tr.deckPullShown = 0;
+  // La résistance joue sur la longueur de la traction, jamais sur sa direction.
+  const k = len > 0.0005 ? resistCurve(len, config.deckResist) / len : 0;
+  shown.x = dampTowards(shown.x, pull.x * k, 22, dt);
+  shown.y = dampTowards(shown.y, pull.y * k, 22, dt);
+  const shownLen = Math.hypot(shown.x, shown.y);
+  if (shownLen < 0.0005) {
+    shown.x = 0;
+    shown.y = 0;
+  }
+  tr.deckPullRaw = len;
+  tr.deckPullShown = shownLen < 0.0005 ? 0 : shownLen;
   return committed;
+}
+
+/**
+ * Une flèche fait un cran entier du deck, dans le sens où elle défile : ↓ fait monter la carte, → la
+ * fait partir à gauche, et les inversions d'axe valent ici aussi. `dirX` et `dirY` sont la direction de
+ * la flèche en espace monde. Au clavier rien ne vise, la carte part tout droit ; son cap n'est posé qu'à
+ * l'arrêt, une carte déjà en vol garde le sien, sinon elle sauterait de l'autre côté.
+ */
+function stepDeckByKey(tr: PlayRuntimeState["transition"], config: TransitionConfig, dirX: number, dirY: number) {
+  if (Math.abs(tr.columnScrollY - tr.targetColumnScrollY) < 0.05) {
+    tr.deckAimCommit.x = (config.deckInvertX ? 1 : -1) * dirX;
+    tr.deckAimCommit.y = (config.deckInvertY ? 1 : -1) * dirY;
+    // Elle part d'où la traction l'avait mise : du repos si rien n'était tiré.
+    tr.deckLeaveFrom = tr.deckPullShown;
+  }
+  // Une traction à moitié faite ne doit pas rester sur la carte suivante.
+  tr.deckPullVec.x = 0;
+  tr.deckPullVec.y = 0;
+  tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + 1;
 }
 
 function stepCamera(
@@ -1430,13 +1514,16 @@ export function PlayCanvas({
       loop: 0,
       holding: false,
       rewinding: false,
+      deckPullVec: { x: 0, y: 0 },
+      deckShownVec: { x: 0, y: 0 },
       deckPullRaw: 0,
       deckPullShown: 0,
       deckInputAt: 0,
       deckLockUntil: 0,
+      deckDragging: false,
       deckAim: { x: 0, y: 1 },
       deckAimCommit: { x: 0, y: 1 },
-      deckDrag: { x: 0, y: 0 },
+      deckLeaveFrom: 1,
       rewindU: 0,
       rewindFromT: 0,
       rewindFromDeck: 0,
@@ -1628,8 +1715,7 @@ export function PlayCanvas({
     rc.transition.targetIndex = -1;
     rc.transition.columnScrollY = 0;
     rc.transition.targetColumnScrollY = 0;
-    rc.transition.deckPullRaw = 0;
-    rc.transition.deckPullShown = 0;
+    resetDeckPull(rc.transition);
     rc.repulsor.active = false;
     rc.repulsor.pointIndex = -1;
     rc.hovered = null;
@@ -1992,20 +2078,23 @@ export function PlayCanvas({
       }
 
       if (runtime.current.transition.phase === "isolated") {
-        const isDesktopLayout = window.innerWidth >= 1024 && window.innerWidth >= window.innerHeight;
-        const deltaVal = isDesktopLayout
-          ? e.deltaY
-          : (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
         const now = performance.now();
         const tr = runtime.current.transition;
+        const config = debug.current.transition;
         // Pendant un rewind, les gestes ne conduisent plus rien.
         if (tr.rewinding) return;
         // Après un changement de carte, les gestes (et l'inertie du trackpad) sont ignorés un instant.
         if (now < tr.deckLockUntil) return;
-        // Chaque cran fait monter la carte : le seuil s'atteint en cumulant `deckPullDistance` px.
-        // Le sens du geste ne compte pas : vers le haut ou vers le bas, c'est un défilement, et
-        // c'est toujours la carte suivante (le deck tourne en boucle, il ne recule jamais).
-        tr.deckPullRaw += Math.abs(deltaVal) / Math.max(80, debug.current.transition.deckPullDistance);
+        // Les deux axes comptent : la carte part du côté où on tire. L'axe secondaire d'un trackpad
+        // dérive toujours un peu, on le coupe quand l'autre l'écrase.
+        let dx = e.deltaX;
+        let dy = e.deltaY;
+        if (Math.abs(dx) > DECK_AXIS_LOCK * Math.abs(dy)) dy = 0;
+        else if (Math.abs(dy) > DECK_AXIS_LOCK * Math.abs(dx)) dx = 0;
+        // Le contenu défile et la carte avec lui : vers le bas (deltaY > 0) elle monte, vers la droite
+        // (deltaX > 0) elle part à gauche. Le seuil s'atteint en cumulant `deckPullDistance` px.
+        const perCard = Math.max(80, config.deckPullDistance);
+        addDeckPull(tr, config, -dx / perCard, dy / perCard);
         tr.deckInputAt = now;
         return;
       }
@@ -2067,18 +2156,15 @@ export function PlayCanvas({
         const dy = e.clientY - lastY;
         lastX = e.clientX;
         lastY = e.clientY;
-        const isDesktopLayout = window.innerWidth >= 1024 && window.innerWidth >= window.innerHeight;
-        const moveDelta = isDesktopLayout ? dy : dx;
-        const pxPerCard = debug.current.transition.dragPxPerCard ?? 320;
+        const config = debug.current.transition;
+        const pxPerCard = config.dragPxPerCard ?? 320;
         const trd = runtime.current.transition;
         if (dragMoved.current && !trd.rewinding && performance.now() >= trd.deckLockUntil) {
-          // Glisser, dans un sens ou dans l'autre = carte suivante, avec la même résistance
-          // que la molette.
-          trd.deckPullRaw += Math.abs(moveDelta) / pxPerCard;
+          // La carte suit le doigt, dans tous les sens, avec la même résistance que la molette :
+          // glisser un peu puis revenir en arrière la ramène.
+          addDeckPull(trd, config, dx / pxPerCard, -dy / pxPerCard);
           trd.deckInputAt = performance.now();
-          // Le geste donne aussi sa direction à la carte (elle suit le doigt).
-          trd.deckDrag.x += dx;
-          trd.deckDrag.y += dy;
+          trd.deckDragging = true;
         }
         return;
       }
@@ -2132,8 +2218,7 @@ export function PlayCanvas({
       ) {
         dragging = false;
         dragMoved.current = false;
-        runtime.current.transition.deckDrag.x = 0;
-        runtime.current.transition.deckDrag.y = 0;
+        runtime.current.transition.deckDragging = false;
         return;
       }
       if (dragging && dragMoved.current && recent.length >= 2) {
@@ -2252,16 +2337,7 @@ export function PlayCanvas({
         const tr = rc.transition;
         // Pendant un rewind, les gestes ne conduisent plus rien (comme la molette).
         if (tr.rewinding) return;
-        // Comme à la molette, aucune flèche ne fait reculer le deck : toutes avancent.
-        // Au clavier, pas de curseur ni de drag pour viser : la carte part tout droit,
-        // vers le haut. Sans ça elle repartait avec le cap périmé du dernier geste. Le
-        // cap n'est posé qu'à l'arrêt : une carte déjà en vol garde le sien, sinon elle
-        // sauterait de l'autre côté.
-        if (Math.abs(tr.columnScrollY - tr.targetColumnScrollY) < 0.05) {
-          tr.deckAimCommit.x = 0;
-          tr.deckAimCommit.y = 1;
-        }
-        tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + 1;
+        stepDeckByKey(tr, debug.current.transition, dir[0], dir[1]);
         return;
       }
       if (rc.transition.phase !== "idle") return;

@@ -154,15 +154,17 @@ export type TransitionConfig = {
   deckPullDistance: number; // Défilement (px de molette) à fournir pour passer à la carte suivante
   deckResist: number; // Raideur de la résistance : la carte monte beaucoup au début puis de moins en moins (≥ 1)
   deckLift: number; // Course maximale de la carte pendant la traction (px écran)
-  deckRelease: number; // Vitesse de retour de la carte quand on lâche avant le seuil (par seconde)
-  deckHold: number; // Délai sans geste avant que la carte ne redescende (s)
+  deckRelease: number; // Vitesse de retour de la carte quand on lâche avant le seuil (par seconde, 0 = elle reste où on l'a laissée)
+  deckHold: number; // Délai sans geste avant que la carte ne retombe (s) ; sans effet quand deckRelease vaut 0
+  deckInvertX: boolean; // Inverse l'axe horizontal des gestes (molette, drag, flèches) : par défaut le contenu défile, la carte part à gauche quand on défile vers la droite
+  deckInvertY: boolean; // Inverse l'axe vertical des gestes : par défaut la carte monte quand on défile vers le bas
   deckShimmer: number; // Éclats qui se décollent pendant la traction (0 = aucun)
   deckDissolveAmount: number; // 0..1 — part de la carte désagrégée quand elle est tirée au maximum
   deckCellCols: number; // Nombre de zones (carrés) de désagrégation sur la largeur de la carte
   deckCellPixel: number; // 0..1 — pixellisation des zones qui se détachent (1 = une couleur unie par zone)
   deckCellIrid: number; // 0..1 — reflet irisé des zones en train de partir (0 = aucun, la DA est à plat)
   deckCellBias: number; // 0..1 — la désagrégation part du bord qui mène (1) plutôt qu'au hasard (0)
-  deckAimMix: number; // 0..1 — part de la visée (curseur / geste) dans la direction de la carte, le reste étant tout droit
+  deckAimMix: number; // 0..1 — courbure de la trajectoire vers le côté du curseur, de part et d'autre de la direction du geste (0 = droit devant)
   deckThrow: number; // Distance dont la carte part dans sa direction en se désagrégeant (px écran)
   deckSpin: number; // Rotation maximale de la carte lancée (degrés), selon sa direction
   deckTilt: number; // Inclinaison 3D maximale de la carte et des layers selon la souris (degrés, négatif = inverse, 0 = carte plane au repos)
@@ -360,8 +362,10 @@ const BASE_AMPLITUDES = {
   deckPullDistance: 1030,
   deckResist: 2.6,
   deckLift: 135,
-  deckRelease: 9,
+  deckRelease: 0,
   deckHold: 0.14,
+  deckInvertX: false,
+  deckInvertY: false,
   deckShimmer: 1,
   deckDissolveAmount: 0.64,
   deckCellCols: 6,

@@ -707,34 +707,43 @@ export function SecondaryGalleryPlanes({
     let topD = 0.5;
 
     // ── Visée : où la carte part ────────────────────────────────────────────
-    // Entre « tout droit » et la direction du curseur (ou du drag), selon
-    // `deckAimMix`. Mise à jour pendant la traction seulement : la carte garde
-    // son cap quand on relâche, et `deckAimCommit` fige celui du changement.
+    // Le geste donne le côté (haut, bas, gauche ou droite : la direction de la traction affichée) ;
+    // le curseur ne fait que courber la trajectoire vers lui, de `deckAimMix` (0 = droit devant).
+    // Au drag la carte suit le doigt, sans courbe. Mise à jour pendant la traction seulement : la
+    // carte garde son cap quand on relâche, et `deckAimCommit` fige celui du changement.
     const spinRad = ((cfg.deckSpin ?? 12) * Math.PI) / 180;
     const dissolveAmount = Math.min(1, Math.max(0, cfg.deckDissolveAmount ?? 0.9));
     const throwWorld = (cfg.deckThrow ?? 180) / curZoom;
+    const leaveFrom = Math.min(1, Math.max(0, tr.deckLeaveFrom));
     const ptr = runtime.current.pointer;
     const cardSX = (principalPoint.x - camera.position.x) * curZoom + size.width / 2;
     const cardSY = size.height / 2 - (principalPoint.y - camera.position.y) * curZoom;
-    if (tr.phase === "isolated" && !tr.rewinding && Math.abs(pullShown) > 0.02) {
-      const drag = tr.deckDrag;
-      const dragging = Math.hypot(drag.x, drag.y) > 6;
-      let tx = dragging ? drag.x : ptr.x - cardSX;
-      let ty = dragging ? -drag.y : -(ptr.y - cardSY);
-      const tl = Math.hypot(tx, ty) || 1;
-      tx /= tl;
-      ty /= tl;
-      const mixAim = Math.min(1, Math.max(0, cfg.deckAimMix ?? 0.8));
-      // Le curseur (ou le doigt) règle le côté et l'inclinaison de la trajectoire, jamais son
-      // sens vertical : la carte part toujours vers le haut, même avec le curseur sous son
-      // centre (`ty < 0` l'aurait fait descendre). Le sens du scroll ne change rien : le deck
-      // n'avance que dans un sens.
-      let mx = tx * mixAim;
-      let my = Math.abs(ty) * mixAim + (1 - mixAim);
+    if (tr.phase === "isolated" && !tr.rewinding && pullShown > 0.003) {
+      const shownVec = tr.deckShownVec;
+      const gx = shownVec.x / pullShown;
+      const gy = shownVec.y / pullShown;
+      let mx = gx;
+      let my = gy;
+      if (!tr.deckDragging) {
+        // Le curseur vu depuis le centre de la carte (monde : y vers le haut) ; seule sa part
+        // perpendiculaire au geste courbe la trajectoire, jamais de quoi la faire reculer.
+        let ux = ptr.x - cardSX;
+        let uy = -(ptr.y - cardSY);
+        const ul = Math.hypot(ux, uy) || 1;
+        ux /= ul;
+        uy /= ul;
+        const along = ux * gx + uy * gy;
+        const mixAim = Math.min(1, Math.max(0, cfg.deckAimMix ?? 0.8));
+        mx += (ux - along * gx) * mixAim;
+        my += (uy - along * gy) * mixAim;
+      }
       const ml = Math.hypot(mx, my) || 1;
       mx /= ml;
       my /= ml;
-      const ak = 1 - Math.exp(-delta * 14);
+      // Tout près du repos, la carte ne bouge presque pas : la visée suit le geste d'un coup (un
+      // changement de sens passe par là), puis se lisse à mesure que la carte s'éloigne.
+      const smooth = 1 - Math.exp(-delta * 14);
+      const ak = smooth + (1 - smooth) * Math.max(0, 1 - pullShown / 0.06);
       tr.deckAim.x += (mx - tr.deckAim.x) * ak;
       tr.deckAim.y += (my - tr.deckAim.y) * ak;
     }
@@ -878,16 +887,17 @@ export function SecondaryGalleryPlanes({
         const near = Math.max(0, 1 - Math.abs(d));
         const leaving = d > -1 && d < 0;
         if (leaving) {
-          // Carte qui part (ou qui revient, en rewind) : de la course de traction à
-          // la distance de lancer, dans le cap figé au changement.
+          // Carte qui part (ou qui revient, en rewind) : de la course de traction qu'elle avait
+          // (`deckLeaveFrom` : celle qu'on voyait au changement, 0 au clavier au repos) à la
+          // distance de lancer, dans le cap figé au changement.
           const u = -d;
-          const reach = liftWorld * (1 - u) + throwWorld * u;
+          const reach = liftWorld * leaveFrom * (1 - u) + throwWorld * u;
           const aim = tr.deckAimCommit;
           posX += aim.x * reach;
           posY += aim.y * reach;
           roll += aim.x * spinRad * u;
           // La désagrégation poursuit celle de la traction jusqu'à la disparition.
-          dissolve = Math.min(1, dissolveAmount * (1 - u) + 1.05 * u);
+          dissolve = Math.min(1, dissolveAmount * leaveFrom * (1 - u) + 1.05 * u);
           dissolveX = aim.x;
           dissolveY = aim.y;
         } else {

@@ -13,12 +13,13 @@ function applyFreeze(runtime: RuntimeRef, freeze: { on: boolean; value: number }
   if (rc) rc.transition.deckFreeze = freeze.on ? freeze.value : null;
 }
 
-/** Simule un geste complet vers la carte suivante (vue détail uniquement ; le deck ne recule pas). */
+/** Simule un geste complet vers la carte suivante, la carte partant vers le haut (vue détail uniquement ; le deck ne recule pas). */
 function stepCard(runtime: RuntimeRef) {
   const rc = runtime?.current;
   if (!rc || rc.transition.phase !== "isolated") return;
   rc.transition.deckLockUntil = 0;
-  rc.transition.deckPullRaw = 1.001;
+  rc.transition.deckPullVec.x = 0;
+  rc.transition.deckPullVec.y = 1.001;
   rc.transition.deckInputAt = performance.now();
 }
 
@@ -237,9 +238,11 @@ export function AnimationTab({
         dragPxPerCard: num(tr, "dragPxPerCard", { label: "Distance pour passer (px de drag)", min: 100, max: 1200, step: 10 }),
         deckResist: num(tr, "deckResist", { label: "Resistance (courbe)", min: 1, max: 6, step: 0.1 }),
         deckLift: num(tr, "deckLift", { label: "Course de la carte (px)", min: 0, max: 300, step: 1 }),
-        deckRelease: num(tr, "deckRelease", { label: "Retour si on lache (vitesse)", min: 1, max: 30, step: 0.5 }),
-        deckHold: num(tr, "deckHold", { label: "Delai avant retour (s)", min: 0, max: 1, step: 0.01 }),
-        deckAimMix: num(tr, "deckAimMix", { label: "Direction : visee curseur/geste (0 = tout droit)", min: 0, max: 1, step: 0.01 }),
+        deckRelease: num(tr, "deckRelease", { label: "Retour si on lache (vitesse ; 0 = la carte reste ou on l a laissee, on peut revenir en sens inverse)", min: 0, max: 30, step: 0.5 }),
+        deckHold: num(tr, "deckHold", { label: "Delai avant retour (s, sans effet si la vitesse de retour est 0)", min: 0, max: 1, step: 0.01 }),
+        deckAimMix: num(tr, "deckAimMix", { label: "Courbure de la trajectoire vers le curseur (0 = droit devant)", min: 0, max: 1, step: 0.01 }),
+        deckInvertX: toggle(tr, "deckInvertX", "Inverser l axe horizontal (molette, drag, fleches)"),
+        deckInvertY: toggle(tr, "deckInvertY", "Inverser l axe vertical (molette, drag, fleches)"),
         deckThrow: num(tr, "deckThrow", { label: "Distance de lancer (px)", min: 0, max: 600, step: 5 }),
         deckSpin: num(tr, "deckSpin", { label: "Rotation de la carte lancee (deg)", min: 0, max: 45, step: 0.5 }),
         deckTilt: num(tr, "deckTilt", { label: "Inclinaison souris : carte + layers (deg)", min: -25, max: 25, step: 0.5 }),

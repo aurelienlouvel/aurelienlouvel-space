@@ -145,14 +145,21 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   recul ne fait qu'avancer et raidir la descente (le zoom ne remonte que si le creux passe sous
   `detailZoom`, comme avec la config par défaut). Réglages : Animation › « 5 Cascade et cadrage » ›
   « Arrivee (recul puis zoom) » ; le calcul est dans `samplePlaying` (`transition-timeline.ts`).
-- Défilement du deck (carte suivante) : tout geste de scroll compte, dans un sens comme dans l'autre, comme un
-  cran vers la carte suivante : la molette et le drag cumulent leur valeur absolue (`stepDeckPull`,
-  `PlayCanvas.tsx`), le deck tourne en boucle et ne recule jamais, et au clavier toutes les flèches avancent.
-  La carte part toujours vers le haut : le curseur (ou le doigt, au drag) ne règle que le côté et
-  l'inclinaison de sa trajectoire, jamais le sens vertical, même sous la carte (`deckAimMix`, 0.8, la
-  ramène d'autant vers « tout droit » ; `SecondaryGalleryPlanes.tsx`), et son cap est figé au changement de
-  carte (`deckAimCommit`). Au clavier, rien pour viser : la carte part tout droit (`deckAimCommit` remis à
-  (0, 1)).
+- Défilement du deck (carte suivante) : le geste est signé et la carte part du côté où on la tire. La molette,
+  le drag et les flèches tirent un vecteur (`deckPullVec`, axes du monde : x à droite, y en haut, en cartes) et
+  la carte passe quand sa longueur atteint 1 (`stepDeckPull`, `PlayCanvas.tsx`). Tant qu'elle n'est pas
+  passée, le geste se garde : on peut défiler vers le haut puis vers le bas, le vecteur revient vers zéro et la
+  carte revient avec lui (`deckRelease` à 0 : elle reste où on l'a laissée ; au-dessus de 0 elle retombe d'elle-même
+  après `deckHold`). Une fois passée, il n'y a plus de retour en arrière : le deck tourne en boucle, toujours
+  vers l'avant. Elle part de tous les côtés, comme le contenu qu'on fait défiler : la molette vers le bas la
+  fait monter, vers la droite la fait partir à gauche ; le drag la suit au doigt ; une flèche vaut un défilement
+  dans son sens (↓ la monte, → la pousse à gauche). `deckInvertX` et `deckInvertY` inversent chaque axe pour la
+  molette, le drag et les flèches à la fois. La molette ne tire que sur son axe dominant (`DECK_AXIS_LOCK`,
+  2.5) : un geste de trackpad un peu de travers ne part pas en diagonale. Le curseur ne fait que courber la
+  trajectoire de part et d'autre de la direction du geste (`deckAimMix`, 0.8, 39° au plus ; `SecondaryGalleryPlanes.tsx`),
+  sans courbure pendant un drag, où la carte suit le doigt ; le cap est figé au changement de carte
+  (`deckAimCommit`) et la carte part de là où la traction l'a laissée (`deckLeaveFrom`), donc d'à plat quand
+  rien ne l'a tirée, au clavier.
 - Dézoom de la caméra en mouvement : lié au retard de la caméra sur sa cible
   (`components/play/camera-dezoom.ts`), pas à une vitesse lissée à part : un lissage de plus sur le zoom
   réintroduirait une animation de fin sur un canvas déjà statique. Au drag et à la molette, le zoom pivote
