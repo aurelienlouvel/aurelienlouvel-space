@@ -70,10 +70,11 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
 
 ### /play — DA « Pixels » et scène persistante
 - DA commune (loader, nav, side panel, curseur, éclats) : `src/lib/da.ts` — des carrés unis et rien d'autre :
-  une couleur par pixel, ni flou, ni verre translucide, ni bord fondu ; un pixel éteint est blanc. Sans
-  rayon par défaut (`DA_RADIUS` côté JS et shaders, `--da-radius` côté CSS, `da.pixelRadius` dans le debug :
-  le curseur « coins arrondis » existe toujours, 0 = carré net, 0.5 = rond). Le dégradé naît entre pixels
-  voisins (`daGradientAt` : une fenêtre `DA_WINDOW` du spectre pastel à la fois, jamais tout le spectre).
+  une couleur par pixel, ni flou, ni verre translucide, ni bord fondu ; un pixel éteint est blanc. Coins à
+  peine adoucis par défaut, 0.16 du côté (`DA_RADIUS` côté JS et shaders, `--da-radius: 16%` côté CSS,
+  `da.pixelRadius` dans le debug : le curseur « coins arrondis » va de 0, carré net, à 0.5, rond). Le dégradé
+  naît entre pixels voisins (`daGradientAt` : une fenêtre `DA_WINDOW` du spectre pastel à la fois, jamais
+  tout le spectre).
   Ce que la DA anime :
   - la pastille « play » de la nav et le loader sont des champs de pixels très peu opaques, irisés : chaque
     pixel a le reflet de la vague de survol des cartes d'après sa place (`daIrid`, le même cosinus pastel que

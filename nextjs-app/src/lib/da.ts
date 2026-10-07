@@ -2,8 +2,9 @@
  * DA « Pixels » — le langage visuel de /play, partagé par toutes les interfaces
  * concernées (loader, navigation, side panel, curseur, éclats du canvas).
  *
- * - Forme : des carrés nets, rien d'autre (`DA_RADIUS` vaut 0, le debug peut les
- *   arrondir). Ni rectangles de formats variés, ni dégradé à l'intérieur d'un pixel.
+ * - Forme : des carrés aux coins à peine adoucis, rien d'autre (`DA_RADIUS` vaut 0.16 ;
+ *   le debug va du carré net, 0, au rond, 0.5). Ni rectangles de formats variés, ni
+ *   dégradé à l'intérieur d'un pixel.
  * - Matière : un aplat net. Une couleur unie par pixel, sans flou, sans verre
  *   translucide, sans bord fondu. Un pixel éteint est blanc.
  * - Irisation : la pastille « play » de la nav et le loader n'ont que des pixels très
@@ -25,10 +26,11 @@
 
 /**
  * Rayon des coins d'un pixel, en fraction de son côté (0 = carré net, 0.5 = rond).
- * La même valeur vit dans `globals.css` (`--da-radius`, pour le CSS pur et le loader
- * qui s'affiche avant le canvas) ; le debug de /play (Style) la règle en direct.
+ * La même valeur vit dans `globals.css` (`--da-radius`, en pourcentage : 16 %, pour le
+ * CSS pur et le loader qui s'affiche avant le canvas) ; le debug de /play (Style) la
+ * règle en direct.
  */
-export const DA_RADIUS = 0;
+export const DA_RADIUS = 0.16;
 
 export const DA_COLORS = {
   sky: "#8fd0ff",

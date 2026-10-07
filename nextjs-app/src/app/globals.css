@@ -443,9 +443,9 @@ body.body-project {
   --da-mint: #8ff0d8;
   --da-apricot: #ffd6a0;
   --da-ink: #4a6cff;
-  /* Rayon des coins d'un pixel, en fraction de son côté (DA_RADIUS dans lib/da.ts ;
-     le debug de /play l'écrase en direct). */
-  --da-radius: 0%;
+  /* Rayon des coins d'un pixel, en fraction de son côté (DA_RADIUS dans lib/da.ts :
+     0.16, soit 16 % ; le debug de /play l'écrase en direct). */
+  --da-radius: 16%;
   /* Pastille « play » : irisation (0 = gris neutre, 1 = les reflets de la vague de survol des
      cartes) et force du champ au repos et de la vague, déjà multipliées par le gain que
      l'irisation rend aux reflets (daIridGain). Les mêmes valeurs que DA_DEFAULTS : la
@@ -474,7 +474,7 @@ body.body-project {
 .ld-cell {
   width: var(--ld-cell, 2rem);
   height: var(--ld-cell, 2rem);
-  border-radius: var(--da-radius, 0%);
+  border-radius: var(--da-radius, 16%);
   /* La première déclaration est le repli d'un navigateur sans color-mix : le reflet seul. */
   background-color: var(--c, rgb(24 24 27));
   background-color: color-mix(
@@ -517,7 +517,7 @@ body.body-project {
 }
 
 .da-cell {
-  border-radius: var(--da-radius, 0%);
+  border-radius: var(--da-radius, 16%);
   /* La première déclaration est le repli d'un navigateur sans color-mix : le reflet seul. */
   background-color: var(--c, rgb(24 24 27));
   background-color: color-mix(
@@ -557,7 +557,7 @@ body.body-project {
 }
 
 .pg-cell {
-  border-radius: var(--da-radius, 0%);
+  border-radius: var(--da-radius, 16%);
   opacity: 0;
   background-color: var(--da-rose);
 }

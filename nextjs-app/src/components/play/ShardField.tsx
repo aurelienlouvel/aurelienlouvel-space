@@ -110,7 +110,7 @@ void main() {
 }
 `;
 
-// Un éclat : un carré net (`da.pixelRadius`, 0 par défaut, peut l'arrondir) qui reprend
+// Un éclat : un carré net aux coins à peine adoucis (`da.pixelRadius`, 0.16 par défaut) qui reprend
 // le morceau d'image dont il est issu. À plat (par défaut), il n'a qu'une couleur, la moyenne de son morceau ;
 // sinon l'image reste visible, avec en option un flou de profondeur de champ, des bords
 // fondus et un reflet irisé (les réglages d'avant la DA « Pixels »).
@@ -200,7 +200,7 @@ function toLinear(out: Color, c: RGB): Color {
  * L'image qui se sépare en morceaux : des carrés de tailles variées, chacun d'une
  * seule couleur (la moyenne de son morceau d'image, donc voisins, ils forment le
  * dégradé de l'image), répartis sur trois plans de profondeur (parallaxe et échelle
- * différentes), nets, sans coins arrondis par défaut (`da.pixelRadius`), sans flou ni bord
+ * différentes), nets, aux coins à peine arrondis (`da.pixelRadius`), sans flou ni bord
  * fondu. S'utilise pour l'ouverture d'un artifact et pour le passage d'une carte à la
  * suivante : `source` dit quelle carte décomposer et avec quelle intensité. Les pixels de fond
  * du pack ouvert en sont une troisième instance : mêmes morceaux, mais bien moins nombreux,
