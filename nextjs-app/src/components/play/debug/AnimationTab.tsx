@@ -171,6 +171,11 @@ export function AnimationTab({
             ...trackControls(tr, "columnFade", 4, 3),
             ...trackControls(tr, "dezoom", 6, 5),
             detailZoom: num(tr, "detailZoom", { label: "Zoom final (x base)", min: 0.5, max: 4, step: 0.05 }),
+            "Arrivee (recul puis zoom)": folder({
+              arrivalDip: num(tr, "arrivalDip", { label: "Recul de la camera des que le pack est charge (part du zoom, 0 = aucun)", min: 0, max: 0.6, step: 0.01 }),
+              arrivalStart: num(tr, "arrivalStart", { label: "Recul : retard apres le chargement (s, borne a 60 % de la fenetre)", min: 0, max: 1, step: 0.05 }),
+              arrivalEasing: easingControl(tr, "arrivalEasing", "Recul : courbe (easeInOut = doux)"),
+            }),
             Layers: folder({
               stackDepth: num(tr, "stackDepth", { label: "Layers visibles dessous", min: 0, max: 8, step: 1 }),
               stackOpacity: num(tr, "stackOpacity", { label: "Opacite du 1er layer", min: 0, max: 1, step: 0.01 }),

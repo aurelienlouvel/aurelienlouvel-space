@@ -132,6 +132,19 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   non d'un coup (`twistSettleStart`, `twistSettle`, `twistSettleEasing`, `twistSettleBlend`, onglet
   Animation › « 4 Vague » ; `transition-presets.ts`). La carte du deck n'est plus inclinée par la souris au
   repos (`deckTilt` à 0 ; le réglage reste dans le debug).
+- Arrivée de la carte (juste avant qu'elle se pose) : dès que le pack est chargé, la caméra recule d'un cran
+  puis revient vers le cadrage de la vue détail (`arrivalDip`, 0.22 : la part du zoom perdue au creux ;
+  0 = l'ancienne trajectoire, à l'identique). Le creux tombe exactement quand la piste `dezoom` démarre et le
+  zoom finit sur `detailZoom`, comme avant. Pack déjà chargé avant le hold : le recul part du hold. Pack
+  chargé pendant le hold : il part à ce moment, et comme la vague de chargement finit son cycle avant de
+  traverser, `advanceClock` (`PlayCanvas.tsx`) compte le temps écoulé (`arrivalWait`) et celui qu'il reste
+  (`arrivalSpan`) pour qu'`arrivalBounds` (`transition-presets.ts`) étire la fenêtre d'autant : pas de palier
+  au creux. `arrivalStart` retarde le départ (borné à 60 % de la fenêtre, au-delà le recul se réduirait à un
+  à-coup), `arrivalEasing` règle la courbe (`easeInOutCubic`, doux aux deux bouts). Ignoré pendant un retour
+  (rewind). Avec les préréglages dont `approachZoom` dépasse `detailZoom`, il n'y a pas de remontée : le
+  recul ne fait qu'avancer et raidir la descente (le zoom ne remonte que si le creux passe sous
+  `detailZoom`, comme avec la config par défaut). Réglages : Animation › « 5 Cascade et cadrage » ›
+  « Arrivee (recul puis zoom) » ; le calcul est dans `samplePlaying` (`transition-timeline.ts`).
 - Défilement du deck (carte suivante) : tout geste de scroll compte, dans un sens comme dans l'autre, comme un
   cran vers la carte suivante : la molette et le drag cumulent leur valeur absolue (`stepDeckPull`,
   `PlayCanvas.tsx`), le deck tourne en boucle et ne recule jamais, et au clavier toutes les flèches avancent.

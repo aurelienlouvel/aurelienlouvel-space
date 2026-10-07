@@ -121,6 +121,9 @@ export type TransitionConfig = {
   scatterDistance: number; // Écartement radial final de la mosaïque (unités monde)
   approachZoom: number; // Zoom ABSOLU en fin d'approche, avant la vague (× zoom de base)
   detailZoom: number; // Zoom ABSOLU de la vue détail stabilisée (× zoom de base)
+  arrivalDip: number; // Arrivée : part du zoom dont la caméra recule dès que le pack est chargé, avant de revenir au cadrage (0 = aucun recul)
+  arrivalStart: number; // Arrivée : retard du recul sur le moment où le pack est chargé (s)
+  arrivalEasing: EasingName; // Arrivée : courbe du recul (easeInOut = départ et arrivée doux)
   navbarLead: number; // Avance du changement de navbar sur la fin du cadrage (s)
   textLead: number; // Avance de l'apparition du side panel sur la fin du cadrage (s)
   maxMediaWidthRatio: number; // Largeur max autorisée du média (% écran, ex: 0.38)
@@ -264,6 +267,22 @@ export function twistSettleBounds(config: TransitionConfig): { start: number; en
   return { start, end: start + Math.max(0.05, config.twistSettle ?? 1) };
 }
 
+/**
+ * Fenêtre du recul d'arrivée, en secondes d'« arrivée » : le temps écoulé depuis que le pack est
+ * chargé et que la timeline a atteint le hold (le plus tardif des deux). Le recul démarre après
+ * `arrivalStart` et finit quand la piste `dezoom` démarre : le creux de la caméra est atteint au
+ * moment précis où elle se met à revenir vers le cadrage de la vue détail. `span` est ce qui reste à
+ * attendre dans le hold une fois le pack chargé (la vague finit son cycle avant de traverser) : le
+ * recul s'étire d'autant, sans palier au creux en attendant que la vague passe. Le retard n'en mange
+ * jamais plus de 60 % : au-delà, le recul se réduirait à un à-coup (la fenêtre finit toujours quand
+ * `dezoom` démarre, un retard plus long ne la décale pas).
+ */
+export function arrivalBounds(config: TransitionConfig, span = 0): { start: number; end: number } {
+  const end = passEndTime(config) - holdTime(config) + config.dezoom.start + Math.max(0, span);
+  const start = Math.min(Math.max(0, config.arrivalStart ?? 0), Math.max(0, end) * 0.6);
+  return { start, end: Math.max(start + 0.05, end) };
+}
+
 /** Instant auquel la dernière piste de la séquence d'entrée se termine, retour à plat de la torsion compris. */
 export function timelineEnd(config: TransitionConfig): number {
   let end = 0;
@@ -310,6 +329,9 @@ const BASE_AMPLITUDES = {
   scatterDistance: 1000,
   approachZoom: 1.8,
   detailZoom: 1.8,
+  arrivalDip: 0.22,
+  arrivalStart: 0,
+  arrivalEasing: "easeInOutCubic" as EasingName,
   navbarLead: 0.3,
   textLead: 0.2,
   detailColumnRatio: 0.6,

@@ -490,6 +490,13 @@ export type PlayRuntimeState = {
     passed: boolean;
     /** Cycle de boucle auquel on libère l'attente une fois prêt. */
     releaseAt: number | null;
+    /**
+     * Secondes passées dans l'attente depuis que le pack est prêt (la vague finit son cycle avant de
+     * traverser l'artifact) : le recul d'arrivée de la caméra démarre au téléchargement, pas au cycle suivant.
+     */
+    arrivalWait: number;
+    /** Ce que cette attente durera au total, connu dès que le pack arrive : le reste du cycle de la vague (s). */
+    arrivalSpan: number;
     /** Traction du deck : cumul brut, jamais négatif (1 = seuil de changement de carte). Tout geste le fait monter, quel que soit son sens. */
     deckPullRaw: number;
     /** Traction affichée (courbe de résistance appliquée, lissée). */
@@ -578,6 +585,8 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
   rc.transition.deckLockUntil = 0;
   rc.transition.passed = false;
   rc.transition.releaseAt = null;
+  rc.transition.arrivalWait = 0;
+  rc.transition.arrivalSpan = 0;
   rc.transition.returnFrom = null;
   rc.camera.mode = "settle";
   rc.repulsor.active = true;
@@ -855,11 +864,18 @@ function advanceClock(
 
     if (tr.holding) {
       // Le pack n'est pas encore téléchargé : la vague boucle, l'artifact se tortille.
-      tr.loop += effDelta * (config.loadWaveSpeed ?? 0.9);
-      if (tr.ready && tr.releaseAt === null) tr.releaseAt = Math.ceil(tr.loop);
+      const loopSpeed = config.loadWaveSpeed ?? 0.9;
+      tr.loop += effDelta * loopSpeed;
+      if (tr.ready && tr.releaseAt === null) {
+        tr.releaseAt = Math.ceil(tr.loop);
+        // La vague finit son cycle avant de traverser, mais la caméra, elle, recule déjà (cf. `arrivalDip`).
+        tr.arrivalSpan = (tr.releaseAt - tr.loop) / Math.max(0.05, loopSpeed);
+      }
       if (tr.ready && tr.releaseAt !== null && tr.loop >= tr.releaseAt) {
         tr.holding = false;
         tr.passed = true;
+      } else if (tr.ready) {
+        tr.arrivalWait += effDelta;
       }
       return;
     }
@@ -873,6 +889,8 @@ function advanceClock(
         tr.holding = true;
         tr.loop = 0;
         tr.releaseAt = null;
+        tr.arrivalWait = 0;
+        tr.arrivalSpan = 0;
         return;
       }
     }
@@ -881,6 +899,8 @@ function advanceClock(
         tr.t = 0;
         tr.wall = 0;
         tr.passed = false;
+        tr.arrivalWait = 0;
+        tr.arrivalSpan = 0;
         tr.textRevealed = false;
         tr.navbarRevealed = false;
         return;
@@ -1426,6 +1446,8 @@ export function PlayCanvas({
       deckTop: { cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
       passed: false,
       releaseAt: null,
+      arrivalWait: 0,
+      arrivalSpan: 0,
       returnFrom: null,
       frame: createTransitionFrame(),
     },

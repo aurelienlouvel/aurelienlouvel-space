@@ -12,6 +12,7 @@
  */
 
 import {
+  arrivalBounds,
   evaluateEasing,
   holdTime,
   passEndTime,
@@ -101,6 +102,13 @@ export type TransitionClock = {
   loop: number;
   /** La timeline attend que le pack soit téléchargé. */
   holding: boolean;
+  /**
+   * Secondes passées dans le hold depuis que le pack est téléchargé : la vague finit son cycle avant
+   * de traverser l'artifact, mais le recul de la caméra, lui, démarre dès le téléchargement.
+   */
+  arrivalWait?: number;
+  /** Ce que cette attente durera au total, connu dès que le pack arrive (le reste du cycle de la vague). */
+  arrivalSpan?: number;
   /** Retour en cours (Échap) : la timeline ne se joue plus à l'endroit. */
   rewinding?: boolean;
   /** Avancement 0..1 du retour en cours (avant la courbe d'adoucissement). */
@@ -185,7 +193,20 @@ function samplePlaying(
   frame.rest = 1 - heroT;
   const wait = Math.min(1, Math.max(0, (t - config.hero.start - config.hero.duration) / 1.5));
   const drift = (config.silenceDrift ?? 0) * evaluateEasing("easeOutQuad", wait) * (1 - calm);
-  const climbing = (1 + (config.approachZoom - 1) * heroT) * (1 + drift);
+  // Arrivée : dès que le pack est chargé, la caméra recule (dézoom) puis revient au cadrage de la vue
+  // détail (zoom, §5). Le temps d'arrivée court depuis le hold, ou depuis le chargement quand celui-ci
+  // a fini pendant l'attente (`arrivalWait`, sur une attente totale `arrivalSpan`) ; au retour l'horloge
+  // recule, ils ne comptent plus. Le creux est atteint quand la piste `dezoom` démarre : de là, la
+  // formule du §5 remonte vers le zoom final. `arrivalDip` à 0 : la trajectoire d'avant, sans recul.
+  const waited = clock.rewinding ? 0 : (clock.arrivalWait ?? 0);
+  const span = clock.rewinding ? 0 : (clock.arrivalSpan ?? 0);
+  const arrival = arrivalBounds(config, span);
+  const arrivalTime = (t >= hold ? t - hold : 0) + waited;
+  const dip =
+    (config.arrivalDip ?? 0) *
+    evaluateEasing(config.arrivalEasing ?? "easeInOutCubic", (arrivalTime - arrival.start) / (arrival.end - arrival.start)) *
+    (1 - calm);
+  const climbing = (1 + (config.approachZoom - 1) * heroT) * (1 + drift) * (1 - dip);
 
   // ── 2. Burst : la mosaïque explose, absolu dans la timeline ─────────────
   const burstT = trackAt(config.scatter, t);
