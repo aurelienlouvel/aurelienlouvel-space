@@ -794,6 +794,16 @@ export function SecondaryGalleryPlanes({
     const mainStartW = principalPoint.width * frame.tileScale;
     const mainStartH = principalPoint.height * frame.tileScale;
 
+    // Punch de l'arrivée : toute la pile grossit d'un coup autour du centre de la carte du dessus.
+    // Il ne joue que pendant l'ouverture (`frame.punch` est nul ailleurs) ; au retour, la carte qui
+    // rentre part de la pose que son mesh avait déjà (`exitStartRef`).
+    const punchK = tr.phase === "playing" ? 1 + Math.max(0, frame.punch) : 1;
+    const punchX = principalPoint.x;
+    const punchY = principalPoint.y + (baseBottom + heights[keptI] / 2 - principalPoint.y) * frame.reveal;
+    // Cascade : les layers partent de derrière la carte du dessus (`stackDrop` : 0 = bord bas aligné
+    // sur le sien, 1 = centrés derrière elle) et descendent jusqu'à leur place.
+    const drop = Math.min(1, Math.max(0, cfg.stackDrop ?? 0));
+
     // Un média peut occuper plusieurs cases : son poids est le plus fort des siennes.
     weightEntries.forEach((entry) => {
       entry.w = 0;
@@ -879,7 +889,8 @@ export function SecondaryGalleryPlanes({
           const cin = Math.max(0, Math.min(1, p - (Math.max(1, d) - 1)));
           const eased = 1 - Math.pow(1 - cin, 3);
           opacity *= cin;
-          posY += peek * Math.max(0, d) * (1 - eased);
+          const travel = d > 0 ? peek * d + (drop * Math.max(0, heights[keptI] - drawH)) / 2 : 0;
+          posY += travel * (1 - eased);
         }
       }
 
@@ -896,6 +907,13 @@ export function SecondaryGalleryPlanes({
         } else {
           opacity *= frame.columnOpacity;
         }
+      }
+
+      if (punchK !== 1) {
+        posX = punchX + (posX - punchX) * punchK;
+        posY = punchY + (posY - punchY) * punchK;
+        drawW *= punchK;
+        drawH *= punchK;
       }
 
       const weightHere = returning ? 0 : weight * (tr.phase === "playing" ? frame.columnOpacity || 1 : 1);

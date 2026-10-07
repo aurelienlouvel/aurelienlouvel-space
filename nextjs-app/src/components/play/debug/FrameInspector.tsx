@@ -30,6 +30,7 @@ const CHANNELS: Channel[] = [
   { id: "fx", label: "eclats (intensite)", group: "Ouverture", min: 0, max: 2, read: (rc) => rc.transition.frame.fx },
   { id: "wave", label: "vague", group: "Ouverture", min: 0, max: 1, read: (rc) => rc.transition.frame.waveProgress },
   { id: "scale", label: "tuile (echelle)", group: "Ouverture", min: 0.9, max: 1.4, read: (rc) => rc.transition.frame.tileScale },
+  { id: "punch", label: "punch de la pile (gonflement)", group: "Ouverture", min: 0, max: 0.4, read: (rc) => rc.transition.frame.punch },
   { id: "roll", label: "tuile (rotation)", group: "Ouverture", min: -0.3, max: 0.3, read: (rc) => rc.transition.frame.tileRoll },
   { id: "rest", label: "rotation repos", group: "Ouverture", min: 0, max: 1, read: (rc) => rc.transition.frame.rest },
   { id: "reveal", label: "ouverture de la carte", group: "Ouverture", min: 0, max: 1, read: (rc) => rc.transition.frame.reveal },

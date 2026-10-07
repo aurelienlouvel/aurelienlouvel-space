@@ -110,7 +110,6 @@ export type TransitionConfig = {
   twistSettleStart: number; // Fin du tortillement : début du retour à plat, en s après la fin de la vague (négatif = pendant la vague)
   twistSettle: number; // Fin du tortillement : durée (s) du retour à plat de la torsion, de la bascule et du gonflement
   twistSettleEasing: EasingName; // Fin du tortillement : courbe du retour à plat (easeInOut = départ et arrivée doux)
-  twistSettleBlend: number; // 0..1 — part du détachement du boom qui s'ajoute au gonflement encore présent (0 = le plus grand des deux, 1 = les deux s'additionnent)
 
   // ── 1. Pistes de la timeline — `start` et `duration` en secondes ─────────
   lock: TrackSpec; // Impact : la carte se détache au boom
@@ -122,7 +121,8 @@ export type TransitionConfig = {
   exit: TrackSpec; // Retour vers la mosaïque
 
   // ── 2. Amplitudes ────────────────────────────────────────────────────────
-  lockScalePunch: number; // Détachement (scale) de la carte au lock — lift discret, sans rebond (ex: 0.08)
+  lockScalePunch: number; // Punch de l'arrivée : la pile (carte du dessus et layers) gonfle de ce facteur au boom, puis retombe, sans rebond (ex: 0.14 = +14 %, 0 = aucun)
+  lockPunchAttack: number; // Punch : part (0..1) de la piste `lock` passée à monter ; le reste retombe (petit = coup sec, grand = montée lente)
   overlayExitDuration: number; // Durée d'évacuation de la vague de sélection (s)
   scatterDistance: number; // Écartement radial final de la mosaïque (unités monde)
   approachZoom: number; // Zoom ABSOLU en fin d'approche, avant la vague (× zoom de base)
@@ -142,6 +142,7 @@ export type TransitionConfig = {
   detailScrollDamping: number; // Amortissement du passage d'une carte à l'autre
   stackScale: number; // Échelle de chaque carte de plus dans la pile (ex: 0.9)
   stackPeek: number; // Décalage vers le haut de chaque carte de la pile (unités monde)
+  stackDrop: number; // Arrivée : 0..1 — départ des layers derrière la carte du dessus (0 = bord bas aligné sur le sien, 1 = centrés derrière elle, donc plus de course vers leur place)
   stackDepth: number; // Nombre de layers visibles sous la première carte (même média en boucle s'il y en a moins ; au plus STACK_DEPTH_MAX)
   stackOpacity: number; // Opacité du premier layer sous la carte (0..1)
   stackOpacityFalloff: number; // Facteur d'opacité appliqué à chaque layer suivant (0..1)
@@ -333,8 +334,8 @@ const BASE_AMPLITUDES = {
   twistSettleStart: -0.3,
   twistSettle: 1,
   twistSettleEasing: "easeInOutCubic" as EasingName,
-  twistSettleBlend: 0.5,
-  lockScalePunch: 0.08,
+  lockScalePunch: 0.14,
+  lockPunchAttack: 0.22,
   overlayExitDuration: 0.35,
   scatterDistance: 1000,
   approachZoom: 1.8,
@@ -352,6 +353,7 @@ const BASE_AMPLITUDES = {
   detailScrollDamping: 8,
   stackScale: 0.9,
   stackPeek: 22,
+  stackDrop: 1,
   stackDepth: 2,
   stackOpacity: 0.55,
   stackOpacityFalloff: 0.55,
@@ -421,7 +423,7 @@ export const TRANSITION_PRESETS: Record<
     waveDuration: 0.8,
     twistSettleStart: -0.23,
     twistSettle: 0.78,
-    lockScalePunch: 0.11,
+    lockScalePunch: 0.18,
     overlayExitDuration: 0.22,
     approachZoom: 2.4,
     detailScrollDamping: 14,
@@ -433,7 +435,7 @@ export const TRANSITION_PRESETS: Record<
     waveDuration: 1.6,
     twistSettleStart: -0.42,
     twistSettle: 1.4,
-    lockScalePunch: 0.1,
+    lockScalePunch: 0.2,
     overlayExitDuration: 0.4,
     scatterDistance: 3400,
     approachZoom: 3,

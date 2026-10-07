@@ -129,8 +129,8 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   ouvert, les cartes derrière celle du dessus sont désaturées (`stackSaturation`, 0.45 ; 1 = couleurs
   d'origine).
 - Fin du tortillement de la carte (après la vague d'ouverture) : elle revient à plat par un retour doux et
-  non d'un coup (`twistSettleStart`, `twistSettle`, `twistSettleEasing`, `twistSettleBlend`, onglet
-  Animation › « 4 Vague » ; `transition-presets.ts`).
+  non d'un coup (`twistSettleStart`, `twistSettle`, `twistSettleEasing`, onglet Animation › « 4 Vague » ;
+  `transition-presets.ts`).
 - Arrivée de la carte (juste avant qu'elle se pose) : dès que le pack est chargé, la caméra recule d'un cran
   puis revient vers le cadrage de la vue détail (`arrivalDip`, 0.22 : la part du zoom perdue au creux ;
   0 = l'ancienne trajectoire, à l'identique). Le creux tombe exactement quand la piste `dezoom` démarre et le
@@ -144,6 +144,17 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   recul ne fait qu'avancer et raidir la descente (le zoom ne remonte que si le creux passe sous
   `detailZoom`, comme avec la config par défaut). Réglages : Animation › « 5 Cascade et cadrage » ›
   « Arrivee (recul puis zoom) » ; le calcul est dans `samplePlaying` (`transition-timeline.ts`).
+- Punch d'arrivée (la carte se pose et les layers descendent de derrière elle) : toute la pile gonfle d'un
+  facteur `1 + frame.punch` autour du centre de la carte du dessus, puis retombe, pendant la fenêtre `lock` qui
+  suit la vague (`lockScalePunch`, 0.14 = +14 % au pic, 0.18 et 0.2 avec les préréglages snappy et dramatic,
+  0 = aucun punch ; `lockPunchAttack`, 0.22 : la part de la piste `lock` passée à monter, petit = coup sec). Ce
+  facteur est à part de `tileScale` (le gonflement de la tuile pendant le chargement) et s'applique à toutes les
+  cartes à l'affichage (`SecondaryGalleryPlanes.tsx`) : `deckTop` l'inclut. Les layers naissent centrés derrière
+  la carte et descendent à leur place pendant l'ouverture (`stackDrop`, 1 ; 0 = depuis le bord bas de la carte,
+  l'ancien trajet). Mesuré en 1440 × 900 : la carte passe de 660 à 767 puis 684 px à l'écran. Dans une mise en
+  page où elle rétrécit pendant l'ouverture (mobile : la tuile prend presque toute la largeur), le punch ne fait
+  que ralentir ce rétrécissement. Réglages : Animation › « 5 Cascade et cadrage » (`lockScalePunch`,
+  `lockPunchAttack`) et dossier « Layers » (`stackDrop`) ; l'inspecteur a un canal « punch ».
 - Défilement du deck (carte suivante) : le geste est signé et la carte part du côté où on la tire. La molette,
   le drag et les flèches tirent un vecteur (`deckPullVec`, axes du monde : x à droite, y en haut, en cartes) et
   la carte passe quand sa longueur atteint 1 (`stepDeckPull`, `PlayCanvas.tsx`). Tant qu'elle n'est pas

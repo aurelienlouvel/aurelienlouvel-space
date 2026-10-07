@@ -161,13 +161,13 @@ export function AnimationTab({
             twistSettleStart: num(tr, "twistSettleStart", { label: "Fin du tortillement : debut (s apres la vague)", min: -2, max: 1, step: 0.05 }),
             twistSettle: num(tr, "twistSettle", { label: "Fin du tortillement : duree du retour a plat (s)", min: 0.05, max: 3, step: 0.05 }),
             twistSettleEasing: easingControl(tr, "twistSettleEasing", "Fin du tortillement : courbe (easeInOut = doux)"),
-            twistSettleBlend: num(tr, "twistSettleBlend", { label: "Fin du tortillement : detachement ajoute au gonflement (0 = le plus grand, 1 = somme)", min: 0, max: 1, step: 0.05 }),
           },
           { collapsed: true },
         ),
         "5 Cascade et cadrage": folder(
           {
-            lockScalePunch: num(tr, "lockScalePunch", { label: "Detachement artifact", min: 0, max: 0.4, step: 0.005 }),
+            lockScalePunch: num(tr, "lockScalePunch", { label: "Punch d arrivee : toute la pile gonfle de (0.14 = +14 %, 0 = aucun)", min: 0, max: 0.6, step: 0.005 }),
+            lockPunchAttack: num(tr, "lockPunchAttack", { label: "Punch : part de la piste lock passee a monter (petit = coup sec)", min: 0.05, max: 0.6, step: 0.01 }),
             ...trackControls(tr, "lock", 2, 2),
             ...trackControls(tr, "reveal", 3, 3),
             ...trackControls(tr, "columnFade", 4, 3),
@@ -185,6 +185,7 @@ export function AnimationTab({
               stackSaturation: num(tr, "stackSaturation", { label: "Saturation des layers dessous (1 = couleurs d origine)", min: 0, max: 1, step: 0.01 }),
               stackPeek: num(tr, "stackPeek", { label: "Decalage vers le bas (px)", min: 4, max: 80, step: 1 }),
               stackScale: num(tr, "stackScale", { label: "Echelle par layer", min: 0.5, max: 1, step: 0.01 }),
+              stackDrop: num(tr, "stackDrop", { label: "Depart des layers a l arrivee (0 = bord bas de la carte, 1 = centres derriere elle)", min: 0, max: 1, step: 0.05 }),
             }),
           },
           { collapsed: true },

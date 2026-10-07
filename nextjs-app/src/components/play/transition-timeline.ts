@@ -44,8 +44,14 @@ export type TransitionFrame = {
   scatter: number;
   /** Opacité des tuiles de la mosaïque. */
   mosaicOpacity: number;
-  /** Facteur d'échelle de la tuile visée (détachement au boom). */
+  /** Facteur d'échelle de la tuile visée (gonflement pendant le chargement). */
   tileScale: number;
+  /**
+   * 0.. — punch du boom : toute la pile (la carte du dessus et ses layers) grossit de ce facteur autour
+   * du centre de la carte du dessus, puis retombe. À part de `tileScale`, qui ne règle que la taille de
+   * départ de la carte et que le `reveal` efface presque aussitôt.
+   */
+  punch: number;
   /** Bascule 3D (rad) de la tuile visée autour de X. */
   tileTiltX: number;
   /** Bascule 3D (rad) de la tuile visée autour de Y. */
@@ -77,6 +83,7 @@ export function createTransitionFrame(): TransitionFrame {
     scatter: 0,
     mosaicOpacity: 1,
     tileScale: 1,
+    punch: 0,
     tileTiltX: 0,
     tileTiltY: 0,
     tileRoll: 0,
@@ -137,20 +144,23 @@ export function rewindLandMix(reveal: number): number {
   return smoothstep(reveal / REWIND_LAND_ZONE);
 }
 
-/** Part de la piste `lock` consacrée à la montée du détachement. */
-const LOCK_POP_ATTACK_END = 0.3;
-/** Fin du mini temps de pause tenu, début du relâchement. */
-const LOCK_POP_HOLD_END = 0.62;
+/** Part de la piste `lock` passée à tenir la pose au sommet du punch, entre la montée et le relâchement. */
+const LOCK_POP_HOLD = 0.08;
+/** Part de la piste `lock` passée à monter quand `lockPunchAttack` n'est pas réglé. */
+const LOCK_POP_ATTACK_DEFAULT = 0.22;
 
 /**
- * Poids 0→1→1→0 du détachement au boom : la carte se décolle, tient la pose,
- * puis se repose. Flancs en smoothstep, donc départ et arrivée à vitesse nulle.
+ * Poids 0→1→1→0 du punch au boom : la pile gonfle d'un coup (`attack` = part de la piste passée à
+ * monter), tient à peine la pose, puis retombe longuement. Flancs en smoothstep, donc départ et
+ * arrivée à vitesse nulle.
  */
-function lockPopEnvelope(u: number): number {
+function lockPopEnvelope(u: number, attack = LOCK_POP_ATTACK_DEFAULT): number {
   if (u <= 0 || u >= 1) return 0;
-  if (u < LOCK_POP_ATTACK_END) return smoothstep(u / LOCK_POP_ATTACK_END);
-  if (u <= LOCK_POP_HOLD_END) return 1;
-  return 1 - smoothstep((u - LOCK_POP_HOLD_END) / (1 - LOCK_POP_HOLD_END));
+  const rise = Math.min(0.9, Math.max(0.02, attack));
+  const holdEnd = Math.min(0.98, rise + LOCK_POP_HOLD);
+  if (u < rise) return smoothstep(u / rise);
+  if (u <= holdEnd) return 1;
+  return 1 - smoothstep((u - holdEnd) / (1 - holdEnd));
 }
 
 function sampleIdle(frame: TransitionFrame) {
@@ -159,6 +169,7 @@ function sampleIdle(frame: TransitionFrame) {
   frame.scatter = 0;
   frame.mosaicOpacity = 1;
   frame.tileScale = 1;
+  frame.punch = 0;
   frame.tileTiltX = 0;
   frame.tileTiltY = 0;
   frame.tileRoll = 0;
@@ -263,12 +274,15 @@ function samplePlaying(
   frame.columnOpacity = trackAt(config.columnFade, tp);
 
   if (tp > 0) {
-    // Le détachement du boom se pose sur le gonflement qui retombe : le plus grand des
-    // deux, plus `twistSettleBlend` du plus petit. Sans ça la carte rétrécirait jusqu'à
-    // sa taille de repos avant de regonfler (le « V » qui rendait la fin brusque).
-    const pop = (config.lockScalePunch ?? 0.02) * lockPopEnvelope(trackRaw(config.lock, tp)) * (1 - calm);
-    const blend = Math.min(1, Math.max(0, config.twistSettleBlend ?? 0.5));
-    frame.tileScale = 1 + Math.max(swell, pop) + blend * Math.min(swell, pop);
+    // Le punch du boom grossit toute la pile d'un coup, par-dessus la carte qui prend sa place. Il ne
+    // passe plus par `tileScale` : ce facteur n'est que la taille de DÉPART de la carte, que le
+    // `reveal` a effacée aux trois quarts quand le punch culmine (il valait 1 à 3 % à l'écran), et le
+    // gonflement du chargement le couvrait déjà. Sous le punch, la taille de la carte ne fait que
+    // tendre vers sa taille finale (le gonflement retombe pendant que le `reveal` monte) : pas de « V ».
+    frame.punch =
+      Math.max(0, config.lockScalePunch ?? 0) *
+      lockPopEnvelope(trackRaw(config.lock, tp), config.lockPunchAttack) *
+      (1 - calm);
     // Roulis et bascule continuent de s'éteindre (`env`) : plus remis à zéro d'un coup.
     frame.overlayExit = 1;
     frame.waveProgress = 1;
@@ -287,6 +301,7 @@ function sampleIsolated(config: TransitionConfig, frame: TransitionFrame) {
   frame.scatter = config.scatterDistance;
   frame.mosaicOpacity = 0;
   frame.tileScale = 1;
+  frame.punch = 0;
   frame.tileTiltX = 0;
   frame.tileTiltY = 0;
   frame.tileRoll = 0;
@@ -354,6 +369,7 @@ function sampleRewind(config: TransitionConfig, clock: TransitionClock, frame: T
   frame.rest = src.rest + (1 - src.rest) * rest;
   // Ce qu'une ouverture interrompue laissait en route (torsion, gonflement, vague, éclats) s'éteint d'abord.
   frame.tileScale = src.tileScale + (1 - src.tileScale) * quick;
+  frame.punch = src.punch * (1 - quick);
   frame.tileTiltX = src.tileTiltX * (1 - quick);
   frame.tileTiltY = src.tileTiltY * (1 - quick);
   frame.tileRoll = src.tileRoll * (1 - quick);
@@ -391,6 +407,7 @@ function sampleReturning(
     scatter: config.scatterDistance,
     mosaicOpacity: 0,
     tileScale: 1,
+    punch: 0,
     tileTiltX: 0,
     tileTiltY: 0,
     tileRoll: 0,
@@ -409,6 +426,9 @@ function sampleReturning(
   frame.scatter = src.scatter * (1 - repulseT);
   frame.mosaicOpacity = src.mosaicOpacity + (1 - src.mosaicOpacity) * repulseT;
   frame.tileScale = src.tileScale + (1 - src.tileScale) * exitT;
+  // La carte qui rentre part de la pose que son mesh avait (punch compris, cf. `exitStartRef`) : la
+  // pile ne reçoit plus le punch dans cette phase.
+  frame.punch = 0;
   frame.tileTiltX = src.tileTiltX * (1 - exitT);
   frame.tileTiltY = src.tileTiltY * (1 - exitT);
   frame.tileRoll = src.tileRoll * (1 - exitT);
