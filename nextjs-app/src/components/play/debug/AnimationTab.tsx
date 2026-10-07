@@ -217,6 +217,8 @@ export function AnimationTab({
             rewindStagger: num(tr, "rewindStagger", { label: "Rewind clean : decalage entre carte, camera et mosaique (0 = ensemble)", min: 0, max: 1, step: 0.05 }),
             rewindCalm: num(tr, "rewindCalm", { label: "Rewind : calme (coupe vague, torsion et eclats ; 1 = aucun)", min: 0, max: 1, step: 0.05 }),
             rewindLayerFade: num(tr, "rewindLayerFade", { label: "Rewind : disparition des cartes derriere (s)", min: 0.02, max: 1.5, step: 0.01 }),
+            rewindKeepCover: toggle(tr, "rewindKeepCover", "Rewind : la carte gardee reste en couverture de la tuile (decoche = elle se fond dans la tuile)"),
+            rewindPullRelease: num(tr, "rewindPullRelease", { label: "Rewind : relachement de la traction de la carte (0 = d un coup)", min: 0, max: 30, step: 0.5 }),
             exit_duration: num(tr.exit, "duration", { label: "Sortie vue detail (s)", min: 0.1, max: 3, step: 0.05 }),
             exit_easing: easingControl(tr.exit, "easing", "Easing de sortie"),
             repulseReturnDelay: num(tr, "repulseReturnDelay", { label: "Retard de la mosaique (s)", min: 0, max: 1.5, step: 0.05 }),

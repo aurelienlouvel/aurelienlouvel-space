@@ -2,10 +2,11 @@
 
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, DoubleSide, ShaderMaterial, Vector4, type Mesh } from "three";
+import { Color, DoubleSide, ShaderMaterial, Vector2, Vector4, type Mesh } from "three";
 import { daGradientRgb } from "@/lib/da";
 import type { RGB } from "@/lib/dominant-color";
 import type { PlayDebugRef } from "./PlayCanvas";
+import { setCoverScale } from "./rounded-frame";
 import { getSharedTexture } from "./SecondaryGalleryPlanes";
 
 /** Nombre maximal d'éclats (le debug règle le nombre réellement émis). */
@@ -16,6 +17,9 @@ export const AMBIENT_RENDER_ORDER = 50;
 
 /** Plans de profondeur : 0 = derrière l'image, 1 = au niveau, 2 = devant. */
 const PLANE_Z = [-0.15, 0.55, 0.7] as const;
+
+/** Rognage du média (sa part visible) d'une source qui le montre en couverture ; réécrit à chaque image. */
+const COVER_CROP = new Vector2(1, 1);
 
 /** Ce qu'un champ d'éclats doit savoir de la carte qu'il décompose. */
 export type ShardSource = {
@@ -30,6 +34,12 @@ export type ShardSource = {
   h: number;
   url: string;
   kind: "image" | "video";
+  /**
+   * Ratio (largeur / hauteur) du média quand la carte ne le montre que rogné, comme une tuile qui a pris un
+   * autre média que le sien en couverture : les éclats lisent alors la même partie de l'image que la carte.
+   * Sans lui, le média remplit la carte entière.
+   */
+  mapRatio?: number;
 };
 
 /** Réglages des éclats, partagés par l'ouverture et le passage d'une carte à l'autre. */
@@ -278,6 +288,8 @@ export function ShardField({
       Math.round(p.count * Math.min(1, src.intensity * 1.2)),
     );
     const texture = getSharedTexture(src.url, src.kind);
+    if (src.mapRatio && src.h > 0) setCoverScale(COVER_CROP, src.w / src.h, src.mapRatio);
+    else COVER_CROP.set(1, 1);
     const palette = paletteRef?.current ?? FALLBACK_PALETTE;
     const planes = [
       { z: PLANE_Z[0], travel: p.travelFar, scale: p.scaleFar, blur: p.blurFar, opacity: 0.6 },
@@ -338,7 +350,14 @@ export function ShardField({
       u.uMap.value = texture;
       u.uHasMap.value = texture ? 1 : 0;
       u.uDecode.value = texture && src.kind === "video" ? 1 : 0;
-      (u.uRect.value as Vector4).set(0.5 + sx - w / src.w / 2, 0.5 + sy - h / src.h / 2, w / src.w, h / src.h);
+      // Rectangle lu dans l'image : celui de l'éclat sur la carte, resserré autour du centre quand la
+      // carte ne montre qu'une partie du média (`COVER_CROP` vaut (1, 1) sinon).
+      (u.uRect.value as Vector4).set(
+        0.5 + (sx - w / src.w / 2) * COVER_CROP.x,
+        0.5 + (sy - h / src.h / 2) * COVER_CROP.y,
+        (w / src.w) * COVER_CROP.x,
+        (h / src.h) * COVER_CROP.y,
+      );
       toLinear(u.uTint.value as Color, palette[i % palette.length]);
       u.uFlat.value = p.flat;
       u.uDaMix.value = p.tint;

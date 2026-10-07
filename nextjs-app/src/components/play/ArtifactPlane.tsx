@@ -25,9 +25,11 @@ import {
   CORNER_SMOOTHING,
   GLSL_PIXEL_WIDTH,
   GLSL_SQUIRCLE,
+  setCoverScale,
   uniformsOf,
 } from "./rounded-frame";
 import {
+  getSharedTexture,
   registerSharedImageTexture,
   registerSharedVideoTexture,
 } from "./SecondaryGalleryPlanes";
@@ -35,6 +37,8 @@ import {
 export type PlaneUniforms = {
   uSize: IUniform<Vector2>;
   uRadius: IUniform<number>;
+  /** Échelle des UV de la texture, centrée sur 0.5 : (1, 1) = tout le média, < 1 = recadré (cover). */
+  uMapScale: IUniform<Vector2>;
   uCornerSmooth: IUniform<number>;
   uMotionBlur: IUniform<Vector2>;
   uCardTilt: IUniform<Vector2>;
@@ -74,6 +78,7 @@ function markAsSrgb(texture: Texture) {
 const ROUNDING_PARS = /* glsl */ `
 uniform vec2 uSize;
 uniform float uRadius;
+uniform vec2 uMapScale;
 uniform vec2 uMotionBlur;
 
 // Onde de sélection : mêmes paramètres et même géométrie que le dégradé de
@@ -149,7 +154,8 @@ transformed = applyCardTilt(transformed, uCardTilt);
 const MOTION_BLUR_MAP = /* glsl */ `
 #ifdef USE_MAP
   float lens = waveDistortion(vUv);
-  vec2 mapUv = vMapUv;
+  // Recadrage « cover » (uMapScale = 1 : le média entier, comme avant).
+  vec2 mapUv = (vMapUv - 0.5) * uMapScale + 0.5;
   vec4 sampledDiffuseColor = texture2D( map, mapUv );
   if (lens > 0.0005) {
     // Comme si le média était happé par un objectif : il grossit vers le centre
@@ -195,7 +201,7 @@ const MOTION_BLUR_MAP = /* glsl */ `
   }
   float blurLen = length(uMotionBlur);
   if (blurLen > 0.0008) {
-    vec2 bStep = uMotionBlur;
+    vec2 bStep = uMotionBlur * uMapScale;
     sampledDiffuseColor = sampledDiffuseColor * 0.22
       + texture2D( map, mapUv + bStep * 0.35 ) * 0.19
       + texture2D( map, mapUv - bStep * 0.35 ) * 0.19
@@ -226,6 +232,7 @@ function roundCorners(
   attachUniforms(this, parameters, {
     uSize: { value: new Vector2(1, 1) },
     uRadius: { value: 0 },
+    uMapScale: { value: new Vector2(1, 1) },
     uCornerSmooth: CORNER_SMOOTHING,
     uMotionBlur: { value: new Vector2(0, 0) },
     uCardTilt: { value: new Vector2(0, 0) },
@@ -264,7 +271,7 @@ function roundCorners(
  * matériaux qui injectent du code.
  */
 function roundCornersCacheKey() {
-  return "play-artifact-grid-motion-blur-lens-hover-irid-flat-tilt";
+  return "play-artifact-grid-motion-blur-lens-hover-irid-flat-tilt-cover";
 }
 
 /**
@@ -286,6 +293,12 @@ type ArtifactPlaneProps = {
   height: number;
   debug: PlayDebugRef;
   runtime?: PlayRuntimeRef;
+  /**
+   * Ratio du média quand la tuile montre une couverture (un autre média que le premier du projet, cf.
+   * `TileCover`) : le média est alors recadré (cover) au ratio de la tuile, au lieu d'être étiré. Absent,
+   * la texture occupe toute la tuile, comme toujours.
+   */
+  mapRatio?: number;
   meshRef?: (mesh: Mesh | null) => void;
   onHoverChange: (hovering: boolean, world: { x: number; y: number }) => void;
   onSelect: (world: { x: number; y: number }) => void;
@@ -302,9 +315,15 @@ type ArtifactPlaneProps = {
  * chacun appelle inconditionnellement exactement un hook, puis délègue tout
  * le reste (taille, position, survol, clic, découpe du shader) à
  * `ArtifactPlaneMesh`, strictement identique quel que soit le média.
+ *
+ * Une couverture (`mapRatio`) vient du deck, qui a déjà chargé cette texture : on la prend dans le registre
+ * partagé, sans hook ni Suspense, donc sans trou entre la carte qui rentre et la tuile qui la remplace.
+ * Le registre vide (rechargement, média pas encore vu), on retombe sur le chargement habituel.
  */
 export function ArtifactPlane({ kind, url, ...rest }: ArtifactPlaneProps) {
   if (!url) return null;
+  const shared = rest.mapRatio ? getSharedTexture(url, kind) : null;
+  if (shared) return <ArtifactPlaneMesh {...rest} url={url} texture={shared} />;
   return kind === "video" ? <ArtifactPlaneVideo url={url} {...rest} /> : <ArtifactPlaneImage url={url} {...rest} />;
 }
 
@@ -357,6 +376,7 @@ function ArtifactPlaneMesh({
   height,
   debug,
   runtime,
+  mapRatio,
   texture,
   meshRef,
   onHoverChange,
@@ -374,6 +394,8 @@ function ArtifactPlaneMesh({
       const sy = Math.max(1, rawSy);
       uniforms.uSize.value.set(sx, sy);
       uniforms.uRadius.value = clampRadius(debug.current.plane.radius, sx, sy);
+      if (mapRatio) setCoverScale(uniforms.uMapScale.value, sx / sy, mapRatio);
+      else uniforms.uMapScale.value.set(1, 1);
 
       // Paramètres de l'onde — l'avancement (progress/exit) est posé par la
       // grille, uniquement sur la tuile visée.

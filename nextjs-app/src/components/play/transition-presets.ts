@@ -103,6 +103,8 @@ export type TransitionConfig = {
   rewindDuration: number; // Durée du rewind de l'ouverture (s) : lent au début, rapide au milieu, lent à la fin
   rewindEasing: EasingName; // Courbe du rewind (easeInOut = effet cinématique)
   rewindLayerFade: number; // Retour : durée (s) de la disparition des cartes derrière la carte gardée
+  rewindKeepCover: boolean; // Retour : la carte gardée devient la couverture de la tuile (false = elle se fond dans la tuile, comme avant)
+  rewindPullRelease: number; // Retour : vitesse (par s) à laquelle la traction du deck se relâche (0 = d'un coup, comme avant)
   rewindMode: RewindMode; // Retour : « clean » (glissement vers le repos) ou « film » (l'ouverture rejouée à l'envers)
   rewindStagger: number; // Retour « clean » : 0..1 — décalage entre la caméra, la carte et la mosaïque (0 = ensemble, 1 = l'un après l'autre)
   rewindCalm: number; // Retour « film » : 0..1 — part de la torsion, des éclats et de la vague étouffée dès le début du retour
@@ -327,6 +329,8 @@ const BASE_AMPLITUDES = {
   rewindDuration: 1.4,
   rewindEasing: "easeInOutQuint" as EasingName,
   rewindLayerFade: 0.25,
+  rewindKeepCover: true,
+  rewindPullRelease: 8,
   rewindMode: "clean" as RewindMode,
   rewindStagger: 0.6,
   rewindCalm: 1,

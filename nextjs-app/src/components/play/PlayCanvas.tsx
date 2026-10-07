@@ -33,6 +33,7 @@ import { getSharedVideoElement } from "./SecondaryGalleryPlanes";
 import { ArtifactGrid } from "./ArtifactGrid";
 import {
   SecondaryGalleryPlanes,
+  type TileCover,
 } from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
 import {
@@ -602,9 +603,10 @@ function rewindTransition(rc: PlayRuntimeState) {
 
 /**
  * Démarre la timeline sur `pointIndex` : le clic lance directement la vague,
- * puis le boom. Il n'y a plus de hold.
+ * puis le boom. Il n'y a plus de hold. `startDeck` est le média sur lequel le deck démarre : 0, le
+ * premier média du projet, ou la carte qu'une tuile garde en couverture (`TileCover.mediaIndex`).
  */
-export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
+export function startPlayback(rc: PlayRuntimeState, pointIndex: number, startDeck = 0) {
   if (rc.transition.phase !== "idle") return;
   rc.transition.targetIndex = pointIndex;
   rc.transition.phase = "playing";
@@ -612,8 +614,8 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
   rc.transition.selectProgress = 0;
   rc.transition.textRevealed = false;
   rc.transition.navbarRevealed = false;
-  rc.transition.columnScrollY = 0;
-  rc.transition.targetColumnScrollY = 0;
+  rc.transition.columnScrollY = startDeck;
+  rc.transition.targetColumnScrollY = startDeck;
   rc.transition.isSnapping = false;
   rc.transition.ready = false;
   rc.transition.wall = 0;
@@ -654,12 +656,18 @@ export function applyResetTransition(rc: PlayRuntimeState) {
     // Le retour « clean » glisse de l'état exact d'où l'on part vers le repos, un second Échap
     // en plein retour compris : on en garde un instantané (cf. `sampleRewind`).
     tr.returnFrom = { ...tr.frame };
-    // Un second Échap en plein retour garde la même carte : le deck n'est plus « isolated ».
+    // Un second Échap en plein retour garde la même carte : le deck n'est plus « isolated ». Pendant
+    // l'ouverture le deck n'a pas bougé : sa cible est la carte de départ (0, ou la couverture de la tuile).
     if (!tr.rewinding) {
-      tr.rewindFromDeck = tr.phase === "isolated" ? Math.round(tr.targetColumnScrollY) : 0;
+      tr.rewindFromDeck = Math.round(tr.targetColumnScrollY);
     }
     tr.targetColumnScrollY = tr.rewindFromDeck;
-    resetDeckPull(tr);
+    // La traction en cours ne retombe pas d'un coup : seules ses cibles tombent, la carte garde l'écart
+    // où on l'a laissée et se recompose pendant le retour (`releaseDeckPull`, dans `advanceRewind`).
+    tr.deckPullVec.x = 0;
+    tr.deckPullVec.y = 0;
+    tr.deckPullRaw = 0;
+    tr.deckDragging = false;
     tr.deckFreeze = null;
     tr.rewinding = true;
     tr.phase = "playing";
@@ -681,6 +689,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
 function applyKeyDownEnter(
   rc: PlayRuntimeState,
   points: readonly { x: number; y: number }[],
+  startDeck: number,
 ) {
   if (rc.transition.phase === "isolated" || rc.transition.phase === "returning") {
     applyResetTransition(rc);
@@ -689,7 +698,7 @@ function applyKeyDownEnter(
   if (rc.transition.phase !== "idle") return;
   const selPt = points[rc.selected];
   if (!selPt) return;
-  startPlayback(rc, rc.selected);
+  startPlayback(rc, rc.selected, startDeck);
 }
 
 function applyPanWheel(
@@ -877,6 +886,27 @@ function advanceRewind(
   tr.columnScrollY = dampTowards(tr.columnScrollY, tr.rewindFromDeck, config.detailScrollDamping, dt);
   tr.targetColumnScrollY = tr.rewindFromDeck;
   tr.t = tr.rewindFromT * (1 - eased);
+  releaseDeckPull(tr, config.rewindPullRelease ?? REWIND_PULL_RELEASE, dt);
+}
+
+/** Vitesse (par seconde) à laquelle la traction du deck se relâche au retour : ≈ 0.3 s pour s'éteindre. */
+const REWIND_PULL_RELEASE = 8;
+
+/**
+ * Au retour, la traction que la carte avait au moment d'Échap (tirée vers le haut, désagrégée, penchée)
+ * se relâche au lieu de retomber d'un coup : la carte garde l'écart où on l'a laissée puis se recompose
+ * pendant qu'elle rejoint sa tuile. `rate` à 0 : d'un coup, comme avant.
+ */
+function releaseDeckPull(tr: PlayRuntimeState["transition"], rate: number, dt: number) {
+  const shown = tr.deckShownVec;
+  shown.x = rate > 0 ? dampTowards(shown.x, 0, rate, dt) : 0;
+  shown.y = rate > 0 ? dampTowards(shown.y, 0, rate, dt) : 0;
+  const len = Math.hypot(shown.x, shown.y);
+  if (len < 0.0005) {
+    shown.x = 0;
+    shown.y = 0;
+  }
+  tr.deckPullShown = len < 0.0005 ? 0 : len;
 }
 
 function advanceClock(
@@ -1669,6 +1699,20 @@ export function PlayCanvas({
   const [isDetailVisible, setIsDetailVisible] = useState(false);
   const [isNavbarVisible, setIsNavbarVisible] = useState(false);
   const [apiStatus, setApiStatus] = useState<"idle" | "fetching" | "ready" | "error">("idle");
+  // Carte qu'une tuile garde après qu'on a quitté son projet, par index d'artifact : la tuile la montre à la
+  // place de son premier média et rouvrir le projet démarre le deck dessus. `SecondaryGalleryPlanes` la
+  // signale au début du retour ; elle reste jusqu'au rechargement de la page.
+  const [covers, setCovers] = useState<Record<number, TileCover | undefined>>({});
+  const coversRef = useRef(covers);
+  useEffect(() => {
+    coversRef.current = covers;
+  }, [covers]);
+  /** Média sur lequel le deck démarre à l'ouverture d'un artifact : sa couverture, sinon son premier média. */
+  const startDeckOf = useCallback(
+    (artifactIndex: number | undefined) =>
+      artifactIndex === undefined ? 0 : (coversRef.current[artifactIndex]?.mediaIndex ?? 0),
+    [],
+  );
 
 
   useEffect(() => {
@@ -1709,6 +1753,28 @@ export function PlayCanvas({
       }
     },
     [artifacts],
+  );
+
+  /**
+   * Début du retour : la carte du dessus devient la couverture de la tuile du projet ouvert (`null` : aucune,
+   * la tuile retrouve son premier média). Le premier média n'est pas une couverture, c'est la tuile d'origine.
+   */
+  const handleKeepCover = useCallback(
+    (cover: TileCover | null) => {
+      if (selectedArtifactIndex === null) return;
+      setCovers((prev) => {
+        const current = prev[selectedArtifactIndex];
+        if (!cover || cover.mediaIndex === 0) {
+          if (!current) return prev;
+          const next = { ...prev };
+          delete next[selectedArtifactIndex];
+          return next;
+        }
+        if (current && current.mediaIndex === cover.mediaIndex && current.url === cover.url) return prev;
+        return { ...prev, [selectedArtifactIndex]: cover };
+      });
+    },
+    [selectedArtifactIndex],
   );
 
   /** Front montant de la piste de texte : le panneau de détail apparaît. */
@@ -1797,7 +1863,7 @@ export function PlayCanvas({
     const rc = runtime.current;
     if (rc.transition.phase !== "idle") return;
     const selIndex = rc.selected >= 0 ? rc.selected : 0;
-    startPlayback(rc, selIndex);
+    startPlayback(rc, selIndex, startDeckOf(tile?.points[selIndex]?.artifactIndex));
     if (tile?.points[selIndex]) {
       handleStartSelect(tile.points[selIndex].artifactIndex, {
         ...tile.points[selIndex],
@@ -1805,7 +1871,7 @@ export function PlayCanvas({
         y: rc.selectedPos.y,
       });
     }
-  }, [handleStartSelect, tile]);
+  }, [handleStartSelect, startDeckOf, tile]);
 
   const viewportAspect =
     gravityParams.targetAspect && gravityParams.targetAspect > 0
@@ -1862,6 +1928,8 @@ export function PlayCanvas({
   const primaryPaletteRef = useRef<RGB[] | null>(null);
   const primaryUrlRef = useRef<string | null>(null);
   const primaryKindRef = useRef<"image" | "video">("image");
+  // Ratio du média ouvert quand la tuile ne le montre que rogné (sa couverture) : les éclats d'ouverture le suivent.
+  const primaryCropRef = useRef<number | undefined>(undefined);
 
   // Éclats du deck : la carte qui part (ou qu'on tire) se décompose en morceaux.
   const deckShardSource = useCallback((): ShardSource | null => {
@@ -1934,6 +2002,7 @@ export function PlayCanvas({
       h: point.height * tr.frame.tileScale,
       url,
       kind: primaryKindRef.current,
+      mapRatio: primaryCropRef.current,
     };
   }, [tile]);
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
@@ -1964,11 +2033,17 @@ export function PlayCanvas({
 
   useEffect(() => {
     palettesRef.current = new Map();
-    primaryUrlRef.current = primaryMedia?.url ?? null;
-    primaryKindRef.current = primaryMedia?.kind ?? "image";
+    // Le média ouvert est la couverture de la tuile quand elle en a une (cf. `covers`) : c'est elle que les
+    // éclats d'ouverture découpent et dont le panneau prend les couleurs. Le deck, lui, garde le premier média
+    // du projet (`primaryMedia`) comme média 0 de son anneau.
+    const cover = selectedArtifactIndex !== null ? coversRef.current[selectedArtifactIndex] : undefined;
+    const opened = cover ?? primaryMedia;
+    primaryUrlRef.current = opened?.url ?? null;
+    primaryKindRef.current = opened?.kind ?? "image";
+    primaryCropRef.current = cover?.ratio;
     primaryPaletteRef.current = null;
-    if (primaryMedia) loadPalette({ url: primaryMedia.url, kind: primaryMedia.kind });
-  }, [primaryMedia, loadPalette]);
+    if (opened) loadPalette({ url: opened.url, kind: opened.kind });
+  }, [primaryMedia, selectedArtifactIndex, loadPalette]);
 
   useEffect(() => {
     if (!tile || tile.points.length === 0) return;
@@ -2307,7 +2382,7 @@ export function PlayCanvas({
         e.preventDefault();
         const rc = runtime.current;
         const selIndex = rc.selected >= 0 ? rc.selected : 0;
-        startPlayback(rc, selIndex);
+        startPlayback(rc, selIndex, startDeckOf(tile?.points[selIndex]?.artifactIndex));
         if (tile?.points[selIndex]) {
           handleStartSelect(tile.points[selIndex].artifactIndex, {
             ...tile.points[selIndex],
@@ -2337,7 +2412,11 @@ export function PlayCanvas({
       if (e.key === "Enter") {
         if (e.repeat) return;
         e.preventDefault();
-        applyKeyDownEnter(runtime.current, points);
+        applyKeyDownEnter(
+          runtime.current,
+          points,
+          startDeckOf(points[runtime.current.selected]?.artifactIndex),
+        );
         const selIndex = runtime.current.selected;
         const pt = points[selIndex];
         if (pt) {
@@ -2385,7 +2464,7 @@ export function PlayCanvas({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [tile, isDetailVisible, handleCloseDetail, handleStartSelect]);
+  }, [tile, isDetailVisible, handleCloseDetail, handleStartSelect, startDeckOf]);
 
   return (
     <div
@@ -2450,6 +2529,7 @@ export function PlayCanvas({
               debug={debug}
               runtime={runtime}
               dragMoved={dragMoved}
+              covers={covers}
               onStartSelect={handleStartSelect}
             />
             <HoverCountDriver
@@ -2469,6 +2549,7 @@ export function PlayCanvas({
                 debug={debug}
                 gap={32}
                 onFocusMedia={loadPalette}
+                onKeepCover={handleKeepCover}
                 weightsRef={deckWeightsRef}
               />
             )}

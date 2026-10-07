@@ -118,16 +118,24 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
   Style › « Pixels et degrades » : les valeurs déjà enregistrées par le navigateur passent avant les
   défauts, d'où `STORAGE_KEY` (`PlayDebug.tsx`), qu'on incrémente quand les défauts d'un réglage existant
   changent exprès (un réglage nouveau n'en a pas besoin), et le bouton Reset.
-- Retour de l'ouverture d'une carte (Échap ou bouton retour de la barre) : seul le média en cours de la pile est
-  gardé ; les autres cartes et le panneau s'effacent vite (`rewindLayerFade`) et ce média revient dans la
-  mosaïque. Quand ce n'est pas le premier média du projet, il se fond en douceur dans la carte de la
-  mosaïque (`keepOther`, `rewindLandMix`). Un second Échap en plein retour repart de l'état courant, sans
-  rien dérouler. Deux façons (`rewindMode`) : « clean » (par défaut) fait glisser chaque grandeur (caméra,
-  carte, mosaïque) vers son repos, avec un décalage réglable (`rewindStagger`) ; « film » rejoue l'ouverture
-  à l'envers (`rewindCalm` étouffe la vague, la torsion et les éclats qui reviendraient, 1 = aucun). Durée et
-  courbe : `rewindDuration`, `rewindEasing` (onglet Animation › « 7 Retour »). Pendant qu'un projet est
-  ouvert, les cartes derrière celle du dessus sont désaturées (`stackSaturation`, 0.45 ; 1 = couleurs
-  d'origine).
+- Retour de l'ouverture d'une carte (Échap ou bouton retour de la barre) : seule la carte du dessus de la pile
+  à cet instant est gardée, et c'est elle qui se pose à la place de la tuile, là où elle en est (sa traction se
+  relâche par `rewindPullRelease` : 0 = d'un coup, 8 par défaut) ; les autres cartes et le panneau s'effacent
+  vite (`rewindLayerFade`). Quand ce n'est pas le premier média du projet, elle devient la couverture de la
+  tuile (`TileCover`, `covers` dans `PlayCanvas.tsx`, gardée tant que la page n'est pas rechargée) : la tuile
+  montre ce média rogné à son format comme `object-fit: cover` (`uMapScale` du shader, `setCoverScale` de
+  `rounded-frame.ts`), et rouvrir le projet démarre la pile sur cette carte (`startPlayback(…, startDeck)`),
+  avec des éclats d'ouverture rognés pareil (`ShardSource.mapRatio`). Partir sur le premier média redonne sa
+  tuile d'origine : la couverture précédente s'efface (`onKeepCover(null)`). Le choix se fait une fois par
+  retour, à sa première image (`coverDecidedRef`), et suppose la texture déjà chargée (`getSharedTexture`) :
+  sinon, ou si `rewindKeepCover` est décoché, on retombe sur l'ancien retour où la carte se fond en douceur
+  dans la tuile sans la remplacer (`keepOther`, `rewindLandMix`). Un second Échap en plein retour repart de
+  l'état courant, sans rien dérouler. Deux façons (`rewindMode`) : « clean » (par défaut) fait glisser chaque
+  grandeur (caméra, carte, mosaïque) vers son repos, avec un décalage réglable (`rewindStagger`) ; « film »
+  rejoue l'ouverture à l'envers (`rewindCalm` étouffe la vague, la torsion et les éclats qui reviendraient,
+  1 = aucun). Durée et courbe : `rewindDuration`, `rewindEasing` (onglet Animation › « 7 Retour »). Pendant
+  qu'un projet est ouvert, les cartes derrière celle du dessus sont désaturées (`stackSaturation`, 0.45 ;
+  1 = couleurs d'origine).
 - Fin du tortillement de la carte (après la vague d'ouverture) : elle revient à plat par un retour doux et
   non d'un coup (`twistSettleStart`, `twistSettle`, `twistSettleEasing`, onglet Animation › « 4 Vague » ;
   `transition-presets.ts`).
