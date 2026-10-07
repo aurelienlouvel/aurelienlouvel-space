@@ -685,6 +685,17 @@ html[data-play-cursor] #leva__root * {
   cursor: auto !important;
 }
 
+/* Debug de /play : les libellés des réglages passent à la ligne au lieu d'être coupés
+   par « … » (certains font plus de 500 px). Hors `@layer` exprès : les styles de Leva
+   n'y sont pas, et seul un style hors couche passe devant les leurs. */
+#leva__root label {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
 /* Les couleurs du dégradé du side panel de /play s'animent entre deux médias. */
 @property --panel-c1 {
   syntax: "<color>";

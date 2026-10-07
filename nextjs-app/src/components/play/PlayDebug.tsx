@@ -117,7 +117,7 @@ const LEVA_THEME = {
   },
   sizes: {
     rootWidth: "100%",
-    controlWidth: "175px",
+    controlWidth: "210px",
     numberInputMinWidth: "44px",
     rowHeight: "26px",
     folderTitleHeight: "24px",
@@ -259,7 +259,7 @@ export function PlayDebug({
       {/* Sleek Floating Debug Panel: Header (2 lines) + Leva Controls Area */}
       <div
         id="leva__root"
-        className="fixed top-3 right-3 z-[999999] flex flex-col w-[392px] max-h-[calc(100vh-24px)] pointer-events-auto select-none rounded-xl border border-white/10 bg-[#141414]/95 backdrop-blur-md shadow-2xl overflow-hidden"
+        className="fixed top-3 right-3 z-[999999] flex flex-col w-[min(620px,calc(100vw-24px))] max-h-[calc(100vh-24px)] pointer-events-auto select-none rounded-xl border border-white/10 bg-[#141414]/95 backdrop-blur-md shadow-2xl overflow-hidden"
       >
         {/* Line 1: 6 Segmented Tabs */}
         <div className="flex items-center gap-1 p-1.5 border-b border-white/5 bg-white/[0.02]">

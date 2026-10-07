@@ -155,7 +155,9 @@ const project  = await client.fetch<ProjectDetail | null>(projectDetailQuery, { 
 - Réglages visuels : `/play#debug`, 5 onglets (global : caméra + curseur ; media : dimensions, forme +
   contour (ombre) ; canvas : layout + fond de points ; style : select « prism » ; animation : survol /
   ouverture / carte suivante, avec inspecteur et rejeu). Le code vit dans `components/play/debug/`.
-  `window.__play` expose l'état.
+  `window.__play` expose l'état. Le panneau fait 620 px de large (`PlayDebug.tsx`) et les libellés passent à
+  la ligne au lieu d'être coupés par « … » (`#leva__root label`, `globals.css` : plusieurs dépassent
+  500 px) : un nouveau réglage peut garder un libellé explicite, sans l'abréger.
 - Le curseur de /play est dessiné par `PlayCursor` (incliné selon la vitesse du pointeur par un ressort
   amorti sans retard, grossit au survol, rétrécit au clic). Il est rendu en portail dans `<body>` : la
   surface de /play est un contexte d'empilement, un curseur placé dedans passerait sous l'ActionBar.
