@@ -28,9 +28,25 @@ import {
   GLSL_SQUIRCLE,
   FRAME_DEFINES,
   GLSL_PIXEL_WIDTH,
+  setCoverScale,
   uniformsOf,
 } from "./rounded-frame";
+import { layerOpacityAt, ringDepth, ringSizeFor } from "./deck-ring";
+import { STACK_DEPTH_MAX } from "./transition-presets";
 import { rewindLandMix } from "./transition-timeline";
+
+/**
+ * Média que la tuile d'un projet montre à la place de son premier, tant que la page n'est pas rechargée :
+ * celui de la carte restée au dessus de la pile quand on a quitté le projet. `mediaIndex` est son rang dans
+ * la pile (0 = le premier média, celui que la tuile montre d'origine) et `ratio` celui du média, pour que
+ * la tuile le recadre comme la carte.
+ */
+export type TileCover = {
+  mediaIndex: number;
+  url: string;
+  kind: "image" | "video";
+  ratio: number;
+};
 
 type SecondaryGalleryPlanesProps = {
   gallery: ArtifactGalleryItem[];
@@ -41,6 +57,12 @@ type SecondaryGalleryPlanesProps = {
   gap?: number;
   /** Notifié quand le média le plus proche du centre de l'écran change (wheel). */
   onFocusMedia?: (media: { url: string; kind: "image" | "video" }) => void;
+  /**
+   * Au retour, notifié une seule fois de la carte gardée : la tuile la reprendra en couverture. `null` quand
+   * elle ne la reprend pas (premier média, texture pas encore chargée, réglage coupé) : une couverture
+   * restée d'un précédent retour s'efface alors.
+   */
+  onKeepCover?: (cover: TileCover | null) => void;
   /** Poids (0..1) de chaque carte visible, mutés à chaque frame : alimente le dégradé. */
   weightsRef?: MutableRefObject<{ url: string; kind: "image" | "video"; w: number }[]>;
 };
@@ -51,12 +73,15 @@ type PoolSlot = {
   kind: "image" | "video";
   ratio: number;
   galleryIdx: number;
-  relativeIdx: number;
+  /** Rang du média dans `uniqueMedia` (≠ `galleryIdx` quand un média sans url a été écarté). */
+  mediaIdx: number;
 };
 
 type PlaneUniforms = {
   uSize: IUniform<Vector2>;
   uRadius: IUniform<number>;
+  /** Échelle des UV de la texture, centrée sur 0.5 : (1, 1) = tout le média, < 1 = recadré (cover). */
+  uMapScale: IUniform<Vector2>;
   uCornerSmooth: IUniform<number>;
   uCardTilt: IUniform<Vector2>;
   uMotionBlur: IUniform<number>;
@@ -74,6 +99,7 @@ type PlaneUniforms = {
 const ROUNDING_PARS = /* glsl */ `
 uniform vec2 uSize;
 uniform float uRadius;
+uniform vec2 uMapScale;
 uniform float uMotionBlur;
 uniform vec2 uMotionBlurDir;
 // Cartes en retrait dans la pile : 1 = couleurs d'origine, 0 = noir et blanc.
@@ -100,7 +126,9 @@ ${GLSL_SQUIRCLE}
 
 const MOTION_BLUR_MAP = /* glsl */ `
 #ifdef USE_MAP
-  vec2 dissolveUv = vMapUv;
+  // Recadrage « cover » (uMapScale = 1 : le média entier, comme avant).
+  vec2 coverUv = (vMapUv - 0.5) * uMapScale + 0.5;
+  vec2 dissolveUv = coverUv;
   float dissolveG = 0.0;
   float dissolveSeed = 0.0;
   if (uDissolve > 0.003) {
@@ -120,7 +148,7 @@ const MOTION_BLUR_MAP = /* glsl */ `
     dissolveG = smoothstep(thr - 0.02, thr + 0.16, uDissolve);
     // Pixellisation : les zones qui partent se calent sur le centre de leur cellule.
     vec2 center = (fid + 0.5) / fg;
-    dissolveUv = vMapUv + (center - vUv) * uDissolvePixel * dissolveG;
+    dissolveUv = coverUv + (center - vUv) * uMapScale * uDissolvePixel * dissolveG;
   }
   vec4 sampledDiffuseColor = texture2D( map, dissolveUv );
   if (dissolveG > 0.0) {
@@ -133,14 +161,14 @@ const MOTION_BLUR_MAP = /* glsl */ `
     sampledDiffuseColor.a *= 1.0 - dissolveG;
   }
   if (uMotionBlur > 0.0008) {
-    vec2 bStep = uMotionBlurDir * uMotionBlur;
+    vec2 bStep = uMotionBlurDir * uMotionBlur * uMapScale;
     sampledDiffuseColor = sampledDiffuseColor * 0.22
-      + texture2D( map, vMapUv + bStep * 0.35 ) * 0.19
-      + texture2D( map, vMapUv - bStep * 0.35 ) * 0.19
-      + texture2D( map, vMapUv + bStep * 0.70 ) * 0.12
-      + texture2D( map, vMapUv - bStep * 0.70 ) * 0.12
-      + texture2D( map, vMapUv + bStep * 1.05 ) * 0.08
-      + texture2D( map, vMapUv - bStep * 1.05 ) * 0.08;
+      + texture2D( map, coverUv + bStep * 0.35 ) * 0.19
+      + texture2D( map, coverUv - bStep * 0.35 ) * 0.19
+      + texture2D( map, coverUv + bStep * 0.70 ) * 0.12
+      + texture2D( map, coverUv - bStep * 0.70 ) * 0.12
+      + texture2D( map, coverUv + bStep * 1.05 ) * 0.08
+      + texture2D( map, coverUv - bStep * 1.05 ) * 0.08;
   }
   #ifdef DECODE_VIDEO_TEXTURE
     sampledDiffuseColor = sRGBTransferEOTF( sampledDiffuseColor );
@@ -165,6 +193,7 @@ function roundCorners(
   attachUniforms(this, parameters, {
     uSize: { value: new Vector2(1, 1) },
     uRadius: { value: 0 },
+    uMapScale: { value: new Vector2(1, 1) },
     uCornerSmooth: CORNER_SMOOTHING,
     uCardTilt: { value: new Vector2(0, 0) },
     uMotionBlur: { value: 0 },
@@ -195,7 +224,7 @@ function roundCorners(
 }
 
 function roundCornersCacheKey() {
-  return "play-secondary-planes-motion-blur-tilt-dissolve-flat-tilt-square-saturation";
+  return "play-secondary-planes-motion-blur-tilt-dissolve-flat-tilt-square-saturation-cover";
 }
 
 // ── Cache global de textures vidéo partagées (1 seul élément vidéo HTML5 par URL) ──
@@ -245,6 +274,9 @@ export function getOrCreateVideoTexture(url: string, colorSpace?: string): Video
 }
 
 const sharedImageTextures = new Map<string, Texture>();
+// Chargements en cours, par url : les cartes du deck qui montrent le même média (la pile boucle
+// sur un ou deux médias) s'abonnent au même chargement au lieu d'en lancer un chacune.
+const pendingImageLoads = new Map<string, ((texture: Texture) => void)[]>();
 let globalTextureLoader: TextureLoader | null = null;
 
 /** Texture déjà chargée d'un média (image ou vidéo), pour les effets qui la reprennent en morceaux. */
@@ -284,6 +316,14 @@ export function getOrCreateImageTexture(
 
   if (typeof document === "undefined") return null;
 
+  const waiting = pendingImageLoads.get(url);
+  if (waiting) {
+    if (onLoad) waiting.push(onLoad);
+    return null;
+  }
+  const listeners = onLoad ? [onLoad] : [];
+  pendingImageLoads.set(url, listeners);
+
   if (!globalTextureLoader) {
     globalTextureLoader = new TextureLoader();
     globalTextureLoader.setCrossOrigin("anonymous");
@@ -295,11 +335,13 @@ export function getOrCreateImageTexture(
       tex.colorSpace = SRGBColorSpace;
       tex.needsUpdate = true;
       sharedImageTextures.set(url, tex);
-      onLoad?.(tex);
+      pendingImageLoads.delete(url);
+      listeners.forEach((listener) => listener(tex));
     },
     undefined,
     () => {
-      // Ignoré silencieusement pour ne pas bloquer le rendu
+      // Ignoré silencieusement pour ne pas bloquer le rendu ; un prochain appel réessaiera
+      pendingImageLoads.delete(url);
     },
   );
   return null;
@@ -450,6 +492,7 @@ export function SecondaryGalleryPlanes({
   debug,
   gap = 32,
   onFocusMedia,
+  onKeepCover,
   weightsRef,
 }: SecondaryGalleryPlanesProps) {
   const { size, camera } = useThree();
@@ -471,13 +514,11 @@ export function SecondaryGalleryPlanes({
   // Détection responsive : desktop (>= 1024px et paysage) vs mobile
   const isDesktop = size.width >= 1024 && size.width >= size.height;
 
-  // Préparation du pool symétrique d'items :
-  // Le média principal (M0) est exactement au centre (centerSlotIdx, à anchorY).
-  // Les slots s'étendent symétriquement vers le haut (offsets négatifs) et vers le bas (offsets positifs)
-  // pour couvrir l'intégralité de l'écran dès la frame 0 sans aucun trou.
-  const { pool, uniqueCount, totalCycles, centerSlotIdx, uniqueMedia } = useMemo(() => {
+  // Préparation du pool d'items : le média principal (M0) occupe la case centrale (centerSlotIdx),
+  // celle de la carte du dessus à l'ouverture.
+  const { pool, uniqueCount, centerSlotIdx, uniqueMedia } = useMemo(() => {
     if (!principalPoint) {
-      return { pool: [], uniqueCount: 0, totalCycles: 0, centerSlotIdx: 0, uniqueMedia: [] };
+      return { pool: [], uniqueCount: 0, centerSlotIdx: 0, uniqueMedia: [] };
     }
 
     const secondaryItems =
@@ -531,49 +572,45 @@ export function SecondaryGalleryPlanes({
       }
     }
 
+    // Anneau de cartes (cf. `deck-ring.ts`) : la case s montre toujours le média `s mod K`, et le deck
+    // les parcourt en boucle, donc la pile garde ses layers même avec un ou deux médias.
     const K = uMedia.length;
-    // Estimation de la hauteur moyenne d'un cycle pour dimensionner le pool
-    const approxCycleHeight = uMedia.reduce((acc, m) => acc + (450 / Math.max(0.3, m.ratio)) + 32, 0);
-    // Couvre au moins 3600px de span vertical pour garantir un enroulement sans rupture
-    const minCycles = Math.ceil(3600 / Math.max(300, approxCycleHeight));
-    const baseCycles = Math.max(3, minCycles);
-    // Nombre impair de cycles C garantissant une symétrie parfaite autour du slot central
-    const C = 1;
-    void baseCycles;
-    const halfCycles = Math.floor(C / 2);
-    const totalSlots = C * K;
-    const centerIdx = halfCycles * K;
+    const ringSize = ringSizeFor(K);
 
     const slots: PoolSlot[] = [];
-    for (let s = 0; s < totalSlots; s++) {
-      const offset = s - centerIdx;
-      const itemIdx = ((offset % K) + K) % K;
-      const m = uMedia[itemIdx];
+    for (let s = 0; s < ringSize; s++) {
+      const mediaIdx = s % K;
+      const m = uMedia[mediaIdx];
       slots.push({
-        key: `slot-${s}-off${offset}-g${m.galleryIdx}`,
+        key: `slot-${s}-g${m.galleryIdx}`,
         url: m.url,
         kind: m.kind,
         ratio: m.ratio,
         galleryIdx: m.galleryIdx,
-        relativeIdx: offset,
+        mediaIdx,
       });
     }
 
     return {
       pool: slots,
       uniqueCount: K,
-      totalCycles: C,
-      centerSlotIdx: centerIdx,
+      centerSlotIdx: 0,
       uniqueMedia: uMedia,
     };
   }, [gallery, principalPoint, primaryMedia]);
 
   const lastPhaseRef = useRef<string>("idle");
   const onFocusMediaRef = useRef(onFocusMedia);
+  const onKeepCoverRef = useRef(onKeepCover);
   const notifiedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     onFocusMediaRef.current = onFocusMedia;
-  }, [onFocusMedia]);
+    onKeepCoverRef.current = onKeepCover;
+  }, [onFocusMedia, onKeepCover]);
+  // Retour : la carte gardée est décidée une fois, à la première image où on la voit.
+  // `coverRef` dit si elle se pose en couverture de la tuile (sinon : le retour d'avant, elle s'y fond).
+  const coverDecidedRef = useRef(false);
+  const coverRef = useRef(false);
   const tiltRef = useRef({ x: 0, y: 0 });
   const exitStartRef = useRef({ x: 0, y: 0, w: 0, h: 0, op: 1 });
   // Retour : part (1 → 0) des cartes de la pile qui s'effacent derrière la gardée.
@@ -602,20 +639,27 @@ export function SecondaryGalleryPlanes({
     if (!rewinding) {
       tr.keepOther = false;
       layerFadeRef.current = 1;
+      coverDecidedRef.current = false;
     }
 
-    if (tr.phase !== "playing" && tr.phase !== "isolated" && tr.phase !== "returning") {
+    // Pile masquée : la rotation repart de zéro, la prochaine ouverture ne reprend pas l'ancienne.
+    const hide = () => {
       group.visible = false;
+      tiltRef.current.x = 0;
+      tiltRef.current.y = 0;
+    };
+    if (tr.phase !== "playing" && tr.phase !== "isolated" && tr.phase !== "returning") {
+      hide();
       return;
     }
     // Avant le reveal, la tuile reste affichée par ArtifactGrid : pas de doublon.
     if (tr.phase === "playing" && frame.reveal < 0.001) {
-      group.visible = false;
+      hide();
       return;
     }
     // Entrée annulée avant le réveil : la tuile de la mosaïque n'a jamais été remplacée.
     if (tr.phase === "returning" && tr.returnFrom && tr.returnFrom.reveal < 0.001) {
-      group.visible = false;
+      hide();
       return;
     }
     group.visible = true;
@@ -635,9 +679,13 @@ export function SecondaryGalleryPlanes({
       : screenH * (cfg.mobileMediaHeightRatio ?? 0.34);
 
     const K = Math.max(1, uniqueCount);
-    // Au retour, la carte gardée est celle que le deck visait ; sinon, c'est le média de la tuile.
-    const keptI = rewinding ? ((Math.round(tr.rewindFromDeck) % K) + K) % K : 0;
-    tr.keepOther = rewinding && keptI !== 0;
+    const ringSize = pool.length;
+    // La carte principale est celle du dessus de la pile : au retour, celle que le deck visait ; sinon, celle
+    // où il est (à l'ouverture, celle de la tuile, qui est sa couverture quand elle en a une). Une seule
+    // case est « principale » : la pile peut montrer le même média plusieurs fois.
+    const keptSlot =
+      ((Math.round(rewinding ? tr.rewindFromDeck : tr.columnScrollY) % ringSize) + ringSize) % ringSize;
+    const keptI = pool[keptSlot]?.mediaIdx ?? 0;
     if (rewinding) {
       layerFadeRef.current = Math.max(
         0,
@@ -647,10 +695,12 @@ export function SecondaryGalleryPlanes({
     const layerFade = layerFadeRef.current * layerFadeRef.current * (3 - 2 * layerFadeRef.current);
     const widths: number[] = new Array(K);
     const heights: number[] = new Array(K);
+    const ratios: number[] = new Array(K);
     for (let m = 0; m < K; m++) {
       const itemUrl = uniqueMedia[m]?.url;
       const dynRatio = itemUrl ? sharedVideoDimensions.get(itemUrl)?.ratio : undefined;
       const r = dynRatio ?? uniqueMedia[m]?.ratio ?? 1.5;
+      ratios[m] = r;
       let w: number;
       let h: number;
       if (isPortrait) {
@@ -672,9 +722,27 @@ export function SecondaryGalleryPlanes({
       heights[m] = h;
     }
 
+    // Retour : la carte gardée devient la couverture de la tuile (`rewindKeepCover`, activé par défaut).
+    // Décidé une fois, à la première image où on la voit. Sa texture doit déjà être chargée (la tuile la
+    // reprend sans attendre) ; sinon le retour est celui d'avant, où la carte se fond dans la tuile.
+    if (rewinding && !coverDecidedRef.current) {
+      coverDecidedRef.current = true;
+      const kept = pool[keptSlot];
+      coverRef.current =
+        cfg.rewindKeepCover !== false &&
+        keptI !== 0 &&
+        !!kept &&
+        getSharedTexture(kept.url, kept.kind) !== null;
+      onKeepCoverRef.current?.(
+        coverRef.current ? { mediaIndex: keptI, url: kept.url, kind: kept.kind, ratio: ratios[keptI] } : null,
+      );
+    }
+    const coverMode = rewinding && coverRef.current;
+    tr.keepOther = rewinding && keptI !== 0 && !coverMode;
+
     if (lastPhaseRef.current !== tr.phase) {
       if (tr.phase === "returning") {
-        const m0 = meshRefs.current[0];
+        const m0 = meshRefs.current[keptSlot];
         const mat0 = m0?.material as MeshBasicMaterial | undefined;
         exitStartRef.current = m0
           ? {
@@ -692,61 +760,85 @@ export function SecondaryGalleryPlanes({
     const deckPos = tr.columnScrollY;
     const stackScale = cfg.stackScale ?? 0.9;
     const peek = (cfg.stackPeek ?? 22) / curZoom;
-    const depthMax = cfg.stackDepth ?? 3;
+    const depthMax = Math.min(STACK_DEPTH_MAX, Math.max(0, cfg.stackDepth ?? 2));
     const stackOpacity = cfg.stackOpacity ?? 0.55;
     const stackFalloff = cfg.stackOpacityFalloff ?? 0.55;
     const stackSaturation = Math.min(1, Math.max(0, cfg.stackSaturation ?? 1));
     // Tous les médias sont alignés par le BAS : une carte moins haute que la
     // première laisse quand même voir son bord inférieur, sous la pile.
     const baseBottom = principalPoint.y - heights[0] / 2;
-    // Traction du deck : la carte du dessus monte, résistante, avant de basculer.
-    const pullShown = tr.phase === "isolated" ? tr.deckPullShown : 0;
+    // Traction du deck : la carte du dessus monte, résistante, avant de basculer. Au retour elle se
+    // relâche (`deckPullShown` redescend vers 0, cf. `advanceRewind`) au lieu de retomber d'un coup.
+    const tractionOn = tr.phase === "isolated" || rewinding;
+    const pullShown = tractionOn ? tr.deckPullShown : 0;
     const liftWorld = (cfg.deckLift ?? 70) / curZoom;
     let fxBest = 0;
     // Plus petite profondeur |d| vue : la carte du dessus est celle à moins d'un demi-pas.
     let topD = 0.5;
 
     // ── Visée : où la carte part ────────────────────────────────────────────
-    // Entre « tout droit » et la direction du curseur (ou du drag), selon
-    // `deckAimMix`. Mise à jour pendant la traction seulement : la carte garde
-    // son cap quand on relâche, et `deckAimCommit` fige celui du changement.
+    // Le geste donne le côté (haut, bas, gauche ou droite : la direction de la traction affichée) ;
+    // le curseur ne fait que courber la trajectoire vers lui, de `deckAimMix` (0 = droit devant).
+    // Au drag la carte suit le doigt, sans courbe. Mise à jour pendant la traction seulement : la
+    // carte garde son cap quand on relâche, et `deckAimCommit` fige celui du changement.
     const spinRad = ((cfg.deckSpin ?? 12) * Math.PI) / 180;
     const dissolveAmount = Math.min(1, Math.max(0, cfg.deckDissolveAmount ?? 0.9));
     const throwWorld = (cfg.deckThrow ?? 180) / curZoom;
+    const leaveFrom = Math.min(1, Math.max(0, tr.deckLeaveFrom));
     const ptr = runtime.current.pointer;
     const cardSX = (principalPoint.x - camera.position.x) * curZoom + size.width / 2;
     const cardSY = size.height / 2 - (principalPoint.y - camera.position.y) * curZoom;
-    if (tr.phase === "isolated" && !tr.rewinding && Math.abs(pullShown) > 0.02) {
-      const drag = tr.deckDrag;
-      const dragging = Math.hypot(drag.x, drag.y) > 6;
-      let tx = dragging ? drag.x : ptr.x - cardSX;
-      let ty = dragging ? -drag.y : -(ptr.y - cardSY);
-      const tl = Math.hypot(tx, ty) || 1;
-      tx /= tl;
-      ty /= tl;
-      const mixAim = Math.min(1, Math.max(0, cfg.deckAimMix ?? 0.8));
-      const straightY = pullShown < 0 ? -1 : 1;
-      // Le curseur règle le côté et l'inclinaison de la trajectoire, jamais son
-      // sens vertical : scroller vers le bas fait toujours monter la carte, même
-      // avec le curseur sous son centre (`ty < 0` l'aurait fait descendre).
-      let mx = tx * mixAim;
-      let my = straightY * (Math.abs(ty) * mixAim + (1 - mixAim));
+    if (tr.phase === "isolated" && !tr.rewinding && pullShown > 0.003) {
+      const shownVec = tr.deckShownVec;
+      const gx = shownVec.x / pullShown;
+      const gy = shownVec.y / pullShown;
+      let mx = gx;
+      let my = gy;
+      if (!tr.deckDragging) {
+        // Le curseur vu depuis le centre de la carte (monde : y vers le haut) ; seule sa part
+        // perpendiculaire au geste courbe la trajectoire, jamais de quoi la faire reculer.
+        let ux = ptr.x - cardSX;
+        let uy = -(ptr.y - cardSY);
+        const ul = Math.hypot(ux, uy) || 1;
+        ux /= ul;
+        uy /= ul;
+        const along = ux * gx + uy * gy;
+        const mixAim = Math.min(1, Math.max(0, cfg.deckAimMix ?? 0.8));
+        mx += (ux - along * gx) * mixAim;
+        my += (uy - along * gy) * mixAim;
+      }
       const ml = Math.hypot(mx, my) || 1;
       mx /= ml;
       my /= ml;
-      const ak = 1 - Math.exp(-delta * 14);
+      // Tout près du repos, la carte ne bouge presque pas : la visée suit le geste d'un coup (un
+      // changement de sens passe par là), puis se lisse à mesure que la carte s'éloigne.
+      const smooth = 1 - Math.exp(-delta * 14);
+      const ak = smooth + (1 - smooth) * Math.max(0, 1 - pullShown / 0.06);
       tr.deckAim.x += (mx - tr.deckAim.x) * ak;
       tr.deckAim.y += (my - tr.deckAim.y) * ak;
     }
 
-    // ── Inclinaison 3D selon la souris (carte + layers) ─────────────────────
-    const tiltOn = tr.phase === "isolated" && !tr.rewinding;
+    // ── Rotation 3D de la pile selon la souris ──────────────────────────────
+    // Toute la pile est un groupe qui pivote autour du centre de la carte du dessus : le côté du
+    // curseur recule (`deckTilt` négatif = l'inverse). Les layers sont espacés en profondeur
+    // (`stackDepthZ`), donc la rotation les décale les uns par rapport aux autres : c'est la parallaxe.
+    // Chaque carte reçoit aussi la même inclinaison dans son shader (`uCardTilt`), qui lui donne sa
+    // perspective, car la caméra est orthographique. Le pointeur n'est lu qu'une fois vu, et la pile
+    // se remet à plat pendant le retour.
+    const tiltOn = tr.phase === "isolated" && !tr.rewinding && ptr.seen;
     const tiltRad = ((cfg.deckTilt ?? 0) * Math.PI) / 180;
     const nx = Math.max(-1, Math.min(1, (ptr.x - cardSX) / Math.max(1, size.width / 2)));
     const ny = Math.max(-1, Math.min(1, -(ptr.y - cardSY) / Math.max(1, size.height / 2)));
     const tk = 1 - Math.exp(-delta * (cfg.deckTiltSmooth ?? 8));
     tiltRef.current.x += ((tiltOn ? -ny * tiltRad : 0) - tiltRef.current.x) * tk;
     tiltRef.current.y += ((tiltOn ? nx * tiltRad : 0) - tiltRef.current.y) * tk;
+    // Même ordre que le warp du shader (X puis Y) : le groupe et les cartes tournent dans le même sens.
+    if (group.rotation.order !== "YXZ") group.rotation.order = "YXZ";
+    group.rotation.set(tiltRef.current.x, tiltRef.current.y, 0);
+    // Écart en z entre deux layers : défini en px écran, borné pour que six layers restent dans le
+    // frustum (far = 1000 depuis z = 100).
+    const zGap = Math.min(140, Math.max(0, cfg.stackDepthZ ?? 80) / curZoom);
+    const warpGain = Math.max(0, cfg.stackPerspective ?? 1);
 
     // La carte prend la place de la tuile à l'image près : elle part de sa taille
     // réelle à l'écran, jamais plafonnée par `maxW` / `maxH`. Le plafond ne valait
@@ -757,15 +849,30 @@ export function SecondaryGalleryPlanes({
     const mainStartW = principalPoint.width * frame.tileScale;
     const mainStartH = principalPoint.height * frame.tileScale;
 
+    // Punch de l'arrivée : toute la pile grossit d'un coup autour du centre de la carte du dessus.
+    // Il ne joue que pendant l'ouverture (`frame.punch` est nul ailleurs) ; au retour, la carte qui
+    // rentre part de la pose que son mesh avait déjà (`exitStartRef`).
+    const punchK = tr.phase === "playing" ? 1 + Math.max(0, frame.punch) : 1;
+    const punchX = principalPoint.x;
+    const punchY = principalPoint.y + (baseBottom + heights[keptI] / 2 - principalPoint.y) * frame.reveal;
+    // Cascade : les layers partent de derrière la carte du dessus (`stackDrop` : 0 = bord bas aligné
+    // sur le sien, 1 = centrés derrière elle) et descendent jusqu'à leur place.
+    const drop = Math.min(1, Math.max(0, cfg.stackDrop ?? 0));
+
+    // Un média peut occuper plusieurs cases : son poids est le plus fort des siennes.
+    weightEntries.forEach((entry) => {
+      entry.w = 0;
+    });
+
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
       if (!mesh) return;
-      const i = slot.galleryIdx % K;
-      const isMain = i === keptI;
+      const i = slot.mediaIdx;
+      const isMain = s === keptSlot;
 
-      // Profondeur cyclique signée : 0 = carte du dessus, >0 = derrière, <0 = partie.
-      let d = i - deckPos;
-      d -= K * Math.round(d / K);
+      // Profondeur signée sur l'anneau : 0 = carte du dessus, >0 = derrière, <0 = partie. L'anneau
+      // est assez grand pour que la case qui boucle (de −ringSize/2 à +ringSize/2) soit invisible.
+      const d = ringDepth(s, deckPos, ringSize);
 
       const returning = tr.phase === "returning";
       const targetW = widths[i];
@@ -796,9 +903,7 @@ export function SecondaryGalleryPlanes({
         posY = baseBottom - peek * dv + drawH / 2;
         // Opacité : 1 pour la carte du dessus, `stackOpacity` pour le premier
         // layer, puis `stackOpacityFalloff` à chaque layer suivant.
-        const layerOpacity =
-          dv <= 1 ? 1 + (stackOpacity - 1) * dv : stackOpacity * Math.pow(stackFalloff, dv - 1);
-        opacity = layerOpacity * Math.max(0, Math.min(1, depthMax + 0.5 - dv));
+        opacity = layerOpacityAt(dv, depthMax, stackOpacity, stackFalloff);
         shade = 1 - 0.06 * Math.min(dv, 3);
       } else if (d > -1) {
         const u = -d;
@@ -812,13 +917,17 @@ export function SecondaryGalleryPlanes({
         weight = 0;
       }
 
+      // Retour d'une carte qui n'est pas le média de la tuile, sans couverture à garder (texture pas
+      // encore chargée, ou réglage coupé) : elle garde son ratio, inscrite dans la tuile (jamais
+      // étirée), puis se fond dans la tuile. Avec une couverture, la carte est rognée « cover » à la
+      // forme de la tuile (cf. `uMapScale` plus bas) et reste opaque : la tuile prend son image.
+      const legacyLand = isMain && i !== 0 && rewinding && !coverMode;
+
       if (isMain && !returning && tr.phase === "playing") {
         // Réveil : taille de tuile → taille de carte, sans fondu.
         let startW = mainStartW;
         let startH = mainStartH;
-        if (i !== 0) {
-          // Retour d'une carte qui n'est pas le média de la tuile : elle garde son
-          // ratio, inscrite dans la tuile (jamais étirée), puis se fond dans la tuile.
+        if (legacyLand) {
           const fit = Math.min(mainStartW / targetW, mainStartH / targetH);
           startW = targetW * fit;
           startH = targetH * fit;
@@ -827,7 +936,7 @@ export function SecondaryGalleryPlanes({
         drawH = startH + (targetH - startH) * frame.reveal;
         // Les cartes du deck sont alignées par le bas : celle-ci rejoint le centre de la tuile.
         posY = principalPoint.y + (baseBottom + targetH / 2 - principalPoint.y) * frame.reveal;
-        opacity = i !== 0 ? rewindLandMix(frame.reveal) : 1;
+        opacity = legacyLand ? rewindLandMix(frame.reveal) : 1;
       } else if (!isMain && tr.phase === "playing") {
         if (rewinding) {
           // Retour : le reste de la pile s'efface sur place, avant que la carte gardée ne bouge.
@@ -839,7 +948,8 @@ export function SecondaryGalleryPlanes({
           const cin = Math.max(0, Math.min(1, p - (Math.max(1, d) - 1)));
           const eased = 1 - Math.pow(1 - cin, 3);
           opacity *= cin;
-          posY += peek * Math.max(0, d) * (1 - eased);
+          const travel = d > 0 ? peek * d + (drop * Math.max(0, heights[keptI] - drawH)) / 2 : 0;
+          posY += travel * (1 - eased);
         }
       }
 
@@ -858,7 +968,15 @@ export function SecondaryGalleryPlanes({
         }
       }
 
-      weightEntries[i].w = returning ? 0 : weight * (tr.phase === "playing" ? frame.columnOpacity || 1 : 1);
+      if (punchK !== 1) {
+        posX = punchX + (posX - punchX) * punchK;
+        posY = punchY + (posY - punchY) * punchK;
+        drawW *= punchK;
+        drawH *= punchK;
+      }
+
+      const weightHere = returning ? 0 : weight * (tr.phase === "playing" ? frame.columnOpacity || 1 : 1);
+      weightEntries[i].w = Math.max(weightEntries[i].w, weightHere);
 
       // Carte du dessus : l'origine des pixels de fond. Prise avant la traction, pour que
       // les pixels ne suivent pas la carte qu'on tire.
@@ -873,21 +991,22 @@ export function SecondaryGalleryPlanes({
         top.kind = slot.kind;
       }
 
-      if (tr.phase === "isolated") {
+      if (tractionOn) {
         // Traction : la carte du dessus monte d'autant plus qu'elle est proche du premier plan.
         const near = Math.max(0, 1 - Math.abs(d));
         const leaving = d > -1 && d < 0;
         if (leaving) {
-          // Carte qui part (ou qui revient, en rewind) : de la course de traction à
-          // la distance de lancer, dans le cap figé au changement.
+          // Carte qui part (ou qui revient, en rewind) : de la course de traction qu'elle avait
+          // (`deckLeaveFrom` : celle qu'on voyait au changement, 0 au clavier au repos) à la
+          // distance de lancer, dans le cap figé au changement.
           const u = -d;
-          const reach = liftWorld * (1 - u) + throwWorld * u;
+          const reach = liftWorld * leaveFrom * (1 - u) + throwWorld * u;
           const aim = tr.deckAimCommit;
           posX += aim.x * reach;
           posY += aim.y * reach;
           roll += aim.x * spinRad * u;
           // La désagrégation poursuit celle de la traction jusqu'à la disparition.
-          dissolve = Math.min(1, dissolveAmount * (1 - u) + 1.05 * u);
+          dissolve = Math.min(1, dissolveAmount * leaveFrom * (1 - u) + 1.05 * u);
           dissolveX = aim.x;
           dissolveY = aim.y;
         } else {
@@ -933,7 +1052,9 @@ export function SecondaryGalleryPlanes({
       mesh.visible = visible;
       if (!visible) return;
 
-      mesh.position.set(posX, posY, 0.01 - Math.max(0, d) * 0.001);
+      // Chaque layer recule de `zGap` (continu pendant la traction, comme son échelle et son décalage) ;
+      // la carte qui part reste devant. L'empilement visible reste celui de `renderOrder`.
+      mesh.position.set(posX, posY, 0.01 - (d >= 0 ? Math.min(dv, STACK_DEPTH_MAX + 1) * zGap : 0));
       mesh.rotation.set(0, 0, roll);
       mesh.renderOrder = isMain && returning ? 200 : Math.round(100 - d * 10);
       mesh.scale.set(drawW, drawH, 1);
@@ -942,10 +1063,20 @@ export function SecondaryGalleryPlanes({
       if (mat) {
         const uniforms = uniformsOf<PlaneUniforms>(mat);
         if (uniforms?.uMotionBlur) uniforms.uMotionBlur.value = 0;
-        // Les layers plus profonds s'inclinent un peu plus : un effet de parallaxe.
-        const layerGain = 1 + (cfg.deckTiltLayerGain ?? 0) * Math.max(0, dv);
+        // Perspective de la carte (`stackPerspective`), avec en plus une inclinaison propre aux layers
+        // profonds (`deckTiltLayerGain`, 0 par défaut : ils suivent le groupe, rigides).
+        const layerGain = warpGain * (1 + (cfg.deckTiltLayerGain ?? 0) * Math.max(0, dv));
         uniforms?.uCardTilt.value.set(tiltRef.current.x * layerGain + twistX, tiltRef.current.y * layerGain + twistY);
         if (uniforms) {
+          // Couverture : la carte principale d'un média autre que le premier est rognée « cover » à la
+          // forme qu'elle a à l'écran (celle de la tuile à l'ouverture et au retour, puis la sienne une
+          // fois ouverte) : même image que la tuile, aux mêmes proportions, sans étirement. Les autres
+          // cartes, et la carte principale en repli (`legacyLand`), montrent l'image entière.
+          if (isMain && i !== 0 && tr.phase === "playing" && !legacyLand) {
+            setCoverScale(uniforms.uMapScale.value, drawW / drawH, ratios[i]);
+          } else {
+            uniforms.uMapScale.value.set(1, 1);
+          }
           uniforms.uDissolve.value = dissolve;
           uniforms.uDissolveDir.value.set(dissolveX, dissolveY);
           uniforms.uDissolveCols.value = cfg.deckCellCols ?? 5;
@@ -972,33 +1103,38 @@ export function SecondaryGalleryPlanes({
     return null;
   }
 
+  // Deux groupes imbriqués : l'extérieur pivote autour du centre de la carte du dessus, l'intérieur
+  // ramène l'origine au monde. Les cartes gardent donc leurs coordonnées monde, et la rotation de la
+  // pile les fait tourner autour de ce point (`deckTop`, `deckFx` et les autres restent en monde).
   return (
-    <group ref={groupRef}>
-      {pool.map((item, idx) => {
-        const isCenter = idx === centerSlotIdx;
-        const fallbackTex =
-          item.kind === "video"
-            ? (sharedVideoTextures.get(item.url)?.texture ?? null)
-            : (sharedImageTextures.get(item.url) ?? null);
+    <group ref={groupRef} position={[principalPoint.x, principalPoint.y, 0]}>
+      <group position={[-principalPoint.x, -principalPoint.y, 0]}>
+        {pool.map((item, idx) => {
+          const isCenter = idx === centerSlotIdx;
+          const fallbackTex =
+            item.kind === "video"
+              ? (sharedVideoTextures.get(item.url)?.texture ?? null)
+              : (sharedImageTextures.get(item.url) ?? null);
 
-        return (
-          <GallerySlotPlane
-            key={isCenter ? "main-slot-m0" : item.key}
-            url={item.url}
-            kind={item.kind}
-            x={principalPoint.x}
-            y={principalPoint.y}
-            width={principalPoint.width}
-            height={principalPoint.height}
-            debug={debug}
-            isMain={isCenter}
-            fallbackTexture={fallbackTex}
-            meshRef={(mesh) => {
-              meshRefs.current[idx] = mesh;
-            }}
-          />
-        );
-      })}
+          return (
+            <GallerySlotPlane
+              key={isCenter ? "main-slot-m0" : item.key}
+              url={item.url}
+              kind={item.kind}
+              x={principalPoint.x}
+              y={principalPoint.y}
+              width={principalPoint.width}
+              height={principalPoint.height}
+              debug={debug}
+              isMain={isCenter}
+              fallbackTexture={fallbackTex}
+              meshRef={(mesh) => {
+                meshRefs.current[idx] = mesh;
+              }}
+            />
+          );
+        })}
+      </group>
     </group>
   );
 }

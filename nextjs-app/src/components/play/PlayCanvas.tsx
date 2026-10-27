@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useInsertionEffect,
   useMemo,
   useRef,
   useState,
@@ -33,6 +34,7 @@ import { getSharedVideoElement } from "./SecondaryGalleryPlanes";
 import { ArtifactGrid } from "./ArtifactGrid";
 import {
   SecondaryGalleryPlanes,
+  type TileCover,
 } from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
 import {
@@ -52,6 +54,7 @@ import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types"
 import { PlayLoader } from "./PlayLoader";
 import { CursorTrail } from "./CursorTrail";
 import { PlayCursor } from "./PlayCursor";
+import { HoverCountDriver, HoverCountPill } from "./PlayHoverCount";
 import { SHADOW_DEFAULTS, type ShadowParams } from "./CardShadow";
 import {
   AMBIENT_RENDER_ORDER,
@@ -179,6 +182,27 @@ export const STUDIO_DEFAULTS: AnimationStudioParams = {
   scrubProgress: 0,
 };
 
+/**
+ * Apparition et disparition de la page /play (la scène vit dans le layout, hors
+ * des <ViewTransition> des autres pages). Même courbe que ces pages
+ * (`--view-transition-ease`) ; les durées et le zoom sont posés en variables CSS
+ * sur <html> au changement de route (cf. globals.css, `#play-surface`).
+ */
+export type PageTransitionParams = {
+  /** Durée de l'apparition en arrivant sur /play (ms, 0 = instantané). */
+  enterMs: number;
+  /** Durée de la disparition en quittant /play (ms, 0 = instantané). */
+  exitMs: number;
+  /** Zoom : hors champ la page est à `1 - zoom` (0 = fondu seul, 0.04 = léger). */
+  zoom: number;
+};
+
+export const PAGE_TRANSITION_DEFAULTS: PageTransitionParams = {
+  enterMs: 650,
+  exitMs: 650,
+  zoom: 0.04,
+};
+
 export type CameraDebugParams = {
   zoom: number;
   motionBlur: boolean;
@@ -287,6 +311,16 @@ export type HoverParams = {
   waveGlow: number;
   /** Irisation de la bande (0 = blanc pur, 1 = reflets pastel bien marqués, qui glissent avec elle). */
   waveIrid: number;
+  /** Opacité de la pastille du nombre de médias, en haut à droite de la carte survolée (0 = pas de pastille). */
+  countOpacity: number;
+  /** Nombre de médias à partir duquel la pastille s'affiche (1 = toujours, 2 = seulement les artifacts à plusieurs médias). */
+  countMin: number;
+  /** Retrait de la pastille depuis le coin haut droit de la carte (px écran). */
+  countInset: number;
+  /** Taille de la pastille (1 = texte de 13 px). */
+  countScale: number;
+  /** Vitesse d'apparition et de disparition de la pastille (par seconde). */
+  countSpeed: number;
 };
 
 export const HOVER_DEFAULTS: HoverParams = {
@@ -298,6 +332,11 @@ export const HOVER_DEFAULTS: HoverParams = {
   waveDuration: 0.6,
   waveGlow: 1.2,
   waveIrid: 0.5,
+  countOpacity: 1,
+  countMin: 1,
+  countInset: 10,
+  countScale: 1,
+  countSpeed: 14,
 };
 
 /**
@@ -367,13 +406,13 @@ export const DA_DEFAULTS: DaParams = {
   navHoverSpread: 0.55,
   panelPixelSize: 1,
   panelPixelDensity: PANEL_PIXEL_DENSITY,
-  panelPixelPulse: 0.4,
-  panelPixelPeriod: 8,
-  panelPixelFlux: 0.1,
-  panelPixelFluxPeriod: 10,
-  panelPixelRipple: 0.5,
-  panelPixelShift: 0.75,
-  panelPixelShiftPeriod: 12,
+  panelPixelPulse: 0.5,
+  panelPixelPeriod: 5,
+  panelPixelFlux: 0.22,
+  panelPixelFluxPeriod: 7,
+  panelPixelRipple: 0.7,
+  panelPixelShift: 1.2,
+  panelPixelShiftPeriod: 6,
   panelGradientSpread: 1.8,
   panelGradientIrid: 0,
 };
@@ -403,6 +442,8 @@ export type PlayDebugState = {
   fisheye: FisheyeParams;
   overlay: SelectOverlayParams;
   studio: AnimationStudioParams;
+  /** Apparition / disparition de la page /play au changement de route. */
+  page: PageTransitionParams;
 };
 
 export type PlayDebugRef = RefObject<PlayDebugState>;
@@ -490,20 +531,41 @@ export type PlayRuntimeState = {
     passed: boolean;
     /** Cycle de boucle auquel on libère l'attente une fois prêt. */
     releaseAt: number | null;
-    /** Traction du deck : cumul brut signé (|1| = seuil de changement de carte). */
+    /**
+     * Secondes passées dans l'attente depuis que le pack est prêt (la vague finit son cycle avant de
+     * traverser l'artifact) : le recul d'arrivée de la caméra démarre au téléchargement, pas au cycle suivant.
+     */
+    arrivalWait: number;
+    /** Ce que cette attente durera au total, connu dès que le pack arrive : le reste du cycle de la vague (s). */
+    arrivalSpan: number;
+    /**
+     * Traction du deck : le cumul des gestes, signé, en « cartes » (x vers la droite, y vers le haut,
+     * monde ; sa longueur 1 = seuil de changement de carte). Il se garde tant que la carte n'est pas
+     * partie : défiler dans un sens puis dans l'autre le ramène, et passé le seuil, dans n'importe quel
+     * sens, la carte part de ce côté.
+     */
+    deckPullVec: { x: number; y: number };
+    /** `deckPullVec` après la courbe de résistance, lissé : le déplacement affiché de la carte. */
+    deckShownVec: { x: number; y: number };
+    /** Longueur de `deckPullVec` (miroir pour l'inspecteur, écrit par `stepDeckPull`). */
     deckPullRaw: number;
-    /** Traction affichée (courbe de résistance appliquée, lissée), signée. */
+    /** Longueur de `deckShownVec` : l'amplitude de la traction affichée (écrite par `stepDeckPull`). */
     deckPullShown: number;
     /** Instant (ms) du dernier geste de défilement. */
     deckInputAt: number;
     /** Gestes ignorés jusqu'à cet instant (ms) : verrou après un changement de carte. */
     deckLockUntil: number;
-    /** Direction (monde, unitaire) dans laquelle la carte du dessus part : curseur / geste + tout droit. */
+    /** Un drag tire le deck : la carte suit alors exactement le doigt, sans se courber vers le curseur. */
+    deckDragging: boolean;
+    /** Direction (monde, unitaire) dans laquelle la carte du dessus part : le sens du geste, courbé vers le curseur. */
     deckAim: { x: number; y: number };
     /** `deckAim` figé au moment du changement de carte : la carte qui part garde ce cap. */
     deckAimCommit: { x: number; y: number };
-    /** Vecteur de drag cumulé depuis le début du geste (px écran). */
-    deckDrag: { x: number; y: number };
+    /**
+     * Traction affichée (0..1) au moment du changement de carte : la carte qui part en reprend le
+     * déplacement et la désagrégation au lieu de sauter d'un coup à fond (au clavier, au repos, elle part de 0).
+     */
+    deckLeaveFrom: number;
     /** Rewind : avancement 0..1 (avant courbe), état d'où il part (t de la timeline, position du deck). */
     rewindU: number;
     rewindFromT: number;
@@ -544,6 +606,17 @@ export type PlayRuntimeState = {
 };
 export type PlayRuntimeRef = RefObject<PlayRuntimeState>;
 
+/** Remet la traction du deck à zéro (le cap de la carte, lui, ne bouge pas). */
+function resetDeckPull(tr: PlayRuntimeState["transition"]) {
+  tr.deckPullVec.x = 0;
+  tr.deckPullVec.y = 0;
+  tr.deckShownVec.x = 0;
+  tr.deckShownVec.y = 0;
+  tr.deckPullRaw = 0;
+  tr.deckPullShown = 0;
+  tr.deckDragging = false;
+}
+
 /** Remet l'horloge et le hold à zéro, sans toucher à la phase. */
 function rewindTransition(rc: PlayRuntimeState) {
   rc.transition.t = 0;
@@ -554,9 +627,10 @@ function rewindTransition(rc: PlayRuntimeState) {
 
 /**
  * Démarre la timeline sur `pointIndex` : le clic lance directement la vague,
- * puis le boom. Il n'y a plus de hold.
+ * puis le boom. Il n'y a plus de hold. `startDeck` est le média sur lequel le deck démarre : 0, le
+ * premier média du projet, ou la carte qu'une tuile garde en couverture (`TileCover.mediaIndex`).
  */
-export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
+export function startPlayback(rc: PlayRuntimeState, pointIndex: number, startDeck = 0) {
   if (rc.transition.phase !== "idle") return;
   rc.transition.targetIndex = pointIndex;
   rc.transition.phase = "playing";
@@ -564,8 +638,8 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
   rc.transition.selectProgress = 0;
   rc.transition.textRevealed = false;
   rc.transition.navbarRevealed = false;
-  rc.transition.columnScrollY = 0;
-  rc.transition.targetColumnScrollY = 0;
+  rc.transition.columnScrollY = startDeck;
+  rc.transition.targetColumnScrollY = startDeck;
   rc.transition.isSnapping = false;
   rc.transition.ready = false;
   rc.transition.wall = 0;
@@ -573,11 +647,12 @@ export function startPlayback(rc: PlayRuntimeState, pointIndex: number) {
   rc.transition.holding = false;
   rc.transition.rewinding = false;
   rc.transition.rewindU = 0;
-  rc.transition.deckPullRaw = 0;
-  rc.transition.deckPullShown = 0;
+  resetDeckPull(rc.transition);
   rc.transition.deckLockUntil = 0;
   rc.transition.passed = false;
   rc.transition.releaseAt = null;
+  rc.transition.arrivalWait = 0;
+  rc.transition.arrivalSpan = 0;
   rc.transition.returnFrom = null;
   rc.camera.mode = "settle";
   rc.repulsor.active = true;
@@ -605,13 +680,18 @@ export function applyResetTransition(rc: PlayRuntimeState) {
     // Le retour « clean » glisse de l'état exact d'où l'on part vers le repos, un second Échap
     // en plein retour compris : on en garde un instantané (cf. `sampleRewind`).
     tr.returnFrom = { ...tr.frame };
-    // Un second Échap en plein retour garde la même carte : le deck n'est plus « isolated ».
+    // Un second Échap en plein retour garde la même carte : le deck n'est plus « isolated ». Pendant
+    // l'ouverture le deck n'a pas bougé : sa cible est la carte de départ (0, ou la couverture de la tuile).
     if (!tr.rewinding) {
-      tr.rewindFromDeck = tr.phase === "isolated" ? Math.round(tr.targetColumnScrollY) : 0;
+      tr.rewindFromDeck = Math.round(tr.targetColumnScrollY);
     }
     tr.targetColumnScrollY = tr.rewindFromDeck;
+    // La traction en cours ne retombe pas d'un coup : seules ses cibles tombent, la carte garde l'écart
+    // où on l'a laissée et se recompose pendant le retour (`releaseDeckPull`, dans `advanceRewind`).
+    tr.deckPullVec.x = 0;
+    tr.deckPullVec.y = 0;
     tr.deckPullRaw = 0;
-    tr.deckPullShown = 0;
+    tr.deckDragging = false;
     tr.deckFreeze = null;
     tr.rewinding = true;
     tr.phase = "playing";
@@ -633,6 +713,7 @@ export function applyResetTransition(rc: PlayRuntimeState) {
 function applyKeyDownEnter(
   rc: PlayRuntimeState,
   points: readonly { x: number; y: number }[],
+  startDeck: number,
 ) {
   if (rc.transition.phase === "isolated" || rc.transition.phase === "returning") {
     applyResetTransition(rc);
@@ -641,7 +722,7 @@ function applyKeyDownEnter(
   if (rc.transition.phase !== "idle") return;
   const selPt = points[rc.selected];
   if (!selPt) return;
-  startPlayback(rc, rc.selected);
+  startPlayback(rc, rc.selected, startDeck);
 }
 
 function applyPanWheel(
@@ -829,6 +910,27 @@ function advanceRewind(
   tr.columnScrollY = dampTowards(tr.columnScrollY, tr.rewindFromDeck, config.detailScrollDamping, dt);
   tr.targetColumnScrollY = tr.rewindFromDeck;
   tr.t = tr.rewindFromT * (1 - eased);
+  releaseDeckPull(tr, config.rewindPullRelease ?? REWIND_PULL_RELEASE, dt);
+}
+
+/** Vitesse (par seconde) à laquelle la traction du deck se relâche au retour : ≈ 0.3 s pour s'éteindre. */
+const REWIND_PULL_RELEASE = 8;
+
+/**
+ * Au retour, la traction que la carte avait au moment d'Échap (tirée vers le haut, désagrégée, penchée)
+ * se relâche au lieu de retomber d'un coup : la carte garde l'écart où on l'a laissée puis se recompose
+ * pendant qu'elle rejoint sa tuile. `rate` à 0 : d'un coup, comme avant.
+ */
+function releaseDeckPull(tr: PlayRuntimeState["transition"], rate: number, dt: number) {
+  const shown = tr.deckShownVec;
+  shown.x = rate > 0 ? dampTowards(shown.x, 0, rate, dt) : 0;
+  shown.y = rate > 0 ? dampTowards(shown.y, 0, rate, dt) : 0;
+  const len = Math.hypot(shown.x, shown.y);
+  if (len < 0.0005) {
+    shown.x = 0;
+    shown.y = 0;
+  }
+  tr.deckPullShown = len < 0.0005 ? 0 : len;
 }
 
 function advanceClock(
@@ -855,11 +957,18 @@ function advanceClock(
 
     if (tr.holding) {
       // Le pack n'est pas encore téléchargé : la vague boucle, l'artifact se tortille.
-      tr.loop += effDelta * (config.loadWaveSpeed ?? 0.9);
-      if (tr.ready && tr.releaseAt === null) tr.releaseAt = Math.ceil(tr.loop);
+      const loopSpeed = config.loadWaveSpeed ?? 0.9;
+      tr.loop += effDelta * loopSpeed;
+      if (tr.ready && tr.releaseAt === null) {
+        tr.releaseAt = Math.ceil(tr.loop);
+        // La vague finit son cycle avant de traverser, mais la caméra, elle, recule déjà (cf. `arrivalDip`).
+        tr.arrivalSpan = (tr.releaseAt - tr.loop) / Math.max(0.05, loopSpeed);
+      }
       if (tr.ready && tr.releaseAt !== null && tr.loop >= tr.releaseAt) {
         tr.holding = false;
         tr.passed = true;
+      } else if (tr.ready) {
+        tr.arrivalWait += effDelta;
       }
       return;
     }
@@ -873,6 +982,8 @@ function advanceClock(
         tr.holding = true;
         tr.loop = 0;
         tr.releaseAt = null;
+        tr.arrivalWait = 0;
+        tr.arrivalSpan = 0;
         return;
       }
     }
@@ -881,6 +992,8 @@ function advanceClock(
         tr.t = 0;
         tr.wall = 0;
         tr.passed = false;
+        tr.arrivalWait = 0;
+        tr.arrivalSpan = 0;
         tr.textRevealed = false;
         tr.navbarRevealed = false;
         return;
@@ -902,34 +1015,96 @@ function resistCurve(x: number, power: number): number {
   return 1 - Math.pow(1 - t, Math.max(1, power));
 }
 
+/** Un trackpad dérive toujours un peu sur l'axe secondaire : un axe qui écrase l'autre d'autant le remplace. */
+const DECK_AXIS_LOCK = 2.5;
+
 /**
- * Traction du deck : le geste s'accumule dans `deckPullRaw`, la carte suit la
- * courbe de résistance, retombe si on lâche avant le seuil, et au seuil elle
- * part (changement de carte). Retourne le sens du changement (-1, 0, 1).
+ * Ajoute un geste à la traction du deck. `x` et `y` sont en « cartes », dans le sens où la carte doit
+ * aller (x vers la droite, y vers le haut) ; les réglages d'inversion retournent l'axe pour tous les gestes.
+ */
+function addDeckPull(tr: PlayRuntimeState["transition"], config: TransitionConfig, x: number, y: number) {
+  tr.deckPullVec.x += config.deckInvertX ? -x : x;
+  tr.deckPullVec.y += config.deckInvertY ? -y : y;
+}
+
+/**
+ * Traction du deck : les gestes s'accumulent, signés, dans `deckPullVec` ; la carte suit leur direction
+ * avec la courbe de résistance, et au seuil (longueur 1) elle part de ce côté, haut, bas, gauche ou
+ * droite : changement de carte. Tant qu'elle n'est pas partie rien ne se perd : défiler dans un sens
+ * puis dans l'autre la ramène, et seule `deckRelease` (0 = jamais) la fait retomber quand on lâche.
+ * Une carte partie ne revient pas : le deck n'avance que dans un sens. Retourne 1 au changement de
+ * carte, sinon 0.
  */
 function stepDeckPull(tr: PlayRuntimeState["transition"], config: TransitionConfig, dt: number): number {
   const now = performance.now();
+  const pull = tr.deckPullVec;
+  const shown = tr.deckShownVec;
   let committed = 0;
-  if (tr.deckFreeze !== null) tr.deckPullRaw = tr.deckFreeze;
-  if (Math.abs(tr.deckPullRaw) >= 1) {
-    committed = Math.sign(tr.deckPullRaw);
-    tr.deckAimCommit.x = tr.deckAim.x;
-    tr.deckAimCommit.y = tr.deckAim.y;
+  if (tr.deckFreeze !== null) {
+    pull.x = 0;
+    pull.y = tr.deckFreeze;
+  }
+  let len = Math.hypot(pull.x, pull.y);
+  if (len >= 1) {
+    committed = 1;
+    const dx = pull.x / len;
+    const dy = pull.y / len;
+    // Le cap est la visée (le geste courbé vers le curseur) tant qu'elle va dans le sens du geste. Elle
+    // retarde d'une image sur lui : un geste qui franchit le seuil d'un coup, ou vient de changer de
+    // sens, n'a pas encore de visée valable, et la carte part alors droit dans le sens du geste.
+    const aim = tr.deckAim;
+    const aimLen = Math.hypot(aim.x, aim.y);
+    const aligned = aimLen > 0.001 && (aim.x * dx + aim.y * dy) / aimLen > 0.5;
+    tr.deckAimCommit.x = aligned ? aim.x / aimLen : dx;
+    tr.deckAimCommit.y = aligned ? aim.y / aimLen : dy;
+    tr.deckLeaveFrom = tr.deckPullShown;
     tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + committed;
-    tr.deckPullRaw = 0;
+    pull.x = 0;
+    pull.y = 0;
+    len = 0;
     tr.deckLockUntil = now + config.stepCooldown * 1000;
   } else if (
     tr.deckFreeze === null &&
-    Math.abs(tr.deckPullRaw) > 0.0005 &&
+    config.deckRelease > 0 &&
+    len > 0.0005 &&
     now - tr.deckInputAt > config.deckHold * 1000
   ) {
-    // Geste relâché avant le seuil : la carte redescend.
-    tr.deckPullRaw = dampTowards(tr.deckPullRaw, 0, config.deckRelease, dt);
+    // Geste relâché avant le seuil, et un retour demandé : la carte retombe.
+    pull.x = dampTowards(pull.x, 0, config.deckRelease, dt);
+    pull.y = dampTowards(pull.y, 0, config.deckRelease, dt);
+    len = Math.hypot(pull.x, pull.y);
   }
-  const target = Math.sign(tr.deckPullRaw) * resistCurve(Math.abs(tr.deckPullRaw), config.deckResist);
-  tr.deckPullShown = dampTowards(tr.deckPullShown, target, 22, dt);
-  if (Math.abs(tr.deckPullShown) < 0.0005) tr.deckPullShown = 0;
+  // La résistance joue sur la longueur de la traction, jamais sur sa direction.
+  const k = len > 0.0005 ? resistCurve(len, config.deckResist) / len : 0;
+  shown.x = dampTowards(shown.x, pull.x * k, 22, dt);
+  shown.y = dampTowards(shown.y, pull.y * k, 22, dt);
+  const shownLen = Math.hypot(shown.x, shown.y);
+  if (shownLen < 0.0005) {
+    shown.x = 0;
+    shown.y = 0;
+  }
+  tr.deckPullRaw = len;
+  tr.deckPullShown = shownLen < 0.0005 ? 0 : shownLen;
   return committed;
+}
+
+/**
+ * Une flèche fait un cran entier du deck, dans le sens où elle défile : ↓ fait monter la carte, → la
+ * fait partir à gauche, et les inversions d'axe valent ici aussi. `dirX` et `dirY` sont la direction de
+ * la flèche en espace monde. Au clavier rien ne vise, la carte part tout droit ; son cap n'est posé qu'à
+ * l'arrêt, une carte déjà en vol garde le sien, sinon elle sauterait de l'autre côté.
+ */
+function stepDeckByKey(tr: PlayRuntimeState["transition"], config: TransitionConfig, dirX: number, dirY: number) {
+  if (Math.abs(tr.columnScrollY - tr.targetColumnScrollY) < 0.05) {
+    tr.deckAimCommit.x = (config.deckInvertX ? 1 : -1) * dirX;
+    tr.deckAimCommit.y = (config.deckInvertY ? 1 : -1) * dirY;
+    // Elle part d'où la traction l'avait mise : du repos si rien n'était tiré.
+    tr.deckLeaveFrom = tr.deckPullShown;
+  }
+  // Une traction à moitié faite ne doit pas rester sur la carte suivante.
+  tr.deckPullVec.x = 0;
+  tr.deckPullVec.y = 0;
+  tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + 1;
 }
 
 function stepCamera(
@@ -1316,18 +1491,54 @@ function CameraRig({
   return null;
 }
 
+/** Marge après la fin de la transition CSS avant de couper le rendu (ms). */
+const PAGE_EXIT_MARGIN_MS = 80;
+
+/**
+ * Durées et échelle de la transition de page, `prefers-reduced-motion` compris
+ * (alors : pas d'animation). Lues à chaque changement de route : un réglage du
+ * debug agit à la navigation suivante.
+ */
+function pageTransitionTimings(p: PageTransitionParams) {
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return {
+    enterMs: reduced ? 0 : Math.max(0, p.enterMs),
+    exitMs: reduced ? 0 : Math.max(0, p.exitMs),
+    scale: reduced ? 1 : Math.min(1, Math.max(0.5, 1 - p.zoom)),
+  };
+}
+
+/** Pose les réglages en variables CSS (lues, par héritage, par `#play-surface`, globals.css). */
+function applyPageTransitionVars(el: HTMLElement, p: PageTransitionParams) {
+  const t = pageTransitionTimings(p);
+  el.style.setProperty("--play-enter-ms", `${t.enterMs}ms`);
+  el.style.setProperty("--play-exit-ms", `${t.exitMs}ms`);
+  el.style.setProperty("--play-page-scale", String(t.scale));
+}
+
 export function PlayCanvas({
   artifacts,
   active = true,
 }: {
   artifacts: PlayArtifact[];
   /**
-   * /play est la page affichée. Inactif, le canvas reste monté (la scène 3D
-   * n'est jamais recréée) mais invisible, sans rendu et sans écouteurs.
+   * /play est la page affichée. Inactif, la surface se dézoome en fondu par-dessus
+   * la page qui arrive (la scène continue d'être rendue le temps de la sortie), puis
+   * le canvas reste monté (la scène 3D n'est jamais recréée) mais invisible, sans
+   * rendu et sans écouteurs.
    */
   active?: boolean;
 }) {
   const activeRef = useRef(active);
+  // `shown` suit `active` mais retombe une fois la sortie jouée : la surface reste
+  // visible, la scène rendue, pendant que la page disparaît. Le rendu qui voit
+  // `active` changer rouvre `shown` dans la foulée.
+  const [shown, setShown] = useState(active);
+  const [seenActive, setSeenActive] = useState(active);
+  if (active !== seenActive) {
+    setSeenActive(active);
+    if (active) setShown(true);
+  }
   const debug = useRef<PlayDebugState>({
     plane: {
       radius: PLANE_RADIUS,
@@ -1368,6 +1579,7 @@ export function PlayCanvas({
     fisheye: { ...FISHEYE_DEFAULTS },
     overlay: { ...OVERLAY_DEFAULTS },
     studio: { ...STUDIO_DEFAULTS },
+    page: { ...PAGE_TRANSITION_DEFAULTS },
   });
 
   const runtime = useRef<PlayRuntimeState>({
@@ -1409,13 +1621,16 @@ export function PlayCanvas({
       loop: 0,
       holding: false,
       rewinding: false,
+      deckPullVec: { x: 0, y: 0 },
+      deckShownVec: { x: 0, y: 0 },
       deckPullRaw: 0,
       deckPullShown: 0,
       deckInputAt: 0,
       deckLockUntil: 0,
+      deckDragging: false,
       deckAim: { x: 0, y: 1 },
       deckAimCommit: { x: 0, y: 1 },
-      deckDrag: { x: 0, y: 0 },
+      deckLeaveFrom: 1,
       rewindU: 0,
       rewindFromT: 0,
       rewindFromDeck: 0,
@@ -1425,6 +1640,8 @@ export function PlayCanvas({
       deckTop: { cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
       passed: false,
       releaseAt: null,
+      arrivalWait: 0,
+      arrivalSpan: 0,
       returnFrom: null,
       frame: createTransitionFrame(),
     },
@@ -1494,6 +1711,12 @@ export function PlayCanvas({
 
   const media = useMemo(() => artifacts.map(resolveArtifactMedia), [artifacts]);
 
+  // Nombre de médias de chaque artifact, récupéré avec la liste au chargement de /play :
+  // la pastille du survol n'a donc rien à attendre ni à demander.
+  const mediaCounts = useMemo(() => artifacts.map((a) => a.mediaCount), [artifacts]);
+  const hoverCountPillRef = useRef<HTMLDivElement>(null);
+  const hoverCountLabelRef = useRef<HTMLSpanElement>(null);
+
   // Détection dynamique du ratio réel des vidéos pour rattraper immédiatement
   // tout nouvel asset vidéo dont le ratio différerait ou ne serait pas encore en cache.
   useEffect(() => {
@@ -1537,6 +1760,20 @@ export function PlayCanvas({
   const [isDetailVisible, setIsDetailVisible] = useState(false);
   const [isNavbarVisible, setIsNavbarVisible] = useState(false);
   const [apiStatus, setApiStatus] = useState<"idle" | "fetching" | "ready" | "error">("idle");
+  // Carte qu'une tuile garde après qu'on a quitté son projet, par index d'artifact : la tuile la montre à la
+  // place de son premier média et rouvrir le projet démarre le deck dessus. `SecondaryGalleryPlanes` la
+  // signale au début du retour ; elle reste jusqu'au rechargement de la page.
+  const [covers, setCovers] = useState<Record<number, TileCover | undefined>>({});
+  const coversRef = useRef(covers);
+  useEffect(() => {
+    coversRef.current = covers;
+  }, [covers]);
+  /** Média sur lequel le deck démarre à l'ouverture d'un artifact : sa couverture, sinon son premier média. */
+  const startDeckOf = useCallback(
+    (artifactIndex: number | undefined) =>
+      artifactIndex === undefined ? 0 : (coversRef.current[artifactIndex]?.mediaIndex ?? 0),
+    [],
+  );
 
 
   useEffect(() => {
@@ -1579,6 +1816,28 @@ export function PlayCanvas({
     [artifacts],
   );
 
+  /**
+   * Début du retour : la carte du dessus devient la couverture de la tuile du projet ouvert (`null` : aucune,
+   * la tuile retrouve son premier média). Le premier média n'est pas une couverture, c'est la tuile d'origine.
+   */
+  const handleKeepCover = useCallback(
+    (cover: TileCover | null) => {
+      if (selectedArtifactIndex === null) return;
+      setCovers((prev) => {
+        const current = prev[selectedArtifactIndex];
+        if (!cover || cover.mediaIndex === 0) {
+          if (!current) return prev;
+          const next = { ...prev };
+          delete next[selectedArtifactIndex];
+          return next;
+        }
+        if (current && current.mediaIndex === cover.mediaIndex && current.url === cover.url) return prev;
+        return { ...prev, [selectedArtifactIndex]: cover };
+      });
+    },
+    [selectedArtifactIndex],
+  );
+
   /** Front montant de la piste de texte : le panneau de détail apparaît. */
   const handleTextReveal = useCallback(() => {
     setIsDetailVisible(true);
@@ -1591,11 +1850,37 @@ export function PlayCanvas({
 
   const { setProject, clearProject } = useActionBar();
 
-  // Quitter /play : on referme tout sans animation (le rendu est en pause, une
-  // animation de retour ne pourrait pas se jouer) pour retrouver /play au repos.
   useEffect(() => {
     activeRef.current = active;
-    if (active) return;
+  }, [active]);
+
+  // Apparition / disparition de la page : les réglages du debug sont posés en
+  // variables CSS avant que la transition (globals.css, `#play-surface`) ne démarre.
+  // Sur <html>, pas sur la surface : à la première visite elle naît dans ce même
+  // commit, et son premier calcul de style (le départ de l'entrée, `@starting-style`)
+  // doit déjà les trouver. Un effet d'insertion, pas de layout : la durée d'une
+  // transition CSS est celle du premier calcul de style qui voit `data-presence`
+  // changer, et un effet de layout d'un enfant (le Canvas) peut le forcer avant le
+  // nôtre, avec les anciennes valeurs.
+  useInsertionEffect(() => {
+    applyPageTransitionVars(document.documentElement, debug.current.page);
+  }, [active]);
+
+  // Fin de la sortie : une fois la surface disparue, on coupe le rendu.
+  useEffect(() => {
+    if (active || !shown) return;
+    const id = window.setTimeout(
+      () => setShown(false),
+      pageTransitionTimings(debug.current.page).exitMs + PAGE_EXIT_MARGIN_MS,
+    );
+    return () => window.clearTimeout(id);
+  }, [active, shown]);
+
+  // Surface masquée (sortie jouée) : on referme tout sans animation (le rendu est
+  // en pause, une animation de retour ne pourrait pas se jouer) pour retrouver /play
+  // au repos. Pendant la sortie la scène reste telle quelle : c'est elle qui se dézoome.
+  useEffect(() => {
+    if (shown) return;
     selectionToken.current++;
     const rc = runtime.current;
     rc.transition.phase = "idle";
@@ -1605,8 +1890,7 @@ export function PlayCanvas({
     rc.transition.targetIndex = -1;
     rc.transition.columnScrollY = 0;
     rc.transition.targetColumnScrollY = 0;
-    rc.transition.deckPullRaw = 0;
-    rc.transition.deckPullShown = 0;
+    resetDeckPull(rc.transition);
     rc.repulsor.active = false;
     rc.repulsor.pointIndex = -1;
     rc.hovered = null;
@@ -1623,7 +1907,7 @@ export function PlayCanvas({
     setSelectedArtifactIndex(null);
     setApiStatus("idle");
     clearProject();
-    }, [active, clearProject]);
+  }, [shown, clearProject]);
 
   const handleCloseDetail = useCallback(() => {
     selectionToken.current++;
@@ -1666,7 +1950,7 @@ export function PlayCanvas({
     const rc = runtime.current;
     if (rc.transition.phase !== "idle") return;
     const selIndex = rc.selected >= 0 ? rc.selected : 0;
-    startPlayback(rc, selIndex);
+    startPlayback(rc, selIndex, startDeckOf(tile?.points[selIndex]?.artifactIndex));
     if (tile?.points[selIndex]) {
       handleStartSelect(tile.points[selIndex].artifactIndex, {
         ...tile.points[selIndex],
@@ -1674,7 +1958,7 @@ export function PlayCanvas({
         y: rc.selectedPos.y,
       });
     }
-  }, [handleStartSelect, tile]);
+  }, [handleStartSelect, startDeckOf, tile]);
 
   const viewportAspect =
     gravityParams.targetAspect && gravityParams.targetAspect > 0
@@ -1731,6 +2015,8 @@ export function PlayCanvas({
   const primaryPaletteRef = useRef<RGB[] | null>(null);
   const primaryUrlRef = useRef<string | null>(null);
   const primaryKindRef = useRef<"image" | "video">("image");
+  // Ratio du média ouvert quand la tuile ne le montre que rogné (sa couverture) : les éclats d'ouverture le suivent.
+  const primaryCropRef = useRef<number | undefined>(undefined);
 
   // Éclats du deck : la carte qui part (ou qu'on tire) se décompose en morceaux.
   const deckShardSource = useCallback((): ShardSource | null => {
@@ -1803,6 +2089,7 @@ export function PlayCanvas({
       h: point.height * tr.frame.tileScale,
       url,
       kind: primaryKindRef.current,
+      mapRatio: primaryCropRef.current,
     };
   }, [tile]);
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
@@ -1833,11 +2120,17 @@ export function PlayCanvas({
 
   useEffect(() => {
     palettesRef.current = new Map();
-    primaryUrlRef.current = primaryMedia?.url ?? null;
-    primaryKindRef.current = primaryMedia?.kind ?? "image";
+    // Le média ouvert est la couverture de la tuile quand elle en a une (cf. `covers`) : c'est elle que les
+    // éclats d'ouverture découpent et dont le panneau prend les couleurs. Le deck, lui, garde le premier média
+    // du projet (`primaryMedia`) comme média 0 de son anneau.
+    const cover = selectedArtifactIndex !== null ? coversRef.current[selectedArtifactIndex] : undefined;
+    const opened = cover ?? primaryMedia;
+    primaryUrlRef.current = opened?.url ?? null;
+    primaryKindRef.current = opened?.kind ?? "image";
+    primaryCropRef.current = cover?.ratio;
     primaryPaletteRef.current = null;
-    if (primaryMedia) loadPalette({ url: primaryMedia.url, kind: primaryMedia.kind });
-  }, [primaryMedia, loadPalette]);
+    if (opened) loadPalette({ url: opened.url, kind: opened.kind });
+  }, [primaryMedia, selectedArtifactIndex, loadPalette]);
 
   useEffect(() => {
     if (!tile || tile.points.length === 0) return;
@@ -1969,18 +2262,23 @@ export function PlayCanvas({
       }
 
       if (runtime.current.transition.phase === "isolated") {
-        const isDesktopLayout = window.innerWidth >= 1024 && window.innerWidth >= window.innerHeight;
-        const deltaVal = isDesktopLayout
-          ? e.deltaY
-          : (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
         const now = performance.now();
         const tr = runtime.current.transition;
+        const config = debug.current.transition;
         // Pendant un rewind, les gestes ne conduisent plus rien.
         if (tr.rewinding) return;
         // Après un changement de carte, les gestes (et l'inertie du trackpad) sont ignorés un instant.
         if (now < tr.deckLockUntil) return;
-        // Chaque cran fait monter la carte : le seuil s'atteint en cumulant `deckPullDistance` px.
-        tr.deckPullRaw += deltaVal / Math.max(80, debug.current.transition.deckPullDistance);
+        // Les deux axes comptent : la carte part du côté où on tire. L'axe secondaire d'un trackpad
+        // dérive toujours un peu, on le coupe quand l'autre l'écrase.
+        let dx = e.deltaX;
+        let dy = e.deltaY;
+        if (Math.abs(dx) > DECK_AXIS_LOCK * Math.abs(dy)) dy = 0;
+        else if (Math.abs(dy) > DECK_AXIS_LOCK * Math.abs(dx)) dx = 0;
+        // Le contenu défile et la carte avec lui : vers le bas (deltaY > 0) elle monte, vers la droite
+        // (deltaX > 0) elle part à gauche. Le seuil s'atteint en cumulant `deckPullDistance` px.
+        const perCard = Math.max(80, config.deckPullDistance);
+        addDeckPull(tr, config, -dx / perCard, dy / perCard);
         tr.deckInputAt = now;
         return;
       }
@@ -2042,17 +2340,15 @@ export function PlayCanvas({
         const dy = e.clientY - lastY;
         lastX = e.clientX;
         lastY = e.clientY;
-        const isDesktopLayout = window.innerWidth >= 1024 && window.innerWidth >= window.innerHeight;
-        const moveDelta = isDesktopLayout ? dy : dx;
-        const pxPerCard = debug.current.transition.dragPxPerCard ?? 320;
+        const config = debug.current.transition;
+        const pxPerCard = config.dragPxPerCard ?? 320;
         const trd = runtime.current.transition;
         if (dragMoved.current && !trd.rewinding && performance.now() >= trd.deckLockUntil) {
-          // Glisser vers le haut = carte suivante, avec la même résistance que la molette.
-          trd.deckPullRaw -= moveDelta / pxPerCard;
+          // La carte suit le doigt, dans tous les sens, avec la même résistance que la molette :
+          // glisser un peu puis revenir en arrière la ramène.
+          addDeckPull(trd, config, dx / pxPerCard, -dy / pxPerCard);
           trd.deckInputAt = performance.now();
-          // Le geste donne aussi sa direction à la carte (elle suit le doigt).
-          trd.deckDrag.x += dx;
-          trd.deckDrag.y += dy;
+          trd.deckDragging = true;
         }
         return;
       }
@@ -2106,8 +2402,7 @@ export function PlayCanvas({
       ) {
         dragging = false;
         dragMoved.current = false;
-        runtime.current.transition.deckDrag.x = 0;
-        runtime.current.transition.deckDrag.y = 0;
+        runtime.current.transition.deckDragging = false;
         return;
       }
       if (dragging && dragMoved.current && recent.length >= 2) {
@@ -2174,7 +2469,7 @@ export function PlayCanvas({
         e.preventDefault();
         const rc = runtime.current;
         const selIndex = rc.selected >= 0 ? rc.selected : 0;
-        startPlayback(rc, selIndex);
+        startPlayback(rc, selIndex, startDeckOf(tile?.points[selIndex]?.artifactIndex));
         if (tile?.points[selIndex]) {
           handleStartSelect(tile.points[selIndex].artifactIndex, {
             ...tile.points[selIndex],
@@ -2204,7 +2499,11 @@ export function PlayCanvas({
       if (e.key === "Enter") {
         if (e.repeat) return;
         e.preventDefault();
-        applyKeyDownEnter(runtime.current, points);
+        applyKeyDownEnter(
+          runtime.current,
+          points,
+          startDeckOf(points[runtime.current.selected]?.artifactIndex),
+        );
         const selIndex = runtime.current.selected;
         const pt = points[selIndex];
         if (pt) {
@@ -2226,17 +2525,7 @@ export function PlayCanvas({
         const tr = rc.transition;
         // Pendant un rewind, les gestes ne conduisent plus rien (comme la molette).
         if (tr.rewinding) return;
-        const next = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : -1;
-        // Au clavier, pas de curseur ni de drag pour viser : la carte part tout
-        // droit, vers le haut en avançant (comme un cran de molette vers le bas),
-        // vers le bas en reculant. Sans ça elle repartait avec le cap périmé du
-        // dernier geste. Le cap n'est posé qu'à l'arrêt : une carte déjà en vol
-        // garde le sien, sinon elle sauterait de l'autre côté.
-        if (Math.abs(tr.columnScrollY - tr.targetColumnScrollY) < 0.05) {
-          tr.deckAimCommit.x = 0;
-          tr.deckAimCommit.y = next;
-        }
-        tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + next;
+        stepDeckByKey(tr, debug.current.transition, dir[0], dir[1]);
         return;
       }
       if (rc.transition.phase !== "idle") return;
@@ -2262,14 +2551,17 @@ export function PlayCanvas({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [tile, isDetailVisible, handleCloseDetail, handleStartSelect]);
+  }, [tile, isDetailVisible, handleCloseDetail, handleStartSelect, startDeckOf]);
 
   return (
     <div
       id="play-surface"
       data-lenis-prevent
+      // « in » : page affichée ; « out » : sortie en cours (encore rendue) ; « off » :
+      // masquée, rendu en pause. L'animation est dans globals.css.
+      data-presence={active ? "in" : shown ? "out" : "off"}
       aria-hidden={!active}
-      className={`fixed inset-0 bg-white ${active ? "" : "invisible pointer-events-none"}`}
+      className="fixed inset-0 bg-white"
     >
       <PlayLoader isReady={isReady} />
 
@@ -2280,9 +2572,9 @@ export function PlayCanvas({
         {isCalculated && tile && tile.points.length > 0 && (
           <Canvas
             flat
-            // Hors /play : plus aucune frame, mais la scène (contexte WebGL,
-            // textures, layout) reste intacte pour le retour.
-            frameloop={active ? "always" : "never"}
+            // Hors /play (une fois la sortie jouée) : plus aucune frame, mais la
+            // scène (contexte WebGL, textures, layout) reste intacte pour le retour.
+            frameloop={shown ? "always" : "never"}
             orthographic
             dpr={[1, 1.5]}
             camera={{ position: [0, 0, 100], zoom: CAMERA_ZOOM, near: 0.1, far: 1000 }}
@@ -2327,7 +2619,16 @@ export function PlayCanvas({
               debug={debug}
               runtime={runtime}
               dragMoved={dragMoved}
+              covers={covers}
               onStartSelect={handleStartSelect}
+            />
+            <HoverCountDriver
+              runtime={runtime}
+              debug={debug}
+              points={tile.points}
+              counts={mediaCounts}
+              pillRef={hoverCountPillRef}
+              labelRef={hoverCountLabelRef}
             />
             {selectedArtifactIndex !== null && principalPoint && primaryMedia && (
               <SecondaryGalleryPlanes
@@ -2338,6 +2639,7 @@ export function PlayCanvas({
                 debug={debug}
                 gap={32}
                 onFocusMedia={loadPalette}
+                onKeepCover={handleKeepCover}
                 weightsRef={deckWeightsRef}
               />
             )}
@@ -2357,6 +2659,10 @@ export function PlayCanvas({
           </Canvas>
         )}
       </div>
+
+      {/* Pastille du nombre de médias au survol d'une carte : placée par HoverCountDriver
+          (dans le Canvas), sous le curseur et le side panel. */}
+      <HoverCountPill pillRef={hoverCountPillRef} labelRef={hoverCountLabelRef} />
 
       {/* Side panel : posé à droite, décollé du haut, bord léger, sans ombre,
           grand arrondi en haut à gauche. Fond dégradé teinté par le média au

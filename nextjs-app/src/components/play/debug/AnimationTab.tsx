@@ -3,6 +3,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { button, buttonGroup, folder, useControls } from "leva";
 import type { PlayDebugRef, PlayRuntimeState } from "../PlayCanvas";
+import { STACK_DEPTH_MAX } from "../transition-presets";
 import { easingControl, num, toggle, trackControls } from "./controls";
 
 type RuntimeRef = RefObject<PlayRuntimeState> | undefined;
@@ -13,12 +14,13 @@ function applyFreeze(runtime: RuntimeRef, freeze: { on: boolean; value: number }
   if (rc) rc.transition.deckFreeze = freeze.on ? freeze.value : null;
 }
 
-/** Simule un geste complet vers la carte suivante / précédente (vue détail uniquement). */
-function stepCard(runtime: RuntimeRef, dir: 1 | -1) {
+/** Simule un geste complet vers la carte suivante, la carte partant vers le haut (vue détail uniquement ; le deck ne recule pas). */
+function stepCard(runtime: RuntimeRef) {
   const rc = runtime?.current;
   if (!rc || rc.transition.phase !== "isolated") return;
   rc.transition.deckLockUntil = 0;
-  rc.transition.deckPullRaw = dir * 1.001;
+  rc.transition.deckPullVec.x = 0;
+  rc.transition.deckPullVec.y = 1.001;
   rc.transition.deckInputAt = performance.now();
 }
 
@@ -68,8 +70,7 @@ export function AnimationTab({
         "Rejouer le survol": () => replayHover(runtime, hover.waveDuration * 1000 + 700),
       }),
       "Carte suivante": buttonGroup({
-        "Precedente": () => stepCard(runtime, -1),
-        "Suivante": () => stepCard(runtime, 1),
+        "Suivante": () => stepCard(runtime),
       }),
       playbackSpeed: {
         label: "Vitesse de lecture",
@@ -89,9 +90,9 @@ export function AnimationTab({
         },
       },
       freezeValue: {
-        label: "Traction maintenue (-1 a 1)",
+        label: "Traction maintenue (0 a 1)",
         value: 0.6,
-        min: -1,
+        min: 0,
         max: 1,
         step: 0.01,
         onChange: (v: number) => {
@@ -106,6 +107,11 @@ export function AnimationTab({
         hoverScale: num(hover, "scale", { label: "Grossissement", min: 0, max: 0.2, step: 0.005 }),
         hoverRotate: num(hover, "rotate", { label: "Rotation max (deg)", min: 0, max: 8, step: 0.1 }),
         hoverSpeed: num(hover, "speed", { label: "Vitesse", min: 2, max: 30, step: 0.5 }),
+        hoverCountOpacity: num(hover, "countOpacity", { label: "Pastille medias: opacite (0 = off)", min: 0, max: 1, step: 0.05 }),
+        hoverCountMin: num(hover, "countMin", { label: "Pastille medias: des N medias", min: 1, max: 5, step: 1 }),
+        hoverCountInset: num(hover, "countInset", { label: "Pastille medias: retrait du coin (px)", min: 0, max: 40, step: 1 }),
+        hoverCountScale: num(hover, "countScale", { label: "Pastille medias: taille (x)", min: 0.6, max: 2, step: 0.05 }),
+        hoverCountSpeed: num(hover, "countSpeed", { label: "Pastille medias: vitesse", min: 2, max: 40, step: 0.5 }),
       },
       { collapsed: true },
     ),
@@ -160,25 +166,31 @@ export function AnimationTab({
             twistSettleStart: num(tr, "twistSettleStart", { label: "Fin du tortillement : debut (s apres la vague)", min: -2, max: 1, step: 0.05 }),
             twistSettle: num(tr, "twistSettle", { label: "Fin du tortillement : duree du retour a plat (s)", min: 0.05, max: 3, step: 0.05 }),
             twistSettleEasing: easingControl(tr, "twistSettleEasing", "Fin du tortillement : courbe (easeInOut = doux)"),
-            twistSettleBlend: num(tr, "twistSettleBlend", { label: "Fin du tortillement : detachement ajoute au gonflement (0 = le plus grand, 1 = somme)", min: 0, max: 1, step: 0.05 }),
           },
           { collapsed: true },
         ),
         "5 Cascade et cadrage": folder(
           {
-            lockScalePunch: num(tr, "lockScalePunch", { label: "Detachement artifact", min: 0, max: 0.4, step: 0.005 }),
+            lockScalePunch: num(tr, "lockScalePunch", { label: "Punch d arrivee : toute la pile gonfle de (0.14 = +14 %, 0 = aucun)", min: 0, max: 0.6, step: 0.005 }),
+            lockPunchAttack: num(tr, "lockPunchAttack", { label: "Punch : part de la piste lock passee a monter (petit = coup sec)", min: 0.05, max: 0.6, step: 0.01 }),
             ...trackControls(tr, "lock", 2, 2),
             ...trackControls(tr, "reveal", 3, 3),
             ...trackControls(tr, "columnFade", 4, 3),
             ...trackControls(tr, "dezoom", 6, 5),
             detailZoom: num(tr, "detailZoom", { label: "Zoom final (x base)", min: 0.5, max: 4, step: 0.05 }),
+            "Arrivee (recul puis zoom)": folder({
+              arrivalDip: num(tr, "arrivalDip", { label: "Recul de la camera des que le pack est charge (part du zoom, 0 = aucun)", min: 0, max: 0.6, step: 0.01 }),
+              arrivalStart: num(tr, "arrivalStart", { label: "Recul : retard apres le chargement (s, borne a 60 % de la fenetre)", min: 0, max: 1, step: 0.05 }),
+              arrivalEasing: easingControl(tr, "arrivalEasing", "Recul : courbe (easeInOut = doux)"),
+            }),
             Layers: folder({
-              stackDepth: num(tr, "stackDepth", { label: "Layers visibles dessous", min: 0, max: 8, step: 1 }),
+              stackDepth: num(tr, "stackDepth", { label: "Layers visibles dessous (la pile boucle)", min: 0, max: STACK_DEPTH_MAX, step: 1 }),
               stackOpacity: num(tr, "stackOpacity", { label: "Opacite du 1er layer", min: 0, max: 1, step: 0.01 }),
               stackOpacityFalloff: num(tr, "stackOpacityFalloff", { label: "Decroissance par layer", min: 0, max: 1, step: 0.01 }),
               stackSaturation: num(tr, "stackSaturation", { label: "Saturation des layers dessous (1 = couleurs d origine)", min: 0, max: 1, step: 0.01 }),
               stackPeek: num(tr, "stackPeek", { label: "Decalage vers le bas (px)", min: 4, max: 80, step: 1 }),
               stackScale: num(tr, "stackScale", { label: "Echelle par layer", min: 0.5, max: 1, step: 0.01 }),
+              stackDrop: num(tr, "stackDrop", { label: "Depart des layers a l arrivee (0 = bord bas de la carte, 1 = centres derriere elle)", min: 0, max: 1, step: 0.05 }),
             }),
           },
           { collapsed: true },
@@ -205,6 +217,8 @@ export function AnimationTab({
             rewindStagger: num(tr, "rewindStagger", { label: "Rewind clean : decalage entre carte, camera et mosaique (0 = ensemble)", min: 0, max: 1, step: 0.05 }),
             rewindCalm: num(tr, "rewindCalm", { label: "Rewind : calme (coupe vague, torsion et eclats ; 1 = aucun)", min: 0, max: 1, step: 0.05 }),
             rewindLayerFade: num(tr, "rewindLayerFade", { label: "Rewind : disparition des cartes derriere (s)", min: 0.02, max: 1.5, step: 0.01 }),
+            rewindKeepCover: toggle(tr, "rewindKeepCover", "Rewind : la carte gardee reste en couverture de la tuile (decoche = elle se fond dans la tuile)"),
+            rewindPullRelease: num(tr, "rewindPullRelease", { label: "Rewind : relachement de la traction de la carte (0 = d un coup)", min: 0, max: 30, step: 0.5 }),
             exit_duration: num(tr.exit, "duration", { label: "Sortie vue detail (s)", min: 0.1, max: 3, step: 0.05 }),
             exit_easing: easingControl(tr.exit, "easing", "Easing de sortie"),
             repulseReturnDelay: num(tr, "repulseReturnDelay", { label: "Retard de la mosaique (s)", min: 0, max: 1.5, step: 0.05 }),
@@ -233,14 +247,20 @@ export function AnimationTab({
         dragPxPerCard: num(tr, "dragPxPerCard", { label: "Distance pour passer (px de drag)", min: 100, max: 1200, step: 10 }),
         deckResist: num(tr, "deckResist", { label: "Resistance (courbe)", min: 1, max: 6, step: 0.1 }),
         deckLift: num(tr, "deckLift", { label: "Course de la carte (px)", min: 0, max: 300, step: 1 }),
-        deckRelease: num(tr, "deckRelease", { label: "Retour si on lache (vitesse)", min: 1, max: 30, step: 0.5 }),
-        deckHold: num(tr, "deckHold", { label: "Delai avant retour (s)", min: 0, max: 1, step: 0.01 }),
-        deckAimMix: num(tr, "deckAimMix", { label: "Direction : visee curseur/geste (0 = tout droit)", min: 0, max: 1, step: 0.01 }),
+        deckRelease: num(tr, "deckRelease", { label: "Retour si on lache (vitesse ; 0 = la carte reste ou on l a laissee, on peut revenir en sens inverse)", min: 0, max: 30, step: 0.5 }),
+        deckHold: num(tr, "deckHold", { label: "Delai avant retour (s, sans effet si la vitesse de retour est 0)", min: 0, max: 1, step: 0.01 }),
+        deckAimMix: num(tr, "deckAimMix", { label: "Courbure de la trajectoire vers le curseur (0 = droit devant)", min: 0, max: 1, step: 0.01 }),
+        deckInvertX: toggle(tr, "deckInvertX", "Inverser l axe horizontal (molette, drag, fleches)"),
+        deckInvertY: toggle(tr, "deckInvertY", "Inverser l axe vertical (molette, drag, fleches)"),
         deckThrow: num(tr, "deckThrow", { label: "Distance de lancer (px)", min: 0, max: 600, step: 5 }),
         deckSpin: num(tr, "deckSpin", { label: "Rotation de la carte lancee (deg)", min: 0, max: 45, step: 0.5 }),
-        deckTilt: num(tr, "deckTilt", { label: "Inclinaison souris : carte + layers (deg)", min: -25, max: 25, step: 0.5 }),
-        deckTiltLayerGain: num(tr, "deckTiltLayerGain", { label: "Inclinaison des layers (gain par niveau)", min: -1, max: 2, step: 0.05 }),
-        deckTiltSmooth: num(tr, "deckTiltSmooth", { label: "Inclinaison : raideur", min: 1, max: 30, step: 0.5 }),
+        "Rotation 3D de la pile (souris)": folder({
+          deckTilt: num(tr, "deckTilt", { label: "Rotation max du groupe (deg, le cote du curseur recule ; negatif = inverse, 0 = a plat)", min: -25, max: 25, step: 0.5 }),
+          deckTiltSmooth: num(tr, "deckTiltSmooth", { label: "Raideur du suivi de la souris", min: 1, max: 30, step: 0.5 }),
+          stackDepthZ: num(tr, "stackDepthZ", { label: "Ecart en profondeur entre layers (px, 0 = pas de parallaxe)", min: 0, max: 120, step: 1 }),
+          stackPerspective: num(tr, "stackPerspective", { label: "Perspective de chaque carte (0 = rotation sans trapeze)", min: 0, max: 1.5, step: 0.05 }),
+          deckTiltLayerGain: num(tr, "deckTiltLayerGain", { label: "Inclinaison propre aux layers profonds (gain par niveau, 0 = rigides)", min: -1, max: 2, step: 0.05 }),
+        }),
         deckDissolve: num(tr, "deckDissolve", { label: "Evanouissement (courbe)", min: 0.5, max: 6, step: 0.1 }),
         stepCooldown: num(tr, "stepCooldown", { label: "Verrou apres changement (s)", min: 0, max: 2, step: 0.05 }),
         detailScrollDamping: num(tr, "detailScrollDamping", { label: "Vitesse du changement", min: 2, max: 30, step: 0.5 }),

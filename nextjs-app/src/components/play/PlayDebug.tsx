@@ -17,7 +17,7 @@ import { MediaTab } from "./debug/MediaTab";
 import { StyleTab } from "./debug/StyleTab";
 import { TimelineBar } from "./debug/TimelineBar";
 
-const STORAGE_KEY = "play-debug-v38";
+const STORAGE_KEY = "play-debug-v43";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -32,11 +32,11 @@ const TABS: { id: DebugTab; label: string }[] = [
 ];
 
 const TAB_KEYWORDS: Record<DebugTab, string[]> = {
-  global: ["camera", "zoom", "pan", "inertia", "friction", "dezoom", "motion", "blur", "fisheye", "cursor", "curseur", "trail", "trainee", "rotate", "inclinaison"],
+  global: ["camera", "zoom", "pan", "inertia", "friction", "dezoom", "motion", "blur", "fisheye", "cursor", "curseur", "trail", "trainee", "rotate", "inclinaison", "apparition", "disparition", "entree", "sortie", "navigation"],
   media: ["media", "width", "height", "scale", "variance", "radius", "border", "corner", "smoothing", "rotation", "range", "contour", "ombre", "shadow", "epaisseur", "decalage", "soulevement"],
   canvas: ["canvas", "layout", "gap", "repeat", "aspect", "seed", "iterations", "background", "points", "dots", "parallax"],
   style: ["style", "prism", "vague", "wave", "glow", "lumiere", "irisation", "opacite", "eclats", "shard", "pixels", "degrade", "panel", "lentille", "aplat", "flat", "carres", "taille", "blanc", "gris", "gray", "radius", "arrondi", "coins", "densite", "nombre", "pastille", "play", "nav", "couleurs", "page"],
-  animation: ["animation", "survol", "hover", "ouverture", "transition", "approche", "burst", "attente", "cascade", "layers", "retour", "carte", "deck", "traction", "rejouer", "detail", "panneau", "easing", "duration", "tortillement", "torsion", "vague", "fond", "ambiance", "atmosphere", "pixels"],
+  animation: ["animation", "survol", "hover", "ouverture", "transition", "approche", "burst", "attente", "cascade", "layers", "retour", "carte", "deck", "traction", "rejouer", "detail", "panneau", "easing", "duration", "tortillement", "torsion", "vague", "fond", "ambiance", "atmosphere", "pixels", "arrivee", "recul", "cadrage", "molette", "scroll", "drag", "inverser", "axe", "courbure", "rotation", "souris", "pile", "profondeur", "parallaxe", "perspective", "inclinaison", "punch", "gonfle", "depart", "pastille", "compteur", "medias", "nombre"],
 };
 
 function loadSavedTab(): DebugTab {
@@ -117,7 +117,7 @@ const LEVA_THEME = {
   },
   sizes: {
     rootWidth: "100%",
-    controlWidth: "175px",
+    controlWidth: "210px",
     numberInputMinWidth: "44px",
     rowHeight: "26px",
     folderTitleHeight: "24px",
@@ -259,7 +259,7 @@ export function PlayDebug({
       {/* Sleek Floating Debug Panel: Header (2 lines) + Leva Controls Area */}
       <div
         id="leva__root"
-        className="fixed top-3 right-3 z-[999999] flex flex-col w-[392px] max-h-[calc(100vh-24px)] pointer-events-auto select-none rounded-xl border border-white/10 bg-[#141414]/95 backdrop-blur-md shadow-2xl overflow-hidden"
+        className="fixed top-3 right-3 z-[999999] flex flex-col w-[min(620px,calc(100vw-24px))] max-h-[calc(100vh-24px)] pointer-events-auto select-none rounded-xl border border-white/10 bg-[#141414]/95 backdrop-blur-md shadow-2xl overflow-hidden"
       >
         {/* Line 1: 6 Segmented Tabs */}
         <div className="flex items-center gap-1 p-1.5 border-b border-white/5 bg-white/[0.02]">

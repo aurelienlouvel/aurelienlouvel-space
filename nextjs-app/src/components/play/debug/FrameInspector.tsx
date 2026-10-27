@@ -30,15 +30,24 @@ const CHANNELS: Channel[] = [
   { id: "fx", label: "eclats (intensite)", group: "Ouverture", min: 0, max: 2, read: (rc) => rc.transition.frame.fx },
   { id: "wave", label: "vague", group: "Ouverture", min: 0, max: 1, read: (rc) => rc.transition.frame.waveProgress },
   { id: "scale", label: "tuile (echelle)", group: "Ouverture", min: 0.9, max: 1.4, read: (rc) => rc.transition.frame.tileScale },
+  { id: "punch", label: "punch de la pile (gonflement)", group: "Ouverture", min: 0, max: 0.4, read: (rc) => rc.transition.frame.punch },
   { id: "roll", label: "tuile (rotation)", group: "Ouverture", min: -0.3, max: 0.3, read: (rc) => rc.transition.frame.tileRoll },
   { id: "rest", label: "rotation repos", group: "Ouverture", min: 0, max: 1, read: (rc) => rc.transition.frame.rest },
   { id: "reveal", label: "ouverture de la carte", group: "Ouverture", min: 0, max: 1, read: (rc) => rc.transition.frame.reveal },
   { id: "layers", label: "layers (opacite)", group: "Ouverture", min: 0, max: 1, read: (rc) => rc.transition.frame.columnOpacity },
 
-  { id: "pullRaw", label: "traction (geste)", group: "Carte suivante", min: -1, max: 1, read: (rc) => rc.transition.deckPullRaw },
-  { id: "pullShown", label: "traction (carte)", group: "Carte suivante", min: -1, max: 1, read: (rc) => rc.transition.deckPullShown },
+  { id: "pullRaw", label: "traction (geste)", group: "Carte suivante", min: 0, max: 1, read: (rc) => rc.transition.deckPullRaw },
+  { id: "pullShown", label: "traction (carte)", group: "Carte suivante", min: 0, max: 1, read: (rc) => rc.transition.deckPullShown },
   { id: "deckFx", label: "eclats (carte)", group: "Carte suivante", min: 0, max: 1, read: (rc) => rc.transition.deckFx.intensity },
-  { id: "col", label: "position du deck", group: "Carte suivante", min: -3, max: 3, read: (rc) => rc.transition.columnScrollY },
+  // Le deck ne recule jamais : sa position ne fait que croître, on en lit la part du pas en cours.
+  {
+    id: "col",
+    label: "deck (part du pas)",
+    group: "Carte suivante",
+    min: 0,
+    max: 1,
+    read: (rc) => rc.transition.columnScrollY - Math.floor(rc.transition.columnScrollY),
+  },
 ];
 
 const HISTORY = 96;

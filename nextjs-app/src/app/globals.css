@@ -422,6 +422,42 @@ body.body-project {
     }
 }
 
+/* ─── /play : apparition et disparition de la page ──────────────────────────
+   La scène 3D vit dans le layout (PlayHost) : elle ne change pas avec la route et
+   ne passe donc pas par les <ViewTransition> ci-dessus. `data-presence`, posé par
+   PlayCanvas, suit la route : « in » (page affichée), « out » (sortie en cours, la
+   scène est encore rendue), « off » (masquée, rendu en pause).
+   Entrée : léger zoom + fondu, y compris à la première visite, où la surface naît
+   (`@starting-style` lui donne son point de départ). Sortie : léger dézoom + fondu
+   par-dessus la page qui arrive, déjà cliquable (pointer-events: none). Même courbe
+   que les autres pages ; durées et zoom viennent du debug (Global > Transition de
+   page) : PlayCanvas pose ces variables sur <html> à chaque changement de route et
+   les ramène à 0 sous prefers-reduced-motion. Les valeurs de repli (650 ms, 0.96)
+   ne servent que si elles manquent. */
+#play-surface {
+    transform-origin: 50% 50%;
+    transition:
+        opacity var(--play-enter-ms, 650ms) var(--view-transition-ease),
+        transform var(--play-enter-ms, 650ms) var(--view-transition-ease);
+}
+@starting-style {
+    #play-surface {
+        opacity: 0;
+        transform: scale(var(--play-page-scale, 0.96));
+    }
+}
+#play-surface:not([data-presence="in"]) {
+    opacity: 0;
+    transform: scale(var(--play-page-scale, 0.96));
+    visibility: hidden;
+    pointer-events: none;
+    /* `visibility` ne bascule qu'à la fin de la sortie, pas au début. */
+    transition:
+        opacity var(--play-exit-ms, 650ms) var(--view-transition-ease),
+        transform var(--play-exit-ms, 650ms) var(--view-transition-ease),
+        visibility 0s linear var(--play-exit-ms, 650ms);
+}
+
 /* Coins lissés façon Apple (« squircle ») sur tous les éléments arrondis.
    --da-corner-k pilote l'exposant : 1 = arc de cercle, 2 = squircle complet ;
    1.53 correspond à un lissage de 32 %. Le debug de /play le règle en direct. */
@@ -443,9 +479,9 @@ body.body-project {
   --da-mint: #8ff0d8;
   --da-apricot: #ffd6a0;
   --da-ink: #4a6cff;
-  /* Rayon des coins d'un pixel, en fraction de son côté (DA_RADIUS dans lib/da.ts ;
-     le debug de /play l'écrase en direct). */
-  --da-radius: 0%;
+  /* Rayon des coins d'un pixel, en fraction de son côté (DA_RADIUS dans lib/da.ts :
+     0.16, soit 16 % ; le debug de /play l'écrase en direct). */
+  --da-radius: 16%;
   /* Pastille « play » : irisation (0 = gris neutre, 1 = les reflets de la vague de survol des
      cartes) et force du champ au repos et de la vague, déjà multipliées par le gain que
      l'irisation rend aux reflets (daIridGain). Les mêmes valeurs que DA_DEFAULTS : la
@@ -474,7 +510,7 @@ body.body-project {
 .ld-cell {
   width: var(--ld-cell, 2rem);
   height: var(--ld-cell, 2rem);
-  border-radius: var(--da-radius, 0%);
+  border-radius: var(--da-radius, 16%);
   /* La première déclaration est le repli d'un navigateur sans color-mix : le reflet seul. */
   background-color: var(--c, rgb(24 24 27));
   background-color: color-mix(
@@ -517,7 +553,7 @@ body.body-project {
 }
 
 .da-cell {
-  border-radius: var(--da-radius, 0%);
+  border-radius: var(--da-radius, 16%);
   /* La première déclaration est le repli d'un navigateur sans color-mix : le reflet seul. */
   background-color: var(--c, rgb(24 24 27));
   background-color: color-mix(
@@ -557,7 +593,7 @@ body.body-project {
 }
 
 .pg-cell {
-  border-radius: var(--da-radius, 0%);
+  border-radius: var(--da-radius, 16%);
   opacity: 0;
   background-color: var(--da-rose);
 }
@@ -683,6 +719,17 @@ html[data-play-cursor] * {
 html[data-play-cursor] #leva__root,
 html[data-play-cursor] #leva__root * {
   cursor: auto !important;
+}
+
+/* Debug de /play : les libellés des réglages passent à la ligne au lieu d'être coupés
+   par « … » (certains font plus de 500 px). Hors `@layer` exprès : les styles de Leva
+   n'y sont pas, et seul un style hors couche passe devant les leurs. */
+#leva__root label {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
 
 /* Les couleurs du dégradé du side panel de /play s'animent entre deux médias. */

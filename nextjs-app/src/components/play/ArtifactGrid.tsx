@@ -15,6 +15,7 @@ import {
 } from "./PlayCanvas";
 import type { LayoutPoint, LayoutTile } from "./layout-types";
 import { ArtifactPlane, type PlaneUniforms } from "./ArtifactPlane";
+import type { TileCover } from "./SecondaryGalleryPlanes";
 import { uniformsOf } from "./rounded-frame";
 import type { TransitionConfig } from "./transition-presets";
 import { REWIND_LAND_ZONE, rewindLandMix } from "./transition-timeline";
@@ -376,6 +377,7 @@ function stepKinematicMeshes(
 export function ArtifactGrid({
   textureUrls,
   mediaKinds,
+  covers,
   tile,
   debug,
   runtime,
@@ -384,6 +386,11 @@ export function ArtifactGrid({
 }: {
   textureUrls: string[];
   mediaKinds: MediaKind[];
+  /**
+   * Carte gardée par une tuile après qu'on a quitté son projet (indexée comme `textureUrls`) : la tuile
+   * montre alors ce média, rogné « cover » à sa forme, à la place de son premier média.
+   */
+  covers?: Record<number, TileCover | undefined>;
   tile: LayoutTile;
   debug: PlayDebugRef;
   runtime: PlayRuntimeRef;
@@ -473,7 +480,9 @@ export function ArtifactGrid({
     const rc = runtime.current;
     if (dragMoved.current || rc.transition.phase !== "idle") return;
     applySelect(rc, pointIndex, world, width, height);
-    startPlayback(rc, pointIndex);
+    // Une tuile qui garde une couverture rouvre sur cette carte : le deck démarre sur son média.
+    const point = points[pointIndex];
+    startPlayback(rc, pointIndex, point ? (covers?.[point.artifactIndex]?.mediaIndex ?? 0) : 0);
     if (points[pointIndex]) {
       posthog.capture("play_artifact_selected", {
         artifact_index: points[pointIndex].artifactIndex,
@@ -500,30 +509,35 @@ export function ArtifactGrid({
             }}
             position={[dx * TILE_W, dy * TILE_H, 0]}
           >
-            {points.map((point, i) => (
-              <PlaneBoundary key={i} url={textureUrls[point.artifactIndex]}>
-              <Suspense fallback={null}>
-                <ArtifactPlane
-                  url={textureUrls[point.artifactIndex]}
-                  kind={mediaKinds[point.artifactIndex]}
-                  x={point.x}
-                  y={point.y}
-                  width={point.width}
-                  height={point.height}
-                  debug={debug}
-                  runtime={runtime}
-                  meshRef={(mesh) => {
-                    if (!meshRefs.current[k]) meshRefs.current[k] = [];
-                    meshRefs.current[k][i] = mesh;
-                  }}
-                  onHoverChange={(hovering, world) =>
-                    handleHover(i, world, point.width, point.height, hovering)
-                  }
-                  onSelect={(world) => handleSelect(i, world, point.width, point.height)}
-                />
-              </Suspense>
-              </PlaneBoundary>
-            ))}
+            {points.map((point, i) => {
+              const cover = covers?.[point.artifactIndex];
+              const url = cover?.url ?? textureUrls[point.artifactIndex];
+              return (
+                <PlaneBoundary key={i} url={url}>
+                  <Suspense fallback={null}>
+                    <ArtifactPlane
+                      url={url}
+                      kind={cover?.kind ?? mediaKinds[point.artifactIndex]}
+                      mapRatio={cover?.ratio}
+                      x={point.x}
+                      y={point.y}
+                      width={point.width}
+                      height={point.height}
+                      debug={debug}
+                      runtime={runtime}
+                      meshRef={(mesh) => {
+                        if (!meshRefs.current[k]) meshRefs.current[k] = [];
+                        meshRefs.current[k][i] = mesh;
+                      }}
+                      onHoverChange={(hovering, world) =>
+                        handleHover(i, world, point.width, point.height, hovering)
+                      }
+                      onSelect={(world) => handleSelect(i, world, point.width, point.height)}
+                    />
+                  </Suspense>
+                </PlaneBoundary>
+              );
+            })}
           </group>
         );
       })}

@@ -138,3 +138,23 @@ export function uniformsOf<T>(material: Material | null): T | null {
 export function clampRadius(radius: number, width: number, height: number) {
   return Math.min(radius, Math.min(width, height) / 2);
 }
+
+/**
+ * Recadrage « cover » d'un média dans un cadre d'un autre ratio, comme `object-fit: cover`.
+ *
+ * Écrit dans `target` (le `uMapScale` du matériau) l'échelle à donner aux UV, centrés sur 0.5, pour que
+ * le média remplisse le cadre sans se déformer : le surplus est rogné sur la hauteur quand le cadre est
+ * plus large que le média, sur la largeur sinon. Continu en fonction du cadre (la carte qui rentre dans
+ * sa tuile s'ajuste image par image), et exactement (1, 1) quand les deux ratios sont égaux, donc une
+ * carte qui épouse son média ne bouge pas d'un pixel.
+ */
+export function setCoverScale(
+  target: { set(x: number, y: number): unknown },
+  rectRatio: number,
+  mediaRatio: number,
+) {
+  const k = rectRatio / Math.max(0.01, mediaRatio);
+  if (!(k > 0) || Math.abs(k - 1) < 0.0005) target.set(1, 1);
+  else if (k > 1) target.set(1, 1 / k);
+  else target.set(k, 1);
+}
