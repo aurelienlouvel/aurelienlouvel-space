@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
+import { withMotionStudio } from "motion-studio/next";
 
-const nextConfig: NextConfig = {
+// `satisfies` plutôt qu'une annotation : le type attendu par `withMotionStudio` n'accepte pas `NextConfig`
+// tel quel (son `turbopack` n'a pas de signature d'index), mais les clés restent vérifiées par Next.
+const nextConfig = {
   experimental: {
     viewTransition: true,
   },
@@ -31,6 +34,9 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-};
+} satisfies NextConfig;
 
-export default nextConfig;
+// Motion Studio (éditeur d'animations) : le wrapper ne s'active que sous `next dev`, les builds et
+// `next start` restent intacts. Il se complète du serveur Studio, à lancer à côté du serveur de dev :
+// `pnpm exec motion-studio serve` (http://localhost:5200).
+export default withMotionStudio(nextConfig);
