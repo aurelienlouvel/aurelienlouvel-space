@@ -19,6 +19,7 @@ import { uniformsOf } from "./rounded-frame";
 import type { TransitionConfig } from "./transition-presets";
 import { REWIND_LAND_ZONE, rewindLandMix } from "./transition-timeline";
 import { restRotation } from "./rest-rotation";
+import posthog from "posthog-js";
 
 /**
  * Isole un plane : si son média ne charge pas (404, CORS, réseau…), seul ce
@@ -474,6 +475,9 @@ export function ArtifactGrid({
     applySelect(rc, pointIndex, world, width, height);
     startPlayback(rc, pointIndex);
     if (points[pointIndex]) {
+      posthog.capture("play_artifact_selected", {
+        artifact_index: points[pointIndex].artifactIndex,
+      });
       onStartSelect?.(points[pointIndex].artifactIndex, {
         ...points[pointIndex],
         x: world.x,

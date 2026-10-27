@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import posthog from "posthog-js";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/Avatar";
 import { Icon } from "@/components/primitives/Icon";
 import type { Mate } from "@/sanity/queries";
@@ -46,10 +47,11 @@ export function MatesBlock({ mates }: { mates: Mate[] }) {
             style={{ zIndex: isHovered ? 10 : 1 }}
             onPointerEnter={() => setHoveredKey(mate._key)}
             onPointerLeave={() => setHoveredKey(null)}
-            onClick={() =>
-              person.linkedinUrl &&
-              window.open(person.linkedinUrl, "_blank", "noopener")
-            }
+            onClick={() => {
+              if (!person.linkedinUrl) return;
+              posthog.capture("mate_linkedin_clicked");
+              window.open(person.linkedinUrl, "_blank", "noopener");
+            }}
           >
             {/* Avatar */}
             <motion.div
