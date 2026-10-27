@@ -157,6 +157,10 @@ export function AnimationTab({
           {
             waveDuration: num(tr, "waveDuration", { label: "Duree (s)", min: 0.2, max: 3, step: 0.05 }),
             waveEasing: easingControl(tr, "waveEasing"),
+            twistSettleStart: num(tr, "twistSettleStart", { label: "Fin du tortillement : debut (s apres la vague)", min: -2, max: 1, step: 0.05 }),
+            twistSettle: num(tr, "twistSettle", { label: "Fin du tortillement : duree du retour a plat (s)", min: 0.05, max: 3, step: 0.05 }),
+            twistSettleEasing: easingControl(tr, "twistSettleEasing", "Fin du tortillement : courbe (easeInOut = doux)"),
+            twistSettleBlend: num(tr, "twistSettleBlend", { label: "Fin du tortillement : detachement ajoute au gonflement (0 = le plus grand, 1 = somme)", min: 0, max: 1, step: 0.05 }),
           },
           { collapsed: true },
         ),
@@ -172,6 +176,7 @@ export function AnimationTab({
               stackDepth: num(tr, "stackDepth", { label: "Layers visibles dessous", min: 0, max: 8, step: 1 }),
               stackOpacity: num(tr, "stackOpacity", { label: "Opacite du 1er layer", min: 0, max: 1, step: 0.01 }),
               stackOpacityFalloff: num(tr, "stackOpacityFalloff", { label: "Decroissance par layer", min: 0, max: 1, step: 0.01 }),
+              stackSaturation: num(tr, "stackSaturation", { label: "Saturation des layers dessous (1 = couleurs d origine)", min: 0, max: 1, step: 0.01 }),
               stackPeek: num(tr, "stackPeek", { label: "Decalage vers le bas (px)", min: 4, max: 80, step: 1 }),
               stackScale: num(tr, "stackScale", { label: "Echelle par layer", min: 0.5, max: 1, step: 0.01 }),
             }),
@@ -188,13 +193,33 @@ export function AnimationTab({
         "7 Retour": folder(
           {
             rewindDuration: num(tr, "rewindDuration", { label: "Rewind : duree de l ouverture (s)", min: 0.3, max: 6, step: 0.05 }),
+            rewindMode: {
+              label: "Rewind : facon (clean = chaque grandeur glisse vers le repos, film = l ouverture a l envers)",
+              value: tr.rewindMode,
+              options: ["clean", "film"],
+              onChange: (v: string) => {
+                tr.rewindMode = v === "film" ? "film" : "clean";
+              },
+            },
             rewindEasing: easingControl(tr, "rewindEasing", "Rewind : courbe (cinematique = easeInOut)"),
-            rewindDeckShare: num(tr, "rewindDeckShare", { label: "Rewind : part pour defaire les cartes", min: 0.05, max: 0.8, step: 0.01 }),
-            rewindDeckPerCard: num(tr, "rewindDeckPerCard", { label: "Rewind : duree par carte defaite (s)", min: 0, max: 1, step: 0.01 }),
+            rewindStagger: num(tr, "rewindStagger", { label: "Rewind clean : decalage entre carte, camera et mosaique (0 = ensemble)", min: 0, max: 1, step: 0.05 }),
+            rewindCalm: num(tr, "rewindCalm", { label: "Rewind : calme (coupe vague, torsion et eclats ; 1 = aucun)", min: 0, max: 1, step: 0.05 }),
+            rewindLayerFade: num(tr, "rewindLayerFade", { label: "Rewind : disparition des cartes derriere (s)", min: 0.02, max: 1.5, step: 0.01 }),
             exit_duration: num(tr.exit, "duration", { label: "Sortie vue detail (s)", min: 0.1, max: 3, step: 0.05 }),
             exit_easing: easingControl(tr.exit, "easing", "Easing de sortie"),
             repulseReturnDelay: num(tr, "repulseReturnDelay", { label: "Retard de la mosaique (s)", min: 0, max: 1.5, step: 0.05 }),
             cameraReturnDelay: num(tr, "cameraReturnDelay", { label: "Retard de la camera (s)", min: 0, max: 1, step: 0.02 }),
+          },
+          { collapsed: true },
+        ),
+        "8 Pixels de fond": folder(
+          {
+            ambientPixels: num(tr, "ambientPixels", { label: "Nombre (0 = aucun)", min: 0, max: 30, step: 1 }),
+            ambientOpacity: num(tr, "ambientOpacity", { label: "Opacite (discret = bas)", min: 0, max: 1, step: 0.01 }),
+            ambientSize: num(tr, "ambientSize", { label: "Taille max (unites monde)", min: 6, max: 120, step: 1 }),
+            ambientTravel: num(tr, "ambientTravel", { label: "Derive (unites monde)", min: 0, max: 600, step: 5 }),
+            ambientSpeed: num(tr, "ambientSpeed", { label: "Vitesse (cycles par s, 0.1 = 10 s de vie)", min: 0.02, max: 1, step: 0.01 }),
+            ambientFade: num(tr, "ambientFade", { label: "Apparition et changement de carte (s)", min: 0.05, max: 4, step: 0.05 }),
           },
           { collapsed: true },
         ),

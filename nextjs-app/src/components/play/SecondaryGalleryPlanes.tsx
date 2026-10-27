@@ -19,6 +19,7 @@ import type { PlayDebugRef, PlayRuntimeRef } from "./PlayCanvas";
 import { buildImageUrl } from "@/lib/sanity-image";
 import { fileRefToUrl, playMediaUrl } from "@/lib/sanity-utils";
 import { thumbnailRatio } from "@/lib/thumbnail-ratios";
+import { CardShadow } from "./CardShadow";
 import {
   attachUniforms,
   CARD_TILT_GLSL,
@@ -29,6 +30,7 @@ import {
   GLSL_PIXEL_WIDTH,
   uniformsOf,
 } from "./rounded-frame";
+import { rewindLandMix } from "./transition-timeline";
 
 type SecondaryGalleryPlanesProps = {
   gallery: ArtifactGalleryItem[];
@@ -66,6 +68,7 @@ type PlaneUniforms = {
   uDissolveIrid: IUniform<number>;
   uDissolveBias: IUniform<number>;
   uDissolveTime: IUniform<number>;
+  uSaturation: IUniform<number>;
 };
 
 const ROUNDING_PARS = /* glsl */ `
@@ -73,9 +76,11 @@ uniform vec2 uSize;
 uniform float uRadius;
 uniform float uMotionBlur;
 uniform vec2 uMotionBlurDir;
+// Cartes en retrait dans la pile : 1 = couleurs d'origine, 0 = noir et blanc.
+uniform float uSaturation;
 
-// Désagrégation d'une carte tirée : des zones rectangulaires de tailles variées
-// qui se pixellisent, s'irisent puis disparaissent, le bord qui mène d'abord.
+// Désagrégation d'une carte tirée : des zones carrées de tailles variées qui se
+// pixellisent (une couleur unie par zone), puis disparaissent, le bord qui mène d'abord.
 uniform float uDissolve;
 uniform vec2 uDissolveDir;
 uniform float uDissolveCols;
@@ -99,13 +104,14 @@ const MOTION_BLUR_MAP = /* glsl */ `
   float dissolveG = 0.0;
   float dissolveSeed = 0.0;
   if (uDissolve > 0.003) {
-    // Grille grossière, subdivisée au hasard (1×, 2×, 4×) et étirée : des rectangles de tailles et de formats variés.
-    vec2 cg = vec2(max(2.0, uDissolveCols), max(2.0, uDissolveCols) * 1.15);
+    // Grille grossière de cases carrées à l'écran (le nombre de lignes suit le format
+    // de la carte), subdivisée au hasard (1×, 2×, 4×) : des carrés de tailles variées.
+    float cols = max(2.0, uDissolveCols);
+    vec2 cg = vec2(cols, cols * uSize.y / uSize.x);
     vec2 cid = floor(vUv * cg);
     float h0 = dhash(cid);
     float sub = h0 < 0.34 ? 1.0 : (h0 < 0.7 ? 2.0 : 4.0);
-    float asp = 0.6 + dhash(cid + 7.1) * 1.4;
-    vec2 fg = cg * vec2(sub, sub * asp);
+    vec2 fg = cg * sub;
     vec2 fid = floor(vUv * fg);
     dissolveSeed = dhash(fid + cid * 3.7);
     // Le bord qui mène (côté de la visée) part en premier.
@@ -139,6 +145,10 @@ const MOTION_BLUR_MAP = /* glsl */ `
   #ifdef DECODE_VIDEO_TEXTURE
     sampledDiffuseColor = sRGBTransferEOTF( sampledDiffuseColor );
   #endif
+  if (uSaturation < 0.999) {
+    float satLuma = dot(sampledDiffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    sampledDiffuseColor.rgb = mix(vec3(satLuma), sampledDiffuseColor.rgb, max(uSaturation, 0.0));
+  }
   diffuseColor *= sampledDiffuseColor;
 #endif
 
@@ -162,10 +172,11 @@ function roundCorners(
     uDissolve: { value: 0 },
     uDissolveDir: { value: new Vector2(0, 1) },
     uDissolveCols: { value: 5 },
-    uDissolvePixel: { value: 0.8 },
-    uDissolveIrid: { value: 0.5 },
+    uDissolvePixel: { value: 1 },
+    uDissolveIrid: { value: 0 },
     uDissolveBias: { value: 0.45 },
     uDissolveTime: { value: 0 },
+    uSaturation: { value: 1 },
   } satisfies PlaneUniforms);
   parameters.fragmentShader = parameters.fragmentShader
     .replace("#include <common>", `#include <common>\n${ROUNDING_PARS}`)
@@ -184,7 +195,7 @@ function roundCorners(
 }
 
 function roundCornersCacheKey() {
-  return "play-secondary-planes-motion-blur-tilt-dissolve";
+  return "play-secondary-planes-motion-blur-tilt-dissolve-flat-tilt-square-saturation";
 }
 
 // ── Cache global de textures vidéo partagées (1 seul élément vidéo HTML5 par URL) ──
@@ -418,10 +429,15 @@ function GallerySlotPlane({
         color={activeTexture ? "#ffffff" : "#000000"}
         opacity={activeTexture ? 1 : 0}
         transparent
+        // Empilement au seul `renderOrder` (posé frame par frame sur le mesh) :
+        // à la profondeur, deux cartes inclinées voisines se découperaient.
+        depthTest={false}
+        depthWrite={false}
         defines={FRAME_DEFINES}
         onBeforeCompile={roundCorners}
         customProgramCacheKey={roundCornersCacheKey}
       />
+      <CardShadow debug={debug} />
     </mesh>
   );
 }
@@ -560,6 +576,9 @@ export function SecondaryGalleryPlanes({
   }, [onFocusMedia]);
   const tiltRef = useRef({ x: 0, y: 0 });
   const exitStartRef = useRef({ x: 0, y: 0, w: 0, h: 0, op: 1 });
+  // Retour : part (1 → 0) des cartes de la pile qui s'effacent derrière la gardée.
+  // Elle ne fait que baisser, pour qu'un second Échap ne les fasse pas réapparaître.
+  const layerFadeRef = useRef(1);
 
   // Entrées de poids partagées avec le dégradé du panneau (mutées en place).
   const weightEntries = useMemo(
@@ -578,6 +597,12 @@ export function SecondaryGalleryPlanes({
     const frame = tr.frame;
     // Aucune carte ne se décompose tant que la boucle ci-dessous ne l'a pas décidé.
     tr.deckFx.intensity = 0;
+    // Retour : le film d'ouverture se rejoue à l'envers, et seule la carte du dessus rentre.
+    const rewinding = tr.rewinding === true && tr.phase === "playing";
+    if (!rewinding) {
+      tr.keepOther = false;
+      layerFadeRef.current = 1;
+    }
 
     if (tr.phase !== "playing" && tr.phase !== "isolated" && tr.phase !== "returning") {
       group.visible = false;
@@ -610,6 +635,16 @@ export function SecondaryGalleryPlanes({
       : screenH * (cfg.mobileMediaHeightRatio ?? 0.34);
 
     const K = Math.max(1, uniqueCount);
+    // Au retour, la carte gardée est celle que le deck visait ; sinon, c'est le média de la tuile.
+    const keptI = rewinding ? ((Math.round(tr.rewindFromDeck) % K) + K) % K : 0;
+    tr.keepOther = rewinding && keptI !== 0;
+    if (rewinding) {
+      layerFadeRef.current = Math.max(
+        0,
+        layerFadeRef.current - delta / Math.max(0.02, cfg.rewindLayerFade ?? 0.25),
+      );
+    }
+    const layerFade = layerFadeRef.current * layerFadeRef.current * (3 - 2 * layerFadeRef.current);
     const widths: number[] = new Array(K);
     const heights: number[] = new Array(K);
     for (let m = 0; m < K; m++) {
@@ -660,6 +695,7 @@ export function SecondaryGalleryPlanes({
     const depthMax = cfg.stackDepth ?? 3;
     const stackOpacity = cfg.stackOpacity ?? 0.55;
     const stackFalloff = cfg.stackOpacityFalloff ?? 0.55;
+    const stackSaturation = Math.min(1, Math.max(0, cfg.stackSaturation ?? 1));
     // Tous les médias sont alignés par le BAS : une carte moins haute que la
     // première laisse quand même voir son bord inférieur, sous la pile.
     const baseBottom = principalPoint.y - heights[0] / 2;
@@ -667,6 +703,8 @@ export function SecondaryGalleryPlanes({
     const pullShown = tr.phase === "isolated" ? tr.deckPullShown : 0;
     const liftWorld = (cfg.deckLift ?? 70) / curZoom;
     let fxBest = 0;
+    // Plus petite profondeur |d| vue : la carte du dessus est celle à moins d'un demi-pas.
+    let topD = 0.5;
 
     // ── Visée : où la carte part ────────────────────────────────────────────
     // Entre « tout droit » et la direction du curseur (ou du drag), selon
@@ -688,8 +726,11 @@ export function SecondaryGalleryPlanes({
       ty /= tl;
       const mixAim = Math.min(1, Math.max(0, cfg.deckAimMix ?? 0.8));
       const straightY = pullShown < 0 ? -1 : 1;
+      // Le curseur règle le côté et l'inclinaison de la trajectoire, jamais son
+      // sens vertical : scroller vers le bas fait toujours monter la carte, même
+      // avec le curseur sous son centre (`ty < 0` l'aurait fait descendre).
       let mx = tx * mixAim;
-      let my = ty * mixAim + straightY * (1 - mixAim);
+      let my = straightY * (Math.abs(ty) * mixAim + (1 - mixAim));
       const ml = Math.hypot(mx, my) || 1;
       mx /= ml;
       my /= ml;
@@ -707,14 +748,20 @@ export function SecondaryGalleryPlanes({
     tiltRef.current.x += ((tiltOn ? -ny * tiltRad : 0) - tiltRef.current.x) * tk;
     tiltRef.current.y += ((tiltOn ? nx * tiltRad : 0) - tiltRef.current.y) * tk;
 
-    const mainStartW = Math.min(maxW, principalPoint.width * frame.tileScale);
-    const mainStartH = Math.min(maxH, principalPoint.height * frame.tileScale);
+    // La carte prend la place de la tuile à l'image près : elle part de sa taille
+    // réelle à l'écran, jamais plafonnée par `maxW` / `maxH`. Le plafond ne valait
+    // que pour une des deux cotes (la tuile zoomée dépasse `maxW` bien avant `maxH`),
+    // et la carte arrivait étroite et haute, écrasée d'un tiers au moment du
+    // remplacement. Le plafond s'applique à l'arrivée (`targetW` / `targetH`) :
+    // `reveal` y conduit la carte.
+    const mainStartW = principalPoint.width * frame.tileScale;
+    const mainStartH = principalPoint.height * frame.tileScale;
 
     pool.forEach((slot, s) => {
       const mesh = meshRefs.current[s];
       if (!mesh) return;
-      const isMain = s === 0;
       const i = slot.galleryIdx % K;
+      const isMain = i === keptI;
 
       // Profondeur cyclique signée : 0 = carte du dessus, >0 = derrière, <0 = partie.
       let d = i - deckPos;
@@ -731,6 +778,8 @@ export function SecondaryGalleryPlanes({
       let opacity = 1;
       let shade = 1;
       let roll = 0;
+      let twistX = 0;
+      let twistY = 0;
       let dissolve = 0;
       let dissolveX = 0;
       let dissolveY = 1;
@@ -765,17 +814,33 @@ export function SecondaryGalleryPlanes({
 
       if (isMain && !returning && tr.phase === "playing") {
         // Réveil : taille de tuile → taille de carte, sans fondu.
-        drawW = mainStartW + (targetW - mainStartW) * frame.reveal;
-        drawH = mainStartH + (targetH - mainStartH) * frame.reveal;
-        opacity = 1;
+        let startW = mainStartW;
+        let startH = mainStartH;
+        if (i !== 0) {
+          // Retour d'une carte qui n'est pas le média de la tuile : elle garde son
+          // ratio, inscrite dans la tuile (jamais étirée), puis se fond dans la tuile.
+          const fit = Math.min(mainStartW / targetW, mainStartH / targetH);
+          startW = targetW * fit;
+          startH = targetH * fit;
+        }
+        drawW = startW + (targetW - startW) * frame.reveal;
+        drawH = startH + (targetH - startH) * frame.reveal;
+        // Les cartes du deck sont alignées par le bas : celle-ci rejoint le centre de la tuile.
+        posY = principalPoint.y + (baseBottom + targetH / 2 - principalPoint.y) * frame.reveal;
+        opacity = i !== 0 ? rewindLandMix(frame.reveal) : 1;
       } else if (!isMain && tr.phase === "playing") {
-        // Cascade : les layers sortent l'un après l'autre de derrière la carte
-        // du dessus, en glissant vers le bas jusqu'à leur place.
-        const p = frame.columnOpacity * (depthMax + 1);
-        const cin = Math.max(0, Math.min(1, p - (Math.max(1, d) - 1)));
-        const eased = 1 - Math.pow(1 - cin, 3);
-        opacity *= cin;
-        posY += peek * Math.max(0, d) * (1 - eased);
+        if (rewinding) {
+          // Retour : le reste de la pile s'efface sur place, avant que la carte gardée ne bouge.
+          opacity *= layerFade;
+        } else {
+          // Cascade : les layers sortent l'un après l'autre de derrière la carte
+          // du dessus, en glissant vers le bas jusqu'à leur place.
+          const p = frame.columnOpacity * (depthMax + 1);
+          const cin = Math.max(0, Math.min(1, p - (Math.max(1, d) - 1)));
+          const eased = 1 - Math.pow(1 - cin, 3);
+          opacity *= cin;
+          posY += peek * Math.max(0, d) * (1 - eased);
+        }
       }
 
       if (returning) {
@@ -794,6 +859,19 @@ export function SecondaryGalleryPlanes({
       }
 
       weightEntries[i].w = returning ? 0 : weight * (tr.phase === "playing" ? frame.columnOpacity || 1 : 1);
+
+      // Carte du dessus : l'origine des pixels de fond. Prise avant la traction, pour que
+      // les pixels ne suivent pas la carte qu'on tire.
+      if (!rewinding && !returning && Math.abs(d) < topD) {
+        topD = Math.abs(d);
+        const top = tr.deckTop;
+        top.cx = posX;
+        top.cy = posY;
+        top.w = drawW;
+        top.h = drawH;
+        top.url = slot.url;
+        top.kind = slot.kind;
+      }
 
       if (tr.phase === "isolated") {
         // Traction : la carte du dessus monte d'autant plus qu'elle est proche du premier plan.
@@ -843,6 +921,14 @@ export function SecondaryGalleryPlanes({
         }
       }
 
+      // La torsion de l'ouverture n'est pas coupée au boom : elle s'éteint doucement
+      // (`twistSettle`) et la carte qui prend la place de la tuile la reprend telle quelle.
+      if (isMain && (returning || tr.phase === "playing")) {
+        roll += frame.tileRoll;
+        twistX = frame.tileTiltX;
+        twistY = frame.tileTiltY;
+      }
+
       const visible = opacity > 0.002;
       mesh.visible = visible;
       if (!visible) return;
@@ -858,21 +944,24 @@ export function SecondaryGalleryPlanes({
         if (uniforms?.uMotionBlur) uniforms.uMotionBlur.value = 0;
         // Les layers plus profonds s'inclinent un peu plus : un effet de parallaxe.
         const layerGain = 1 + (cfg.deckTiltLayerGain ?? 0) * Math.max(0, dv);
-        uniforms?.uCardTilt.value.set(tiltRef.current.x * layerGain, tiltRef.current.y * layerGain);
+        uniforms?.uCardTilt.value.set(tiltRef.current.x * layerGain + twistX, tiltRef.current.y * layerGain + twistY);
         if (uniforms) {
           uniforms.uDissolve.value = dissolve;
           uniforms.uDissolveDir.value.set(dissolveX, dissolveY);
           uniforms.uDissolveCols.value = cfg.deckCellCols ?? 5;
-          uniforms.uDissolvePixel.value = cfg.deckCellPixel ?? 0.8;
-          uniforms.uDissolveIrid.value = cfg.deckCellIrid ?? 0.5;
+          uniforms.uDissolvePixel.value = cfg.deckCellPixel ?? 1;
+          uniforms.uDissolveIrid.value = cfg.deckCellIrid ?? 0;
           uniforms.uDissolveBias.value = cfg.deckCellBias ?? 0.45;
           uniforms.uDissolveTime.value = (performance.now() / 1000) % 1000;
+          // Pack ouvert : seule la carte du dessus garde ses couleurs, celles des layers qui
+          // s'enfoncent derrière s'éteignent avec la profondeur (`dv` : continue pendant la traction).
+          uniforms.uSaturation.value = d >= 0 ? 1 + (stackSaturation - 1) * Math.min(1, dv) : 1;
         }
         mat.opacity = opacity;
         mat.color.setScalar(shade);
       }
 
-      if (weight > 0.05 && !returning && !notifiedRef.current.has(slot.url)) {
+      if (weight > 0.05 && !returning && !rewinding && !notifiedRef.current.has(slot.url)) {
         notifiedRef.current.add(slot.url);
         onFocusMediaRef.current?.({ url: slot.url, kind: slot.kind });
       }

@@ -1,77 +1,89 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { DA_SPECTRUM, daGradient, daHash } from "@/lib/da";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { daHash, daIrid } from "@/lib/da";
 
-/** Durée de l'envol final avant de démonter le loader (ms). */
-const OUT_DURATION_MS = 900;
-const RECT_COUNT = 30;
-const BAR_CELLS = 14;
+/** Durée du fondu final avant de démonter le loader (ms), un peu plus que sa transition. */
+const OUT_DURATION_MS = 800;
 
-type Phase = "loading" | "out" | "gone";
+/** Pas de la grille (px) ; le côté d'un pixel (2rem, `.ld-cell`) en occupe 80 %. */
+const PITCH = 40;
+/** Part des cases qui portent un pixel ; les autres restent blanches. */
+const SHARE = 0.5;
+/**
+ * Bornes de la force propre d'un pixel (son opacité à son maximum, avant le gain des reflets) :
+ * à peine plus que le champ de la pastille « play », dont les pixels sont quatre fois plus petits.
+ */
+const MIN_ALPHA = 0.05;
+const MAX_ALPHA = 0.11;
+/** Part de la largeur de la vague qui vient de la rangée : un front à peine penché. */
+const SLANT = 0.12;
+/** Les tours de palette (reflets de la vague de survol des cartes) de la gauche à la droite, puis du haut au bas. */
+const HUE_ACROSS = 0.8;
+const HUE_DOWN = 0.3;
+/** Écart de teinte (en tours) d'un pixel à l'autre : la grille ne dessine pas un dégradé trop lisse. */
+const HUE_JITTER = 0.08;
 
-type Rect = {
-  left: number;
-  top: number;
-  w: number;
-  h: number;
-  gradient: string;
-  alpha: number;
-  threshold: number;
-  twinkle: number;
-  delay: number;
-  blur: number;
-  ox: string;
-  oy: string;
+/** `hue` : le reflet irisé du pixel, que `--ld-irid` mêle ou non au gris. */
+type Cell = { key: number; col: number; row: number; x: number; a: number; hue: string };
+
+const subscribeResize = (onChange: () => void) => {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
 };
 
-// Nuage clairsemé de rectangles de formats variés, plus dense vers le centre.
-const RECTS: Rect[] = Array.from({ length: RECT_COUNT }, (_, i) => {
-  const bell = (a: number, b: number, c: number) => (a + b + c) / 3;
-  const left = Math.round((50 + (bell(daHash(i * 1.3), daHash(i * 2.9), daHash(i * 4.1)) - 0.5) * 120) * 10) / 10;
-  const top = Math.round((50 + (bell(daHash(i * 5.7), daHash(i * 6.1), daHash(i * 7.3)) - 0.5) * 110) * 10) / 10;
-  // Largeur log-uniforme 0.4–3.2rem, hauteur de 0.35 à 2.4× la largeur : de vrais rectangles.
-  const w = 0.4 * Math.pow(8, Math.pow(daHash(i * 8.9), 1.5));
-  const h = Math.max(0.3, w * (0.35 + daHash(i * 10.1) * 2.05));
-  return {
-    left,
-    top,
-    w: Math.round(w * 100) / 100,
-    h: Math.round(h * 100) / 100,
-    gradient: daGradient(i * 3.3),
-    alpha: 0.28 + daHash(i * 13.7) * 0.34,
-    // Ordre d'apparition mélangé : les rectangles surgissent partout, pas en balayage.
-    threshold: (i + daHash(i * 17.1) * 0.9) / RECT_COUNT,
-    twinkle: 2.8 + daHash(i * 19.3) * 3,
-    delay: daHash(i * 23.9) * 0.3,
-    // Les plus grands sont aussi les plus flous : une profondeur de champ.
-    blur: Math.round((0.3 + (w / 3.2) * 1.6) * 10) / 10,
-    ox: `${((left - 50) * 0.8).toFixed(1)}vw`,
-    oy: `${((top - 50) * 0.8).toFixed(1)}vh`,
-  };
-});
+/** Colonnes et rangées qui recouvrent la fenêtre (0 côté serveur : rien n'y est rendu). */
+function useViewportGrid() {
+  const cols = useSyncExternalStore(
+    subscribeResize,
+    () => Math.ceil(window.innerWidth / PITCH),
+    () => 0,
+  );
+  const rows = useSyncExternalStore(
+    subscribeResize,
+    () => Math.ceil(window.innerHeight / PITCH),
+    () => 0,
+  );
+  return { cols, rows };
+}
 
 /**
- * Chargement de /play : fond blanc, quelques rectangles de verre translucides
- * aux couleurs du spectre Prism qui surgissent au fil du chargement réel
- * (`loaded` / `total`), et une petite barre de cellules au centre. Quand tout
- * est prêt, les rectangles s'envolent vers l'extérieur, puis le loader se
- * démonte. HTML + CSS : transform/opacity seulement, donc fluide même quand le
- * thread principal décode les textures.
+ * Chargement de /play : fond blanc et, sur toute la page, le champ de pixels irisés de la
+ * pastille « play » de la nav que balaie sa vague de survol, à l'échelle de la page. Une
+ * vague va de la gauche vers la droite, puis une autre, jusqu'à ce que tout soit prêt
+ * (`isReady`) : le loader s'efface alors par fondu et se démonte. Pas de barre, pas de
+ * pourcentage. HTML + CSS : transform/opacity seulement (`ld-wave` dans `globals.css`),
+ * donc fluide même quand le thread principal décode les textures.
+ *
+ * Chaque pixel est un tirage de sa case (rangée, colonne) : agrandir la fenêtre en ajoute
+ * sans redistribuer les autres. Sa teinte, elle, suit sa place dans la page : la vague
+ * allume un dégradé qui va du rouge au bleu, comme les reflets de la vague des cartes.
  */
-export function PlayLoader({
-  loaded,
-  total,
-  isReady = false,
-}: {
-  loaded: number;
-  total: number;
-  isReady?: boolean;
-}) {
-  const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
-  const [phase, setPhase] = useState<Phase>("loading");
+export function PlayLoader({ isReady = false }: { isReady?: boolean }) {
+  const { cols, rows } = useViewportGrid();
+  const [phase, setPhase] = useState<"loading" | "out" | "gone">("loading");
 
-  // Tout est prêt : les rectangles s'envolent, puis le loader se démonte.
+  const cells = useMemo(() => {
+    const list: Cell[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (daHash(r * 131 + c * 7.3) >= SHARE) continue;
+        const across = c / Math.max(1, cols - 1);
+        const down = r / Math.max(1, rows - 1);
+        list.push({
+          key: r * 1000 + c,
+          col: c + 1,
+          row: r + 1,
+          x: Math.round((across * (1 - SLANT) + down * SLANT) * 1000) / 1000,
+          a: Math.round((MIN_ALPHA + daHash(r * 17.3 + c * 3.1 + 5) * (MAX_ALPHA - MIN_ALPHA)) * 1000) / 1000,
+          hue: daIrid(across * HUE_ACROSS + down * HUE_DOWN + (daHash(r * 5.7 + c * 2.3 + 9) - 0.5) * HUE_JITTER),
+        });
+      }
+    }
+    return list;
+  }, [cols, rows]);
+
+  // Tout est prêt : le loader s'efface, puis se démonte.
   if (isReady && phase === "loading") setPhase("out");
 
   useEffect(() => {
@@ -82,63 +94,32 @@ export function PlayLoader({
 
   if (phase === "gone") return null;
 
-  const out = phase === "out";
-  const progress = out ? 1 : percent / 100;
-  const lit = Math.round(progress * BAR_CELLS);
-
   return (
-    <div className="pointer-events-none fixed inset-0 z-40">
+    <div
+      aria-hidden="true"
+      className="pointer-events-none fixed inset-0 z-40 bg-white transition-opacity duration-700 ease-out"
+      style={{ opacity: phase === "out" ? 0 : 1 }}
+    >
       <div
-        className="absolute inset-0 bg-white transition-opacity duration-500 ease-out"
-        style={{ opacity: out ? 0 : 1, transitionDelay: out ? "0.35s" : "0s" }}
-      />
-
-      {RECTS.map((r, i) => {
-        const on = progress >= r.threshold;
-        return (
+        className="grid size-full place-items-center"
+        style={{
+          gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          gridTemplateRows: `repeat(${rows}, 1fr)`,
+        }}
+      >
+        {cells.map((c) => (
           <span
-            key={i}
-            className="ld-rect da-rect absolute rounded-[32%]"
-            data-on={on && !out ? "" : undefined}
-            data-out={out && on ? "" : undefined}
+            key={c.key}
+            className="ld-cell"
             style={{
-              left: `${r.left}%`,
-              top: `${r.top}%`,
-              width: `${r.w}rem`,
-              height: `${r.h}rem`,
-              backgroundImage: r.gradient,
-              ["--da-a" as string]: r.alpha.toFixed(2),
-              ["--da-delay" as string]: `${r.delay.toFixed(2)}s`,
-              ["--da-tw" as string]: `${r.twinkle.toFixed(2)}s`,
-              ["--da-blur" as string]: `${r.blur}px`,
-              ["--ox" as string]: r.ox,
-              ["--oy" as string]: r.oy,
+              gridColumn: c.col,
+              gridRow: c.row,
+              ["--x" as string]: c.x,
+              ["--a" as string]: c.a,
+              ["--c" as string]: c.hue,
             }}
           />
-        );
-      })}
-
-      <div
-        className="absolute inset-0 flex flex-col items-center justify-center gap-3 transition-opacity duration-300"
-        style={{ opacity: out ? 0 : 1 }}
-      >
-        <div className="flex gap-1">
-          {Array.from({ length: BAR_CELLS }, (_, i) => (
-            <span
-              key={i}
-              className="ld-cell block h-3 w-1.5 rounded-[32%]"
-              data-on={i < lit ? "" : undefined}
-              style={{
-                backgroundImage:
-                  i < lit
-                    ? `linear-gradient(180deg, ${DA_SPECTRUM[Math.floor((i / BAR_CELLS) * DA_SPECTRUM.length)]}, ${DA_SPECTRUM[Math.min(DA_SPECTRUM.length - 1, Math.floor((i / BAR_CELLS) * DA_SPECTRUM.length) + 1)]})`
-                    : undefined,
-                backgroundColor: i < lit ? undefined : "#eef1f8",
-              }}
-            />
-          ))}
-        </div>
-        <span className="text-xs tabular-nums text-zinc-400">{percent}%</span>
+        ))}
       </div>
     </div>
   );

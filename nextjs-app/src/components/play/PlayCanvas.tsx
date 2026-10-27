@@ -17,6 +17,7 @@ import { Canvas, events, useFrame } from "@react-three/fiber";
 import { Stats, useTexture } from "@react-three/drei";
 import type { OrthographicCamera } from "three";
 import { useActionBar } from "@/contexts/ActionBarContext";
+import { DA_RADIUS, daIridGain } from "@/lib/da";
 import { preloadArtifact } from "@/lib/preload-artifact";
 import { buildImageUrl } from "@/lib/sanity-image";
 import { fileRefToUrl, playMediaUrl } from "@/lib/sanity-utils";
@@ -27,13 +28,19 @@ import { formatMonth } from "@/lib/date-utils";
 import { RoleBlock } from "@/components/blocks/RoleBlock";
 import { DateAgo } from "@/components/blocks/DateAgo";
 import { paletteFromImageUrl, paletteFromVideo, type RGB } from "@/lib/dominant-color";
-import { usePanelGradient, type DeckWeight } from "./panel-gradient";
+import { PANEL_FALLBACK, usePanelGradient, type DeckWeight } from "./panel-gradient";
 import { getSharedVideoElement } from "./SecondaryGalleryPlanes";
 import { ArtifactGrid } from "./ArtifactGrid";
 import {
   SecondaryGalleryPlanes,
 } from "./SecondaryGalleryPlanes";
 import { resolveArtifactMedia } from "./artifact-media";
+import {
+  anchorShift,
+  cameraScreenSpeed,
+  dezoomForSpeed,
+  stepDezoom,
+} from "./camera-dezoom";
 import { dampTowards } from "./damp";
 import { FisheyeEffect } from "./FisheyeEffect";
 import {
@@ -45,9 +52,16 @@ import { containFit, type LayoutTile, type NeighborEntry } from "./layout-types"
 import { PlayLoader } from "./PlayLoader";
 import { CursorTrail } from "./CursorTrail";
 import { PlayCursor } from "./PlayCursor";
-import { ShardField, SHARD_DEFAULTS, type ShardParams, type ShardSource } from "./ShardField";
+import { SHADOW_DEFAULTS, type ShadowParams } from "./CardShadow";
+import {
+  AMBIENT_RENDER_ORDER,
+  ShardField,
+  SHARD_DEFAULTS,
+  type ShardParams,
+  type ShardSource,
+} from "./ShardField";
 import { CORNER_SMOOTHING } from "./rounded-frame";
-import { PanelPixels } from "./PanelPixels";
+import { PanelPixels, PANEL_PIXEL_DENSITY } from "./PanelPixels";
 import { SelectProgressOverlay } from "./SelectProgressOverlay";
 import {
   type TransitionConfig,
@@ -141,11 +155,11 @@ export const OVERLAY_DEFAULTS: SelectOverlayParams = {
   waveAmplitude: 0.15,
   waveFrequency: 6,
   waveSpeed: 2.6,
-  iridescence: 0.64,
+  iridescence: 1,
   baseOpacity: 0.64,
   glowIntensity: 1,
-  zoomBlur: 0.8,
-  zoomPunch: 0.48,
+  zoomBlur: 1.2,
+  zoomPunch: 0.8,
   bulge: 0.4,
   lensWidth: 0.4,
   lensTrail: 0,
@@ -174,8 +188,14 @@ export type CameraDebugParams = {
   speedDezoom: number;
   /** Vitesse d'écran (px/s) à partir de laquelle le dézoom est complet. */
   speedDezoomRef: number;
-  /** Réactivité du dézoom (par seconde) : plus haut = le zoom colle au mouvement. */
-  speedDezoomResponse: number;
+  /**
+   * Attaque du dézoom (par seconde) : la vitesse à laquelle il se creuse quand le
+   * mouvement s'accélère d'un coup (cran de molette). Le retour, lui, est lié au
+   * retard de la caméra : il n'a ni délai ni réglage.
+   */
+  speedDezoomAttack: number;
+  /** Le zoom pivote autour du pointeur : le point qu'on tient reste sous le doigt. */
+  dezoomAnchor: boolean;
   /** Intensité (0..1) de la traînée de pixels derrière le curseur — 0 = coupée. */
   cursorTrail: number;
   /** Durée de vie d'un pixel de la traînée (ms) — plus court = traînée plus courte. */
@@ -196,10 +216,14 @@ export type CursorParams = {
   size: number;
   /** Inclinaison maximale selon la direction du mouvement (degrés). */
   rotate: number;
-  /** Vitesse (px/s) à partir de laquelle l'inclinaison est maximale. */
-  rotateSpeedRef: number;
-  /** Raideur de l'inclinaison (par seconde). */
-  rotateSmooth: number;
+  /** Vitesse (px/s) à laquelle l'inclinaison atteint ~76 % du maximum (la réponse sature). */
+  tiltSpeedRef: number;
+  /** Part de la vitesse verticale dans l'inclinaison (négatif : descendre incline vers la gauche). */
+  tiltVertical: number;
+  /** Fréquence propre du ressort d'inclinaison (rad/s) : plus haut, plus nerveux. */
+  tiltFrequency: number;
+  /** Amortissement du ressort : 1 = sans rebond, en dessous = léger rebond. */
+  tiltDamping: number;
   /** Échelle au survol d'un artifact. */
   hoverScale: number;
   /** Échelle pendant le clic. */
@@ -211,9 +235,11 @@ export type CursorParams = {
 export const CURSOR_DEFAULTS: CursorParams = {
   enabled: true,
   size: 56,
-  rotate: 28,
-  rotateSpeedRef: 1400,
-  rotateSmooth: 14,
+  rotate: 23,
+  tiltSpeedRef: 200,
+  tiltVertical: -1,
+  tiltFrequency: 60,
+  tiltDamping: 1.4,
   hoverScale: 1.35,
   pressScale: 0.78,
   scaleSpeed: 16,
@@ -236,10 +262,10 @@ export type BackgroundParams = {
 
 export const BACKGROUND_DEFAULTS: BackgroundParams = {
   dots: true,
-  dotSize: 1.6,
-  dotSpacing: 44,
-  dotOpacity: 0.16,
-  dotColor: "#1b2a4a",
+  dotSize: 3.2,
+  dotSpacing: 64,
+  dotOpacity: 0.04,
+  dotColor: "#000000",
   parallax: 1,
 };
 
@@ -251,46 +277,105 @@ export type HoverParams = {
   rotate: number;
   /** Vitesse de transition (par seconde). */
   speed: number;
-  /** Intensité de la vague irisée du bas gauche (0 = coupée). */
+  /** Intensité de la bande blanche de la vague, qui éclaircit la carte (0 = coupée). */
   waveAmp: number;
   /** Largeur de la bande de la vague (fraction de la carte). */
   waveWidth: number;
   /** Durée de la traversée (s). */
   waveDuration: number;
+  /** Éclat lumineux au cœur de la bande (0 = juste un voile blanc). */
+  waveGlow: number;
+  /** Irisation de la bande (0 = blanc pur, 1 = reflets pastel bien marqués, qui glissent avec elle). */
+  waveIrid: number;
 };
 
 export const HOVER_DEFAULTS: HoverParams = {
   scale: 0.045,
-  rotate: 1.4,
+  rotate: 0,
   speed: 10,
-  waveAmp: 0.8,
-  waveWidth: 0.18,
-  waveDuration: 0.75,
+  waveAmp: 0.75,
+  waveWidth: 0.6,
+  waveDuration: 0.6,
+  waveGlow: 1.2,
+  waveIrid: 0.5,
 };
 
-/** Réglages de la DA « Prism » (cf. lib/da.ts) qui ne sont pas rendus par le canvas. */
+/**
+ * Réglages de la DA « Pixels » (cf. lib/da.ts). Les carrés de l'interface (nav, side
+ * panel, loader) les reçoivent en variables CSS sur `:root` ; le curseur et les éclats
+ * du canvas lisent le rayon ici.
+ */
 export type DaParams = {
-  /** Opacité des pixels de la pastille « play » dans la navigation (0 = coupés). */
-  navPixels: number;
+  /** Rayon des coins de tous les pixels, en fraction de leur côté (0 = carré net, 0.5 = rond). */
+  pixelRadius: number;
+  /** Force de la vague de survol de la pastille « play » (× ; 0 = coupée). */
+  navWave: number;
+  /** Côté d'un pixel de la pastille « play » (rem). */
+  navPixelSize: number;
+  /** Force des pixels qui font le fond de la pastille « play » au repos (× ; 0 = coupés). */
+  navRest: number;
+  /**
+   * Irisation de la pastille « play » : 0 = le gris neutre d'avant, 1 = les reflets de la
+   * vague de survol des cartes (la force, `navRest` et `navWave`, y reçoit en plus le gain
+   * `daIridGain`, pour que les deux se valent).
+   */
+  navIrid: number;
+  /** Irisation du loader (0 = le gris neutre d'avant, 1 = les reflets de la vague de survol des cartes). */
+  loaderIrid: number;
+  /** Force de la vague du loader (× ; 0 = coupée), avec le même gain des reflets que la pastille. */
+  loaderStrength: number;
   /** Durée d'un passage du champ de pixels de la pastille « play » active (s) : plus grand = plus chill. */
   navDriftPeriod: number;
   /** Durée de la vague de survol de la pastille « play » (s). */
   navHoverDuration: number;
   /** Étalement de la vague de survol de gauche à droite (s). */
   navHoverSpread: number;
-  /** Taille des rectangles du coin bas droit du side panel (×). */
-  panelPixelScale: number;
+  /** Côté d'une case de la forme tramée du coin bas droit du side panel (rem) : le pixel en occupe 80 %. */
+  panelPixelSize: number;
+  /** Nombre de pixels de cette forme (0..1 ; la forme pleine en compte 36). */
+  panelPixelDensity: number;
+  /** Amplitude de leur respiration (0 = fixes, 1 = ils s'effacent presque). */
+  panelPixelPulse: number;
+  /** Durée d'une respiration (s) : plus grand = plus calme. */
+  panelPixelPeriod: number;
+  /** Variation du nombre de pixels : la densité monte et descend de ± cette part (0 = nombre fixe). */
+  panelPixelFlux: number;
+  /** Durée d'un cycle du nombre de pixels (s). */
+  panelPixelFluxPeriod: number;
+  /** Retard du coin au large dans ce cycle, en part de cycle (0 = tous ensemble, 1 = une onde entière). */
+  panelPixelRipple: number;
+  /** Dérive des couleurs des pixels le long de la palette de la page (0 = fixes, 1 = d'une couleur à la suivante). */
+  panelPixelShift: number;
+  /** Durée d'un cycle des couleurs (s). */
+  panelPixelShiftPeriod: number;
   /** Étendue du dégradé du side panel (×). */
   panelGradientSpread: number;
+  /** Irisation du dégradé du side panel (0 = les seules couleurs de la page ouverte, 1 = arc-en-ciel). */
+  panelGradientIrid: number;
 };
 
 export const DA_DEFAULTS: DaParams = {
-  navPixels: 2,
+  pixelRadius: DA_RADIUS,
+  navWave: 1,
+  navPixelSize: 0.5,
+  navRest: 1,
+  navIrid: 1,
+  loaderIrid: 1,
+  loaderStrength: 1,
   navDriftPeriod: 14,
   navHoverDuration: 1.1,
   navHoverSpread: 0.55,
-  panelPixelScale: 2.5,
+  panelPixelSize: 1,
+  panelPixelDensity: PANEL_PIXEL_DENSITY,
+  panelPixelPulse: 0.4,
+  panelPixelPeriod: 8,
+  panelPixelFlux: 0.1,
+  panelPixelFluxPeriod: 10,
+  panelPixelRipple: 0.5,
+  panelPixelShift: 0.75,
+  panelPixelShiftPeriod: 12,
   panelGradientSpread: 1.8,
+  panelGradientIrid: 0,
 };
 
 export type PlayDebugState = {
@@ -306,6 +391,8 @@ export type PlayDebugState = {
   da: DaParams;
   cursor: CursorParams;
   background: BackgroundParams;
+  /** Contour (ex-ombre portée) de toutes les cartes, mosaïque et deck (cf. CardShadow.tsx). */
+  shadow: ShadowParams;
   /** Style visuel actif (une DA complète : « prism » pour l'instant). */
   style: { name: string };
   camera: CameraDebugParams;
@@ -348,10 +435,12 @@ export type PlayRuntimeState = {
     settleZoom: number;
     /** Phase de la frame précédente, pour détecter les sauts. */
     lastPhase: TransitionPhase;
+    /** Dézoom actuellement appliqué au repos (0..speedDezoom) : 0 = zoom de base. */
+    dezoom: number;
   };
-  /** Dernière position connue du pointeur (px écran). */
-  pointer: { x: number; y: number };
-  /** Vitesse de la caméra à l'écran (px/s), lissée — alimente le dézoom en mouvement rapide. */
+  /** Dernière position connue du pointeur (px écran) ; `seen` : un événement l'a déjà renseignée. */
+  pointer: { x: number; y: number; seen: boolean };
+  /** Vitesse de la caméra à l'écran (px/s), lissée — sert à relancer le survol quand la caméra bouge. */
   cameraSpeed: number;
   /** Zoom réellement appliqué à la caméra (dézoom compris) : sert à convertir les gestes en monde. */
   liveZoom: number;
@@ -418,13 +507,28 @@ export type PlayRuntimeState = {
     /** Rewind : avancement 0..1 (avant courbe), état d'où il part (t de la timeline, position du deck). */
     rewindU: number;
     rewindFromT: number;
+    /** Position (entière) du deck au départ : la carte du dessus est la seule qui rentre dans la mosaïque. */
     rewindFromDeck: number;
+    /**
+     * La carte gardée n'est pas le média de la tuile : elle se fond dans la tuile en
+     * fin de retour au lieu de la remplacer d'un coup (écrit par `SecondaryGalleryPlanes`).
+     */
+    keepOther: boolean;
     /** Debug : traction du deck maintenue à cette valeur (null = libre). */
     deckFreeze: number | null;
     /** Carte du deck qui se décompose en éclats à cet instant (une seule à la fois). */
     deckFx: {
       intensity: number;
       spread?: number;
+      cx: number;
+      cy: number;
+      w: number;
+      h: number;
+      url: string;
+      kind: "image" | "video";
+    };
+    /** Carte la plus proche du dessus de la pile à cet instant, hors traction : l'origine des pixels de fond. */
+    deckTop: {
       cx: number;
       cy: number;
       w: number;
@@ -488,27 +592,29 @@ export function applyResetTransition(rc: PlayRuntimeState) {
   rc.hoveredPos = null;
 
   // Depuis la vue détail ou n'importe où dans la timeline d'entrée : un vrai
-  // rewind. Le temps recule en courbe cinématique (lent, rapide, lent) ; si des
-  // cartes ont été passées, elles sont d'abord défaites (une à une, en sens
-  // inverse), puis l'ouverture se rejoue à l'envers.
+  // rewind. Le temps recule en courbe cinématique (lent, rapide, lent) et
+  // l'ouverture se rejoue à l'envers. Les cartes passées ne sont pas défaites :
+  // seule la carte du dessus (celle que le deck vise, même en plein changement)
+  // est gardée, les autres s'effacent, et c'est elle qui rentre dans la mosaïque.
   if (rc.transition.phase === "playing" || rc.transition.phase === "isolated") {
     const tr = rc.transition;
     tr.holding = false;
     tr.releaseAt = null;
-    tr.rewinding = true;
     tr.rewindU = 0;
     tr.rewindFromT = tr.t;
-    tr.rewindFromDeck = tr.phase === "isolated" ? tr.columnScrollY : 0;
-    tr.targetColumnScrollY = tr.columnScrollY;
+    // Le retour « clean » glisse de l'état exact d'où l'on part vers le repos, un second Échap
+    // en plein retour compris : on en garde un instantané (cf. `sampleRewind`).
+    tr.returnFrom = { ...tr.frame };
+    // Un second Échap en plein retour garde la même carte : le deck n'est plus « isolated ».
+    if (!tr.rewinding) {
+      tr.rewindFromDeck = tr.phase === "isolated" ? Math.round(tr.targetColumnScrollY) : 0;
+    }
+    tr.targetColumnScrollY = tr.rewindFromDeck;
     tr.deckPullRaw = 0;
     tr.deckPullShown = 0;
     tr.deckFreeze = null;
-    // Pas de carte à défaire : on entre directement dans le rewind de l'ouverture.
-    if (tr.phase === "isolated" && Math.abs(tr.rewindFromDeck) <= 0.02) {
-      tr.phase = "playing";
-      tr.columnScrollY = 0;
-      tr.targetColumnScrollY = 0;
-    }
+    tr.rewinding = true;
+    tr.phase = "playing";
     rc.camera.mode = "settle";
     return;
   }
@@ -579,9 +685,9 @@ function applyArrowNavigation(
 }
 
 // ── Ouverture — image ────────────────────────────────────────────────────
-const PLANE_RADIUS = 45;
-/** Lissage des coins façon Apple (0..1) : 32 % par défaut. */
-const CORNER_SMOOTHING_DEFAULT = 0.2;
+const PLANE_RADIUS = 24;
+/** Lissage des coins façon Apple (0..1) : 16 % par défaut. */
+const CORNER_SMOOTHING_DEFAULT = 0.16;
 
 // ── Ouverture — indicateur (vitesses d'amortissement, par seconde) ──────
 const INDICATOR_FADE_SPEED = 26;
@@ -592,7 +698,8 @@ const CAMERA_ZOOM = 0.8;
 const CAMERA_MOTION_BLUR_ENABLED = false;
 const CAMERA_MOTION_BLUR_STRENGTH = 4.0;
 const CAMERA_MOTION_BLUR_MAX = 0.25;
-const CAMERA_SETTLE_SPEED = 8;
+const CAMERA_FOLLOW_SPEED = 8;
+const CAMERA_SETTLE_SPEED = 1;
 /** Vitesse d'extinction des reliquats de courbe : assez rapide pour disparaître
  *  sous la seconde, assez lente pour ne jamais se voir comme un saut. */
 const SETTLE_DECAY_SPEED = 12;
@@ -605,6 +712,9 @@ const DRAG_THRESHOLD = 6;
 const VELOCITY_WINDOW_MS = 80;
 const INERTIA_FRICTION = -6;
 const VELOCITY_EPSILON = 0.0001;
+/** Lissage (par seconde) de `cameraSpeed` : monte vite, retombe plus doucement. */
+const CAMERA_SPEED_RISE = 25;
+const CAMERA_SPEED_FALL = 11;
 
 /** Texture tirée au double de la largeur affichée, pour les écrans retina. */
 const RETINA_MULTIPLIER = 2;
@@ -704,10 +814,9 @@ function framingOffsetY(
  */
 /**
  * Un pas de rewind. Une seule courbe (`rewindEasing`, par défaut easeInOutQuint :
- * départ lent, milieu rapide, arrivée lente) conduit tout le retour : d'abord le
- * deck revient à la première carte, puis la timeline d'ouverture recule jusqu'à 0.
- * Le deck repasse par chaque position entière, donc chaque passage de carte est
- * rejoué à l'envers, avec ses éclats.
+ * départ lent, milieu rapide, arrivée lente) conduit tout le retour : la timeline
+ * d'ouverture recule jusqu'à 0. Le deck ne se défait pas : il se résorbe sur la
+ * carte du dessus (`rewindFromDeck`), seule gardée pour rentrer dans la mosaïque.
  */
 function advanceRewind(
   tr: PlayRuntimeState["transition"],
@@ -715,25 +824,11 @@ function advanceRewind(
   dt: number,
 ) {
   tr.wall += dt;
-  const hasDeck = Math.abs(tr.rewindFromDeck) > 0.02;
-  const cards = Math.min(4, Math.abs(Math.round(tr.rewindFromDeck)));
-  const total = Math.max(0.2, config.rewindDuration + cards * config.rewindDeckPerCard);
-  tr.rewindU = Math.min(1, tr.rewindU + dt / total);
+  tr.rewindU = Math.min(1, tr.rewindU + dt / Math.max(0.2, config.rewindDuration));
   const eased = evaluateEasing(config.rewindEasing, tr.rewindU);
-  const share = hasDeck ? Math.min(0.8, Math.max(0.05, config.rewindDeckShare)) : 0;
-  const deckP = share > 0 ? Math.min(1, eased / share) : 1;
-  const openP = Math.min(1, Math.max(0, (eased - share) / (1 - share)));
-
-  if (hasDeck) {
-    tr.columnScrollY = tr.rewindFromDeck * (1 - deckP);
-    tr.targetColumnScrollY = tr.columnScrollY;
-  }
-  if (tr.phase === "isolated" && deckP >= 1) {
-    tr.phase = "playing";
-    tr.columnScrollY = 0;
-    tr.targetColumnScrollY = 0;
-  }
-  if (tr.phase === "playing") tr.t = tr.rewindFromT * (1 - openP);
+  tr.columnScrollY = dampTowards(tr.columnScrollY, tr.rewindFromDeck, config.detailScrollDamping, dt);
+  tr.targetColumnScrollY = tr.rewindFromDeck;
+  tr.t = tr.rewindFromT * (1 - eased);
 }
 
 function advanceClock(
@@ -744,7 +839,7 @@ function advanceClock(
 ) {
   const tr = rc.transition;
 
-  if (tr.rewinding && (tr.phase === "playing" || tr.phase === "isolated")) {
+  if (tr.rewinding && tr.phase === "playing") {
     advanceRewind(tr, config, effDelta);
     return;
   }
@@ -846,7 +941,7 @@ function stepCamera(
   config: TransitionConfig,
   delta: number,
   studio?: AnimationStudioParams,
-  screenSize?: { width: number; height: number },
+  screenSize?: { width: number; height: number; left?: number; top?: number },
   onTextReveal?: () => void,
   onReturnComplete?: () => void,
   onNavbarReveal?: () => void,
@@ -908,43 +1003,79 @@ function stepCamera(
 
   // ── Repos : zoom de base et pan inertiel ────────────────────────────────
   if (tr.phase === "idle") {
-    // Dézoom en mouvement rapide : plus la caméra file vite à l'écran, plus on
-    // recule, puis le zoom revient en douceur à l'arrêt — ça donne de la vitesse.
-    const speedRef = Math.max(200, camCfg?.speedDezoomRef ?? 1800);
-    const speedT = Math.min(1, rc.cameraSpeed / speedRef);
-    const dezoom = (camCfg?.speedDezoom ?? 0) * Math.pow(speedT, 0.85);
-    const targetZoom = baseZoom * (1 - dezoom);
-    if (Math.abs(camera.zoom - targetZoom) > 0.0002) {
-      // Le zoom colle à la vitesse de la caméra : il revient exactement au rythme
-      // où le mouvement s'éteint, sans second délai.
-      camera.zoom = dampTowards(camera.zoom, targetZoom, camCfg?.speedDezoomResponse ?? 16, effDelta);
+    const following = rc.camera.mode === "follow";
+    // Lissage léger du suivi : les deltas discrets de la molette ne sautent plus
+    // d'une frame à l'autre. Le recentrage (flèches, sélection) est plus doux.
+    const rate = following
+      ? (camCfg?.followSpeed ?? CAMERA_FOLLOW_SPEED)
+      : (camCfg?.settleSpeed ?? CAMERA_SETTLE_SPEED);
+
+    // Inertie du geste : la cible avance avant que le retard soit mesuré. Sa
+    // vitesse monde est celle du geste réglée au zoom de base, quel que soit le
+    // dézoom du moment : relâcher en plein dézoom ne freine donc pas le canvas.
+    if (following && (velocity.x !== 0 || velocity.y !== 0)) {
+      const k = (delta * 1000 * baseZoom) / Math.max(0.05, camera.zoom);
+      rc.camera.targetX += velocity.x * k;
+      rc.camera.targetY += velocity.y * k;
+      const decay = Math.exp(friction * delta);
+      velocity.x *= decay;
+      velocity.y *= decay;
+      if (Math.abs(velocity.x) < VELOCITY_EPSILON && Math.abs(velocity.y) < VELOCITY_EPSILON) {
+        velocity.x = 0;
+        velocity.y = 0;
+      }
+    }
+
+    // Dézoom en mouvement rapide, lié au retard de la caméra sur sa cible : à
+    // l'arrêt le retard est nul et le zoom est exactement celui de base, sans
+    // animation de fin (cf. camera-dezoom.ts).
+    const lag = Math.hypot(
+      rc.camera.targetX - camera.position.x,
+      rc.camera.targetY - camera.position.y,
+    );
+    const speed = cameraScreenSpeed(lag, camera.zoom, rate * (studio?.speed ?? 1));
+    const targetDezoom = dezoomForSpeed(
+      speed,
+      camCfg?.speedDezoom ?? 0,
+      Math.max(200, camCfg?.speedDezoomRef ?? 1800),
+    );
+    rc.camera.dezoom = stepDezoom(
+      rc.camera.dezoom,
+      targetDezoom,
+      Math.max(1, camCfg?.speedDezoomAttack ?? 30),
+      effDelta,
+    );
+    const zoomBefore = camera.zoom;
+    const zoomAfter = baseZoom * (1 - rc.camera.dezoom);
+    if (Math.abs(zoomAfter - zoomBefore) > 1e-6) {
+      // Le zoom pivote autour du pointeur : le point qu'on tient reste sous le doigt
+      // au lieu de glisser vers le centre. Caméra et cible bougent ensemble, le
+      // retard (donc le dézoom) n'en est pas modifié. Le recentrage vise une
+      // tuile précise : il ne se décale pas.
+      if (following && rc.pointer.seen && (camCfg?.dezoomAnchor ?? true) && screenSize) {
+        const shift = anchorShift(
+          rc.pointer.x - ((screenSize.left ?? 0) + screenSize.width / 2),
+          -(rc.pointer.y - ((screenSize.top ?? 0) + screenSize.height / 2)),
+          zoomBefore,
+          zoomAfter,
+        );
+        camera.position.x += shift.x;
+        camera.position.y += shift.y;
+        rc.camera.targetX += shift.x;
+        rc.camera.targetY += shift.y;
+      }
+      camera.zoom = zoomAfter;
       camera.updateProjectionMatrix();
     }
     rc.liveZoom = camera.zoom;
 
-    if (rc.camera.mode === "follow") {
-      if (velocity.x !== 0 || velocity.y !== 0) {
-        rc.camera.targetX += velocity.x * delta * 1000;
-        rc.camera.targetY += velocity.y * delta * 1000;
-        const decay = Math.exp(friction * delta);
-        velocity.x *= decay;
-        velocity.y *= decay;
-        if (Math.abs(velocity.x) < VELOCITY_EPSILON && Math.abs(velocity.y) < VELOCITY_EPSILON) {
-          velocity.x = 0;
-          velocity.y = 0;
-        }
-      }
-      // Lissage léger : les deltas discrets de la molette ne sautent plus d'une frame à l'autre.
-      const follow = camCfg?.followSpeed ?? 22;
-      camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, follow, effDelta);
-      camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, follow, effDelta);
-      return;
-    }
-    const settle = camCfg?.settleSpeed ?? CAMERA_SETTLE_SPEED;
-    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, settle, effDelta);
-    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, settle, effDelta);
+    camera.position.x = dampTowards(camera.position.x, rc.camera.targetX, rate, effDelta);
+    camera.position.y = dampTowards(camera.position.y, rc.camera.targetY, rate, effDelta);
     return;
   }
+
+  // Hors repos le zoom suit la courbe : le dézoom en mouvement repart de zéro.
+  rc.camera.dezoom = 0;
 
   // ── Transition : la courbe s'applique telle quelle ──────────────────────
   rc.camera.settleZoom = dampTowards(rc.camera.settleZoom, 1, SETTLE_DECAY_SPEED, effDelta);
@@ -966,6 +1097,7 @@ function stepCamera(
   if (returned) {
     tr.rewinding = false;
     tr.rewindU = 0;
+    tr.returnFrom = null;
     // La courbe a déjà ramené la caméra au repos : on se contente de recaler
     // la cible du pan sur ce que la courbe vient de produire.
     camera.zoom = baseZoom;
@@ -1079,21 +1211,25 @@ function CameraRig({
       );
     }
 
-    // DA : opacité des pixels de la nav et taille des rectangles du panel (variables CSS).
+    // DA : rayon des pixels, pixels de la nav et du panel (variables CSS, écrites seulement quand elles changent).
     const da = debug.current.da;
     const rootStyle = document.documentElement.style;
-    if (rootStyle.getPropertyValue("--da-nav-a") !== String(da.navPixels)) {
-      rootStyle.setProperty("--da-nav-a", String(da.navPixels));
-    }
-    if (rootStyle.getPropertyValue("--pg-scale") !== String(da.panelPixelScale)) {
-      rootStyle.setProperty("--pg-scale", String(da.panelPixelScale));
-    }
-    const navVars: [string, string][] = [
+    // Les reflets irisés pèsent moins que le gris à opacité égale : leur force reçoit un gain.
+    const navGain = daIridGain(da.navIrid);
+    const daVars: [string, string][] = [
+      ["--da-radius", `${Math.round(da.pixelRadius * 1000) / 10}%`],
+      ["--da-nav-irid", String(da.navIrid)],
+      ["--da-nav-wave", String(Math.round(da.navWave * navGain * 1000) / 1000)],
+      ["--da-cell", `${da.navPixelSize}rem`],
+      ["--da-nav-rest", String(Math.round(da.navRest * navGain * 1000) / 1000)],
+      ["--ld-irid", String(da.loaderIrid)],
+      ["--ld-strength", String(Math.round(da.loaderStrength * daIridGain(da.loaderIrid) * 1000) / 1000)],
+      ["--pg-size", `${da.panelPixelSize}rem`],
       ["--da-period", `${da.navDriftPeriod}s`],
       ["--da-hover-dur", `${da.navHoverDuration}s`],
       ["--da-hover-spread", `${da.navHoverSpread}s`],
     ];
-    for (const [name, value] of navVars) {
+    for (const [name, value] of daVars) {
       if (rootStyle.getPropertyValue(name) !== value) rootStyle.setProperty(name, value);
     }
 
@@ -1133,14 +1269,14 @@ function CameraRig({
     prevCamPosRef.current.x = cam.position.x;
     prevCamPosRef.current.y = cam.position.y;
 
-    // Vitesse à l'écran (px/s) : monte vite, retombe plus doucement. Hors repos
-    // (transition en cours) elle reste nulle, pour ne jamais dézoomer pendant l'ouverture.
+    // Vitesse à l'écran (px/s), lissée : elle ne règle pas le zoom (qui lit le
+    // retard de la caméra) mais dit à la grille que la caméra bouge, pour qu'elle
+    // relance le survol. Hors repos (transition en cours) elle reste nulle.
     const rcur = runtime.current;
-    const camCfg2 = debug.current.camera;
     const screenSpeed =
       rcur.transition.phase === "idle" ? Math.hypot(camVx, camVy) * cam.zoom : 0;
-    const response = camCfg2.speedDezoomResponse ?? 16;
-    const speedK = 1 - Math.exp(-delta * (screenSpeed > rcur.cameraSpeed ? response * 1.6 : response * 0.7));
+    const speedK =
+      1 - Math.exp(-delta * (screenSpeed > rcur.cameraSpeed ? CAMERA_SPEED_RISE : CAMERA_SPEED_FALL));
     rcur.cameraSpeed += (screenSpeed - rcur.cameraSpeed) * speedK;
 
     const camCfg = debug.current.camera;
@@ -1196,7 +1332,7 @@ export function PlayCanvas({
     plane: {
       radius: PLANE_RADIUS,
       cornerSmoothing: CORNER_SMOOTHING_DEFAULT,
-      rotationRange: 3,
+      rotationRange: 1.5,
     },
     indicator: { fadeSpeed: INDICATOR_FADE_SPEED, moveSpeed: INDICATOR_MOVE_SPEED },
     camera: {
@@ -1204,17 +1340,19 @@ export function PlayCanvas({
       motionBlur: CAMERA_MOTION_BLUR_ENABLED,
       motionBlurStrength: CAMERA_MOTION_BLUR_STRENGTH,
       motionBlurMax: CAMERA_MOTION_BLUR_MAX,
-      speedDezoom: 0.2,
-      speedDezoomRef: 1800,
-      speedDezoomResponse: 16,
+      speedDezoom: 0.16,
+      speedDezoomRef: 5000,
+      speedDezoomAttack: 200,
+      dezoomAnchor: true,
       cursorTrail: 0.2,
       cursorTrailLife: 160,
-      followSpeed: 22,
-      settleSpeed: 8,
+      followSpeed: CAMERA_FOLLOW_SPEED,
+      settleSpeed: CAMERA_SETTLE_SPEED,
       wheelSpeed: 1,
     },
     cursor: { ...CURSOR_DEFAULTS },
     background: { ...BACKGROUND_DEFAULTS },
+    shadow: { ...SHADOW_DEFAULTS },
     style: { name: "prism" },
     hover: { ...HOVER_DEFAULTS },
     shards: { ...SHARD_DEFAULTS },
@@ -1237,8 +1375,8 @@ export function PlayCanvas({
     selectedPos: { x: 0, y: 0 },
     hovered: null,
     hoveredPos: null,
-    camera: { targetX: 0, targetY: 0, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle" },
-    pointer: { x: 0, y: 0 },
+    camera: { targetX: 0, targetY: 0, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle", dezoom: 0 },
+    pointer: { x: 0, y: 0, seen: false },
     cameraSpeed: 0,
     liveZoom: CAMERA_ZOOM,
     hoverInfo: { hov: 0, wave: 0 },
@@ -1281,8 +1419,10 @@ export function PlayCanvas({
       rewindU: 0,
       rewindFromT: 0,
       rewindFromDeck: 0,
+      keepOther: false,
       deckFreeze: null,
       deckFx: { intensity: 0, cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
+      deckTop: { cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" },
       passed: false,
       releaseAt: null,
       returnFrom: null,
@@ -1599,6 +1739,54 @@ export function PlayCanvas({
     return tr.deckFx;
   }, []);
 
+  // Pixels de fond du pack ouvert : quelques éclats de la carte du dessus, très discrets, qui
+  // dérivent derrière la pile pour donner une ambiance. La couche naît en fondu quand la pile
+  // est en place, s'éteint au retour, et quand le média du dessus change elle s'éteint, prend
+  // les couleurs du nouveau puis revient : les pixels ne sautent jamais d'une image à l'autre.
+  const ambientRef = useRef({
+    level: 0,
+    at: 0,
+    src: { intensity: 0, spread: 1, cx: 0, cy: 0, w: 0, h: 0, url: "", kind: "image" } as ShardSource,
+  });
+  const ambientParamsRef = useRef<ShardParams>({ ...SHARD_DEFAULTS });
+  const ambientParams = useCallback((): ShardParams => {
+    const cfg = debug.current.transition;
+    const p = Object.assign(ambientParamsRef.current, debug.current.shards);
+    p.count = Math.max(0, Math.round(cfg.ambientPixels ?? 0));
+    p.maxSize = Math.max(1, cfg.ambientSize ?? 30);
+    p.minSize = p.maxSize * 0.35;
+    p.travel = cfg.ambientTravel ?? 140;
+    p.speed = cfg.ambientSpeed ?? 0.12;
+    p.opacity = cfg.ambientOpacity ?? 0.28;
+    return p;
+  }, [debug]);
+  const ambientShardSource = useCallback((): ShardSource | null => {
+    const tr = runtime.current.transition;
+    const cfg = debug.current.transition;
+    const a = ambientRef.current;
+    const now = performance.now();
+    const dt = a.at > 0 ? Math.min(0.1, (now - a.at) / 1000) : 0;
+    a.at = now;
+    const top = tr.deckTop;
+    // La pile est en place : fin de l'ouverture (la carte a pris sa taille) ou vue détail, jamais en plein retour.
+    const settled = tr.phase === "isolated" || (tr.phase === "playing" && tr.frame.reveal > 0.999);
+    const open = settled && !tr.rewinding && top.url !== "" && (cfg.ambientPixels ?? 0) > 0;
+    const swapping = open && a.src.url !== "" && top.url !== a.src.url && a.level > 0.01;
+    const step = dt / Math.max(0.05, cfg.ambientFade ?? 1.2);
+    a.level = open && !swapping ? Math.min(1, a.level + step) : Math.max(0, a.level - step * 2);
+    if (open && !swapping) {
+      a.src.cx = top.cx;
+      a.src.cy = top.cy;
+      a.src.w = top.w;
+      a.src.h = top.h;
+      a.src.url = top.url;
+      a.src.kind = top.kind;
+    }
+    if (a.level < 0.01) return null;
+    a.src.intensity = a.level * a.level * (3 - 2 * a.level);
+    return a.src;
+  }, [debug]);
+
   // Éclats de l'ouverture : la tuile ouverte se sépare en morceaux, du clic à la fin de la vague.
   const openShardSource = useCallback((): ShardSource | null => {
     const rc = runtime.current;
@@ -1618,7 +1806,9 @@ export function PlayCanvas({
     };
   }, [tile]);
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
-  usePanelGradient(panelEl, deckWeightsRef, palettesRef, debug);
+  // Les trois couleurs de la page ouverte : le hook les tient à jour, les pixels du coin bas droit les lisent.
+  const panelPaletteRef = useRef<RGB[]>(PANEL_FALLBACK);
+  usePanelGradient(panelEl, panelPaletteRef, deckWeightsRef, palettesRef, debug);
 
   const loadPalette = useCallback((media: { url: string; kind: "image" | "video" }) => {
     if (palettesRef.current.has(media.url)) return;
@@ -1661,7 +1851,7 @@ export function PlayCanvas({
       const ox = origin ? origin.x : 0;
       const oy = origin ? origin.y : 0;
       rc.selectedPos = { x: ox, y: oy };
-      rc.camera = { targetX: ox, targetY: oy, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle" };
+      rc.camera = { targetX: ox, targetY: oy, mode: "follow", settleX: 0, settleY: 0, settleZoom: 1, lastPhase: "idle", dezoom: 0 };
       if (origin) {
         rc.indicatorTarget = { x: ox, y: oy, width: origin.width, height: origin.height };
       }
@@ -1765,6 +1955,7 @@ export function PlayCanvas({
       if (!activeRef.current) return;
       runtime.current.pointer.x = e.clientX;
       runtime.current.pointer.y = e.clientY;
+      runtime.current.pointer.seen = true;
     }
 
     function onWheel(e: WheelEvent) {
@@ -2032,8 +2223,20 @@ export function PlayCanvas({
 
       const rc = runtime.current;
       if (rc.transition.phase === "isolated") {
+        const tr = rc.transition;
+        // Pendant un rewind, les gestes ne conduisent plus rien (comme la molette).
+        if (tr.rewinding) return;
         const next = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : -1;
-        rc.transition.targetColumnScrollY = Math.round(rc.transition.targetColumnScrollY) + next;
+        // Au clavier, pas de curseur ni de drag pour viser : la carte part tout
+        // droit, vers le haut en avançant (comme un cran de molette vers le bas),
+        // vers le bas en reculant. Sans ça elle repartait avec le cap périmé du
+        // dernier geste. Le cap n'est posé qu'à l'arrêt : une carte déjà en vol
+        // garde le sien, sinon elle sauterait de l'autre côté.
+        if (Math.abs(tr.columnScrollY - tr.targetColumnScrollY) < 0.05) {
+          tr.deckAimCommit.x = 0;
+          tr.deckAimCommit.y = next;
+        }
+        tr.targetColumnScrollY = Math.round(tr.targetColumnScrollY) + next;
         return;
       }
       if (rc.transition.phase !== "idle") return;
@@ -2068,7 +2271,7 @@ export function PlayCanvas({
       aria-hidden={!active}
       className={`fixed inset-0 bg-white ${active ? "" : "invisible pointer-events-none"}`}
     >
-      <PlayLoader loaded={loaded} total={total} isReady={isReady} />
+      <PlayLoader isReady={isReady} />
 
       <div
         className={`h-full w-full transition-opacity duration-700 ease-out ${isReady ? "opacity-100" : "pointer-events-none opacity-0"
@@ -2141,6 +2344,15 @@ export function PlayCanvas({
             <SelectProgressOverlay debug={debug} runtime={runtime} tile={tile} />
             <ShardField debug={debug} source={openShardSource} paletteRef={primaryPaletteRef} />
             <ShardField debug={debug} source={deckShardSource} paletteRef={primaryPaletteRef} seedOffset={7} />
+            <ShardField
+              debug={debug}
+              source={ambientShardSource}
+              params={ambientParams}
+              paletteRef={primaryPaletteRef}
+              seedOffset={13}
+              renderOrder={AMBIENT_RENDER_ORDER}
+              groupOrder={0}
+            />
             <FisheyeEffect debug={debug} />
           </Canvas>
         )}
@@ -2154,7 +2366,7 @@ export function PlayCanvas({
       {active && <CursorTrail debug={debug} />}
 
       {selectedArtifactDetail && isDetailVisible && (
-        <PanelPixels intensity={debug.current.transition.panelGlitch} />
+        <PanelPixels debug={debug} paletteRef={panelPaletteRef} />
       )}
 
       <AnimatePresence mode="wait">

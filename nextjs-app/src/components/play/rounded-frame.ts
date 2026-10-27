@@ -72,6 +72,13 @@ float sdRoundedRect(vec2 p, vec2 halfSize, float radius) {
  * pair). Ce warp calcule sa propre perspective *locale*, indépendante de la
  * caméra de scène, pour obtenir un vrai trapèze asymétrique.
  *
+ * Le résultat est un warp purement 2D : le z calculé ne sert qu'à la
+ * perspective et n'est jamais renvoyé (z = 0). Un z réel (± 0.5·sin(tilt)
+ * unités locales) ferait passer le bord d'une carte inclinée devant ou derrière
+ * celle d'à côté, et le depth buffer les découperait l'une dans l'autre : les
+ * plans du deck sont espacés de 0.001. L'empilement des cartes se règle donc au
+ * seul `renderOrder` (voir CLAUDE.md), jamais à la profondeur.
+ *
  * Partagé entre le média (`ArtifactPlane`, injecté via `onBeforeCompile` sur
  * `#include <begin_vertex>`) et l'overlay de sélection (`SelectProgressOverlay`,
  * shader autonome) : les deux doivent bouger comme un seul objet physique.
@@ -91,7 +98,7 @@ vec3 applyCardTilt(vec3 p, vec2 tilt) {
 
   const float perspective = 1.35;
   float persp = perspective / max(0.2, perspective - z2);
-  return vec3(x2 * persp, y1 * persp, z2);
+  return vec3(x2 * persp, y1 * persp, 0.0);
 }
 `;
 

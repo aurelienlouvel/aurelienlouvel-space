@@ -24,11 +24,13 @@ import {
   getStravaActivities,
 } from "@/lib/info-fetchers";
 import { PageShell } from "@/components/layout/PageShell";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 import { TimelineRow } from "@/components/blocks/TimelineRow";
 import { ToolPill } from "@/components/blocks/ToolPill";
 import { StoryStack, type StorySlide } from "@/components/blocks/StoryStack";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { AnimatedItem } from "@/components/AnimatedItem";
+import { ResumeDownload } from "@/components/ResumeDownload";
 
 export const revalidate = 60;
 
@@ -231,7 +233,7 @@ export default async function InfoPage() {
     <ViewTransition default="none">
       <PageShell restore="top">
         <main className="w-full rounded-t-2xl bg-white">
-          <div className="mx-auto max-w-3xl px-6 pt-12 pb-36 sm:px-10 sm:pb-48 sm:pt-20">
+          <div className="mx-auto max-w-3xl px-6 pt-12 sm:px-10 sm:pt-20">
             {/* Hero: name + bio + tools  ↔  stories */}
             <div className="grid grid-cols-1 gap-10 md:grid-cols-[3fr_2fr] md:gap-12">
               {/* Left column */}
@@ -387,29 +389,11 @@ export default async function InfoPage() {
 
             {/* Resume download */}
             <AnimatedItem delay={0.08} className="mt-24 flex justify-center">
-              <a
-                href="/aurelien-louvel-resume-en.pdf"
-                download
-                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-base text-stone-400 transition-all -rotate-1 hover:scale-[1.04] hover:-rotate-3 hover:bg-stone-50 hover:text-stone-800"
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 13 13"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M6.5 1v8M3.5 6.5l3 3 3-3M1.5 11.5h10" />
-                </svg>
-                download my resume
-              </a>
+              <ResumeDownload />
             </AnimatedItem>
           </div>
         </main>
+        <SiteFooter />
       </PageShell>
     </ViewTransition>
   );

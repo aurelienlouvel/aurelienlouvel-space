@@ -431,10 +431,11 @@ body.body-project {
   }
 }
 
-/* ── DA « Prism » (cf. src/lib/da.ts) ──────────────────────────────────────
-   Rectangles de verre translucides, dégradés, bords fondus, apparition par
-   paliers (steps) — animations limitées à transform/opacity, composées sur le
-   GPU et fluides même quand le thread principal charge les textures. */
+/* ── DA « Pixels » (cf. src/lib/da.ts) ─────────────────────────────────────
+   Des carrés plats et nets (le debug peut arrondir leurs coins), une couleur unie
+   chacun, sans flou ni bord fondu : les pixels s'allument puis redeviennent blancs.
+   Animations limitées à transform/opacity, composées sur le GPU et fluides même quand
+   le thread principal charge les textures. */
 :root {
   --da-sky: #8fd0ff;
   --da-lilac: #a99bff;
@@ -442,67 +443,68 @@ body.body-project {
   --da-mint: #8ff0d8;
   --da-apricot: #ffd6a0;
   --da-ink: #4a6cff;
+  /* Rayon des coins d'un pixel, en fraction de son côté (DA_RADIUS dans lib/da.ts ;
+     le debug de /play l'écrase en direct). */
+  --da-radius: 0%;
+  /* Pastille « play » : irisation (0 = gris neutre, 1 = les reflets de la vague de survol des
+     cartes) et force du champ au repos et de la vague, déjà multipliées par le gain que
+     l'irisation rend aux reflets (daIridGain). Les mêmes valeurs que DA_DEFAULTS : la
+     pastille s'affiche avant que le canvas écrive les siennes. */
+  --da-nav-irid: 1;
+  --da-nav-rest: 2;
+  --da-nav-wave: 2;
+  /* Loader : irisation et force de la vague (gain des reflets compris), comme pour la
+     pastille : il s'affiche avant que le canvas écrive les valeurs du debug. */
+  --ld-irid: 1;
+  --ld-strength: 2;
 }
 
-.da-rect {
-  filter: blur(var(--da-blur, 0.4px));
+/* Loader /play : un champ de carrés à peine opaques sur toute la page, qu'une vague balaie de
+   gauche à droite, en boucle (c'est l'effet de la pastille « play » au survol, à l'échelle
+   de la page). --x (0..1) est la place du pixel dans la largeur : elle décale son départ,
+   d'où la vague ; --a est sa force propre, plafonnée à 1 une fois × --ld-strength. Chaque
+   pixel a son reflet (--c, dans la palette de la vague de survol des cartes) que --ld-irid
+   mêle au gris neutre : 1 = le reflet, 0 = le gris d'avant. */
+@keyframes ld-wave {
+  0% { opacity: 0; transform: scale(0.4); }
+  12% { opacity: var(--lit); transform: scale(1); }
+  36%, 100% { opacity: 0; transform: scale(0.7); }
 }
 
-/* Loader /play : apparition par paliers, scintillement, envol final. */
-@keyframes ld-in {
-  0% { opacity: 0; transform: scale(0.3); }
-  45% { opacity: 1; transform: scale(1.35); }
-  100% { opacity: var(--da-a, 0.5); transform: scale(1); }
-}
-
-@keyframes ld-twinkle {
-  0%, 100% { opacity: var(--da-a, 0.5); transform: translate(0, 0); }
-  40% { opacity: calc(var(--da-a, 0.5) * 0.4); }
-  70% { opacity: calc(var(--da-a, 0.5) * 0.75); transform: translate(0.15rem, -0.1rem); }
-}
-
-@keyframes ld-out {
-  0% { opacity: var(--da-a, 0.5); transform: translate(0, 0) scale(1); }
-  100% { opacity: 0; transform: translate(var(--ox, 0), var(--oy, 0)) scale(0.2); }
-}
-
-.ld-rect {
+.ld-cell {
+  width: var(--ld-cell, 2rem);
+  height: var(--ld-cell, 2rem);
+  border-radius: var(--da-radius, 0%);
+  /* La première déclaration est le repli d'un navigateur sans color-mix : le reflet seul. */
+  background-color: var(--c, rgb(24 24 27));
+  background-color: color-mix(
+    in srgb,
+    var(--c, rgb(24 24 27)) calc(var(--ld-irid, 1) * 100%),
+    rgb(24 24 27)
+  );
+  --lit: min(1, calc(var(--a, 0.08) * var(--ld-strength, 2)));
   opacity: 0;
-  transform: scale(0.3);
+  animation: ld-wave var(--ld-period, 2.6s) ease-in-out infinite;
+  animation-delay: calc(var(--x, 0) * var(--ld-spread, 1.5s));
 }
 
-.ld-rect[data-on] {
-  animation:
-    ld-in 0.5s steps(4, end) var(--da-delay, 0s) both,
-    ld-twinkle var(--da-tw, 3.4s) ease-in-out calc(var(--da-delay, 0s) + 0.5s) infinite;
-}
-
-.ld-rect[data-out] {
-  animation: ld-out 0.6s steps(5, end) var(--da-delay, 0s) both;
-}
-
-@keyframes ld-cell-in {
-  0% { transform: scale(0.4); }
-  50% { transform: scale(1.3); }
-  100% { transform: scale(1); }
-}
-
-.ld-cell[data-on] {
-  animation: ld-cell-in 0.3s steps(3, end) both;
-}
-
-/* Pastille « play » de la navigation : un champ régulier de cellules aux
-   opacités variées. Actif : il défile doucement vers la droite (sans vague).
-   Survol : une vague le balaie de gauche à droite (--x décale chaque cellule). */
+/* Pastille « play » de la navigation : un champ de carrés (--da-cell de côté), à peine
+   opaques, plus ou moins transparents d'un pixel à l'autre (--a) ; les cases sans pixel
+   restent blanches. Chaque pixel a son reflet (--c, posé par PlayPillPixels dans la palette
+   de la vague de survol des cartes) que --da-nav-irid mêle au gris neutre : 1 = le reflet,
+   0 = le gris d'avant. Actif : le champ défile doucement vers la droite, sans vague
+   (--da-nav-rest règle sa force). Survol : une vague balaie le champ de gauche à droite
+   (--x décale chaque pixel), allume quelques pixels un peu plus soutenus (--da-nav-wave
+   règle leur force), puis chacun s'éteint. */
 @keyframes da-drift {
   from { transform: translateX(-50%); }
   to { transform: translateX(0); }
 }
 
 @keyframes da-cell-wave {
-  0% { opacity: 0; transform: scale(0.55); }
-  32% { opacity: min(1, calc(var(--a, 0.3) * 2.6 + 0.14)); transform: scale(1); }
-  100% { opacity: 0; transform: scale(0.8); }
+  0% { opacity: 0; transform: scale(0.4); }
+  30% { opacity: var(--lit); transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.7); }
 }
 
 .da-pill {
@@ -514,61 +516,63 @@ body.body-project {
   animation: da-drift var(--da-period, 14s) linear infinite;
 }
 
+.da-cell {
+  border-radius: var(--da-radius, 0%);
+  /* La première déclaration est le repli d'un navigateur sans color-mix : le reflet seul. */
+  background-color: var(--c, rgb(24 24 27));
+  background-color: color-mix(
+    in srgb,
+    var(--c, rgb(24 24 27)) calc(var(--da-nav-irid, 1) * 100%),
+    rgb(24 24 27)
+  );
+}
+
+/* Au repos : la force de chaque pixel, de 0.06 à 0.17 d'opacité avec les reflets (de 0.03 à
+   0.085 en gris) : à peine un voile. */
 .da-field .da-cell {
-  opacity: calc(var(--a, 0.3) * 0.7 * var(--da-nav-a, 1));
+  opacity: min(1, calc(var(--a, 0.05) * var(--da-nav-rest, 2)));
 }
 
 .da-field-hover .da-cell {
+  --lit: min(1, calc(var(--a, 0.1) * var(--da-nav-wave, 2)));
   opacity: 0;
   animation: da-cell-wave var(--da-hover-dur, 1.1s) ease-in-out 1 both;
   animation-delay: calc(var(--x, 0) * var(--da-hover-spread, 0.55s));
 }
 
-/* Panel : quelques grands rectangles qui flottent et respirent dans le coin
-   bas droit. --pg-scale (debug) agrandit l'ensemble. */
-@keyframes pg-float {
-  0%, 100% { transform: translate(0, 0) rotate(var(--pg-r, 0deg)); }
-  50% { transform: translate(var(--pg-dx, 0.4rem), var(--pg-dy, -0.5rem)) rotate(calc(var(--pg-r, 0deg) * -0.6)); }
-}
+/* Panel : une forme tramée de gros carrés dans le coin bas droit. Les cases ne bougent pas :
+   PanelPixels (JS) écrit à chaque image l'opacité et la couleur de chacune, car leur nombre et
+   leurs couleurs vivent (pixelFrame). Reste en CSS : la taille d'une case (--pg-size, debug), le
+   rayon (--da-radius) et l'apparition du champ. Une case part éteinte, du rose de la DA, tant
+   que la boucle ne lui a rien écrit ; sous prefers-reduced-motion, la boucle fige le champ. */
 
-@keyframes pg-breathe {
-  0%, 18%, 100% { opacity: 0; }
-  38%, 62% { opacity: var(--pg-a, 0.5); }
-}
-
+/* Pas de « to » : l'apparition finit sur l'opacité du champ (celle du debug), au lieu de la
+   figer à 1. */
 @keyframes pg-fade-in {
   from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .pg-field {
   animation: pg-fade-in 0.9s ease-out both;
 }
 
-.pg-rect {
-  animation:
-    pg-float var(--pg-f, 8s) ease-in-out var(--pg-delay, 0s) infinite,
-    pg-breathe var(--pg-b, 9s) ease-in-out var(--pg-delay, 0s) infinite;
+.pg-cell {
+  border-radius: var(--da-radius, 0%);
+  opacity: 0;
+  background-color: var(--da-rose);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ld-rect[data-on],
-  .ld-rect[data-out],
-  .ld-cell[data-on],
+  .ld-cell,
   .da-drift,
   .da-field-hover .da-cell,
-  .pg-field,
-  .pg-rect {
+  .pg-field {
     animation: none;
   }
 
-  .ld-rect[data-on] {
-    opacity: var(--da-a, 0.5);
+  .ld-cell {
+    opacity: var(--lit);
     transform: scale(1);
-  }
-
-  .pg-rect {
-    opacity: calc(var(--pg-a, 0.5) * 0.7);
   }
 }
 
@@ -641,24 +645,31 @@ body.body-project {
     }
 }
 
-/* Curseurs du site : des SVG dans /public/cursors (flèche, main, poing, I-beam).
-   Les deux nombres sont le point actif (hotspot) dans l'image de 32px. */
-html {
+/* Curseurs de /play : des SVG dans /public/cursors (flèche, main, poing, I-beam).
+   Les deux nombres sont le point actif (hotspot) dans l'image de 32px.
+   Réservés à /play (`html[data-play]`, posé par PlayHost) : ailleurs, le curseur système. */
+html[data-play] {
   cursor: url("/cursors/default.svg") 4 2, auto;
 }
-a,
-button,
-select,
-summary,
-label[for],
-[role="button"],
-[data-cursor="link"],
-[class*="cursor-pointer"] {
+html[data-play]
+  :is(
+    a,
+    button,
+    select,
+    summary,
+    label[for],
+    [role="button"],
+    [data-cursor="link"],
+    [class*="cursor-pointer"]
+  ) {
   cursor: url("/cursors/pointer.svg") 11 2, pointer;
 }
-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-textarea,
-[contenteditable="true"] {
+html[data-play]
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    textarea,
+    [contenteditable="true"]
+  ) {
   cursor: url("/cursors/text.svg") 16 16, text;
 }
 

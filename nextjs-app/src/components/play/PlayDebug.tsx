@@ -17,7 +17,7 @@ import { MediaTab } from "./debug/MediaTab";
 import { StyleTab } from "./debug/StyleTab";
 import { TimelineBar } from "./debug/TimelineBar";
 
-const STORAGE_KEY = "play-debug-v35";
+const STORAGE_KEY = "play-debug-v38";
 const TAB_STORAGE_KEY = "play-debug-tab-v2";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -33,10 +33,10 @@ const TABS: { id: DebugTab; label: string }[] = [
 
 const TAB_KEYWORDS: Record<DebugTab, string[]> = {
   global: ["camera", "zoom", "pan", "inertia", "friction", "dezoom", "motion", "blur", "fisheye", "cursor", "curseur", "trail", "trainee", "rotate", "inclinaison"],
-  media: ["media", "width", "height", "scale", "variance", "radius", "border", "corner", "smoothing", "rotation", "range"],
+  media: ["media", "width", "height", "scale", "variance", "radius", "border", "corner", "smoothing", "rotation", "range", "contour", "ombre", "shadow", "epaisseur", "decalage", "soulevement"],
   canvas: ["canvas", "layout", "gap", "repeat", "aspect", "seed", "iterations", "background", "points", "dots", "parallax"],
-  style: ["style", "prism", "vague", "wave", "glow", "lumiere", "irisation", "opacite", "eclats", "shard", "pixels", "degrade", "panel", "lentille"],
-  animation: ["animation", "survol", "hover", "ouverture", "transition", "approche", "burst", "attente", "cascade", "layers", "retour", "carte", "deck", "traction", "rejouer", "detail", "panneau", "easing", "duration"],
+  style: ["style", "prism", "vague", "wave", "glow", "lumiere", "irisation", "opacite", "eclats", "shard", "pixels", "degrade", "panel", "lentille", "aplat", "flat", "carres", "taille", "blanc", "gris", "gray", "radius", "arrondi", "coins", "densite", "nombre", "pastille", "play", "nav", "couleurs", "page"],
+  animation: ["animation", "survol", "hover", "ouverture", "transition", "approche", "burst", "attente", "cascade", "layers", "retour", "carte", "deck", "traction", "rejouer", "detail", "panneau", "easing", "duration", "tortillement", "torsion", "vague", "fond", "ambiance", "atmosphere", "pixels"],
 };
 
 function loadSavedTab(): DebugTab {

@@ -1,3 +1,6 @@
+"use client";
+
+import posthog from "posthog-js";
 import type { Profile } from "@/sanity/queries";
 import { ToolIcon } from "@/components/blocks/ToolIcon";
 import {
@@ -14,7 +17,16 @@ export function ToolPill({ tool }: { tool: ToolItem }) {
       <TooltipTrigger
         render={
           tool.url ? (
-            <a href={tool.url} target="_blank" rel="noreferrer" />
+            <a
+              href={tool.url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() =>
+                posthog.capture("tool_link_clicked", {
+                  is_referral: Boolean(tool.referral),
+                })
+              }
+            />
           ) : (
             <div />
           )
