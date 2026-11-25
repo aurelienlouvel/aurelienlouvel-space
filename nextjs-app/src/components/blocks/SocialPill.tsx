@@ -50,7 +50,7 @@ const PLATFORMS: Record<SocialPlatform, { label: string; Logo: () => React.JSX.E
   figma: { label: "Figma Community", Logo: FigmaLogo },
 };
 
-// Sibling of ToolPill: same tooltip, hover tilt and logo size.
+// Sibling of ToolPill: same tooltip and hover tilt, with a smaller logo.
 export function SocialPill({ social }: { social: ProfileSocial }) {
   const { label, Logo } = PLATFORMS[social.platform];
 
@@ -71,7 +71,7 @@ export function SocialPill({ social }: { social: ProfileSocial }) {
           />
         }
       >
-        <div className="flex h-7 w-7 items-center justify-center transition-transform duration-150 hover:rotate-2 hover:scale-110">
+        <div className="flex h-6 w-6 items-center justify-center transition-transform duration-150 hover:rotate-2 hover:scale-110">
           <Logo />
         </div>
       </TooltipTrigger>

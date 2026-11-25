@@ -9,6 +9,7 @@ import {
   sideProjectsQuery,
   awardsQuery,
   toolsQuery,
+  toolGroupsQuery,
   SOCIAL_PLATFORM_ORDER,
   type Profile,
   type ProfileStory,
@@ -18,6 +19,7 @@ import {
   type SideProjectItem,
   type AwardItem,
   type ToolItem,
+  type ToolGroupItem,
 } from "@/sanity/queries";
 import {
   getAppleMusicPlaylistTracks,
@@ -33,7 +35,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { TimelineRow } from "@/components/blocks/TimelineRow";
 import { SocialPill } from "@/components/blocks/SocialPill";
 import { TimelineGroup } from "@/components/blocks/TimelineGroup";
-import { ToolPill } from "@/components/blocks/ToolPill";
+import { ToolGroups } from "@/components/blocks/ToolGroups";
 import { StoryStack, type StorySlide } from "@/components/blocks/StoryStack";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { AnimatedItem } from "@/components/AnimatedItem";
@@ -226,7 +228,7 @@ async function resolveStorySlide(story: ProfileStory): Promise<StorySlide> {
 }
 
 export default async function InfoPage() {
-  const [profile, experiences, sideProjects, education, volunteering, awards, tools] =
+  const [profile, experiences, sideProjects, education, volunteering, awards, tools, toolGroups] =
     await Promise.all([
       client.fetch<Profile | null>(profileQuery),
       client.fetch<ExperienceItem[]>(experiencesQuery),
@@ -235,6 +237,7 @@ export default async function InfoPage() {
       client.fetch<VolunteerItem[]>(volunteerQuery),
       client.fetch<AwardItem[]>(awardsQuery),
       client.fetch<ToolItem[]>(toolsQuery),
+      client.fetch<ToolGroupItem[]>(toolGroupsQuery),
     ]);
 
   if (!profile) {
@@ -480,18 +483,7 @@ export default async function InfoPage() {
                   <h4 className="mb-4">Tools</h4>
                 </AnimatedItem>
                 <AnimatedItem delay={0.12}>
-                  <TooltipProvider>
-                    {/* Deux rangées : autant de colonnes que la moitié des outils
-                        (sur mobile, 4 par ligne pour ne pas déborder). */}
-                    <div
-                      style={{ "--tool-cols": Math.ceil(tools.length / 2) } as React.CSSProperties}
-                      className="grid w-fit grid-cols-4 place-items-center gap-x-10 gap-y-8 sm:grid-cols-[repeat(var(--tool-cols),minmax(0,1fr))]"
-                    >
-                      {tools.map((tool) => (
-                        <ToolPill key={tool._id} tool={tool} />
-                      ))}
-                    </div>
-                  </TooltipProvider>
+                  <ToolGroups groups={toolGroups} tools={tools} />
                 </AnimatedItem>
               </section>
             )}

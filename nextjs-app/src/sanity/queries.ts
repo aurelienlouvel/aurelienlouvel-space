@@ -643,6 +643,30 @@ export type ToolItem = {
   referral: boolean | null;
 };
 
+// Les groupes d'outils, dans l'ordre manuel du Studio, chacun avec ses outils
+// dans l'ordre de sa liste.
+export const toolGroupsQuery = defineQuery(`
+  *[_type == "toolGroup"] | order(orderRank asc) {
+    _id,
+    name,
+    color,
+    "tools": tools[]->{
+      _id,
+      name,
+      "logoUrl": logo.asset->url + "?w=96&q=90&auto=format",
+      url,
+      referral
+    }
+  }
+`);
+
+export type ToolGroupItem = {
+  _id: string;
+  name: string;
+  color: string | null;
+  tools: ToolItem[] | null;
+};
+
 export const awardsQuery = defineQuery(`
   *[_type == "award"] | order(orderRank) {
     _id,

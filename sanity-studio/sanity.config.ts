@@ -96,6 +96,13 @@ export default defineConfig({
               S,
               context,
             }),
+            orderableDocumentListDeskItem({
+              type: 'toolGroup',
+              title: 'Tool group',
+              icon: ToolNavIcon,
+              S,
+              context,
+            }),
             S.documentTypeListItem('tag').title('Tag').icon(TagNavIcon),
             S.documentTypeListItem('organisation').title('Organisation').icon(OrganisationNavIcon),
             S.documentTypeListItem('person').title('Person').icon(PersonNavIcon),
