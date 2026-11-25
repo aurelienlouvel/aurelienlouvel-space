@@ -34,6 +34,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { TimelineRow } from "@/components/blocks/TimelineRow";
 import { SocialPill } from "@/components/blocks/SocialPill";
 import { TimelineGroup } from "@/components/blocks/TimelineGroup";
+import { TimelineSection } from "@/components/blocks/TimelineEntry";
 import { ToolGroups } from "@/components/blocks/ToolGroups";
 import { StoryStack, type StorySlide } from "@/components/blocks/StoryStack";
 import { TooltipProvider } from "@/components/ui/Tooltip";
@@ -326,7 +327,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Experience</h4>
                 </AnimatedItem>
-                <div className="flex flex-col gap-4">
+                <TimelineSection section="experience" className="flex flex-col gap-4">
                   {groupByOrganisation(experiences).map((group, i) => {
                     const [exp] = group;
                     return (
@@ -342,11 +343,14 @@ export default async function InfoPage() {
                               contractType: role.contractType?.name ?? null,
                               startDate: role.startDate,
                               endDate: role.endDate,
+                              description: role.description,
                             }))}
                             ongoingFallback
                           />
                         ) : (
                           <TimelineRow
+                            id={exp._id}
+                            description={exp.description}
                             orgName={exp.organisation?.name ?? null}
                             logoUrl={exp.organisation?.logoUrl ?? null}
                             websiteUrl={exp.organisation?.websiteUrl ?? null}
@@ -360,7 +364,7 @@ export default async function InfoPage() {
                       </AnimatedItem>
                     );
                   })}
-                </div>
+                </TimelineSection>
               </section>
             )}
 
@@ -370,10 +374,12 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Side projects</h4>
                 </AnimatedItem>
-                <div className="flex flex-col gap-4">
+                <TimelineSection section="side_projects" className="flex flex-col gap-4">
                   {sideProjects.map((sp, i) => (
                     <AnimatedItem key={sp._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
+                        id={sp._id}
+                        description={sp.description}
                         orgName={sp.organisation?.name ?? null}
                         logoUrl={sp.organisation?.logoUrl ?? null}
                         websiteUrl={sp.url ?? sp.organisation?.websiteUrl ?? null}
@@ -384,7 +390,7 @@ export default async function InfoPage() {
                       />
                     </AnimatedItem>
                   ))}
-                </div>
+                </TimelineSection>
               </section>
             )}
 
@@ -394,7 +400,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Education</h4>
                 </AnimatedItem>
-                <div className="flex flex-col gap-4">
+                <TimelineSection section="education" className="flex flex-col gap-4">
                   {groupByOrganisation(education).map((group, i) => {
                     const [edu] = group;
                     return (
@@ -409,10 +415,13 @@ export default async function InfoPage() {
                               title: programme.title,
                               startDate: programme.startDate,
                               endDate: programme.endDate,
+                              description: programme.description,
                             }))}
                           />
                         ) : (
                           <TimelineRow
+                            id={edu._id}
+                            description={edu.description}
                             orgName={edu.organisation?.name ?? null}
                             logoUrl={edu.organisation?.logoUrl ?? null}
                             websiteUrl={edu.organisation?.websiteUrl ?? null}
@@ -424,7 +433,7 @@ export default async function InfoPage() {
                       </AnimatedItem>
                     );
                   })}
-                </div>
+                </TimelineSection>
               </section>
             )}
 
@@ -434,10 +443,12 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Volunteer</h4>
                 </AnimatedItem>
-                <div className="flex flex-col gap-4">
+                <TimelineSection section="volunteer" className="flex flex-col gap-4">
                   {volunteering.map((vol, i) => (
                     <AnimatedItem key={vol._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
+                        id={vol._id}
+                        description={vol.description}
                         orgName={vol.organisation?.name ?? null}
                         logoUrl={vol.organisation?.logoUrl ?? null}
                         websiteUrl={vol.organisation?.websiteUrl ?? null}
@@ -448,7 +459,7 @@ export default async function InfoPage() {
                       />
                     </AnimatedItem>
                   ))}
-                </div>
+                </TimelineSection>
               </section>
             )}
 
@@ -458,20 +469,23 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-4">Awards</h4>
                 </AnimatedItem>
-                <div className="flex flex-col gap-4">
+                <TimelineSection section="awards" className="flex flex-col gap-4">
                   {awards.map((award, i) => (
                     <AnimatedItem key={award._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
-                        orgName={award.title}
+                        id={award._id}
+                        description={award.description}
+                        orgName={award.organisation?.name ?? null}
                         logoUrl={award.organisation?.logoUrl ?? null}
                         websiteUrl={award.organisation?.websiteUrl ?? null}
-                        title={award.organisation?.name ?? ""}
+                        title={award.title}
                         startDate={award.date}
                         endDate={null}
+                        titleFirst
                       />
                     </AnimatedItem>
                   ))}
-                </div>
+                </TimelineSection>
               </section>
             )}
 

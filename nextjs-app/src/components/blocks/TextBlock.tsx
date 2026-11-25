@@ -6,7 +6,8 @@ import { RichLink } from "@/components/primitives/RichLink";
 
 type LinkMark = { _type: string; href?: string; blank?: boolean };
 
-const portableComponents = {
+/** Rendu partagé du Portable Text du site (liens enrichis). */
+export const portableComponents = {
   marks: {
     link: ({
       value,
