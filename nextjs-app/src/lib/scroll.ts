@@ -14,6 +14,8 @@ import type LocomotiveScroll from "locomotive-scroll";
  */
 let loco: LocomotiveScroll | null = null;
 let scrollEl: HTMLElement | null = null; // null = scroll document (window)
+/** Toutes les instances vivantes (voir `refreshScrollLimit`). */
+const live = new Set<LocomotiveScroll>();
 
 export function registerScroll(
   instance: LocomotiveScroll,
@@ -21,9 +23,11 @@ export function registerScroll(
 ) {
   loco = instance;
   scrollEl = el;
+  live.add(instance);
 }
 
 export function unregisterScroll(instance: LocomotiveScroll) {
+  live.delete(instance);
   if (loco === instance) {
     loco = null;
     scrollEl = null;
@@ -50,6 +54,18 @@ export function jumpToTop() {
 export function jumpTo(y: number) {
   setNativeScroll(y);
   loco?.scrollTo(y, { immediate: true, force: true });
+}
+
+/**
+ * Recalcule la limite de scroll de Lenis. Il ne la remesure que quand le
+ * container ou son contenu change de taille : un élément en position absolue
+ * qui dépasse le bas de la page (une entrée dépliée de /info) ne le déclenche
+ * pas.
+ */
+export function refreshScrollLimit() {
+  // Toutes les instances : sur /info, celle de `ScrollInit` (window) est
+  // enregistrée après celle du `PageShell`, qui est pourtant celle qui scrolle.
+  for (const instance of live) instance.lenisInstance?.resize();
 }
 
 /** Clé sessionStorage de la position de scroll de /work (save au clic card). */

@@ -4,6 +4,7 @@ import {organisationType} from './organisation'
 import {personType} from './person'
 import {profileType} from './profile'
 import {toolType} from './tool'
+import {toolGroupType} from './toolGroup'
 import {
   blockText,
   blockMedia,
@@ -18,6 +19,7 @@ import {contractTypeType} from './contractType'
 import {experienceType} from './experience'
 import {educationType} from './education'
 import {volunteerType} from './volunteer'
+import {sideProjectType} from './sideProject'
 import {awardType} from './award'
 import {projectType} from './project'
 
@@ -39,10 +41,12 @@ export const schemaTypes = [
   artifactType,
   contractTypeType,
   experienceType,
+  sideProjectType,
   educationType,
   volunteerType,
   awardType,
   projectType,
   profileType,
   toolType,
+  toolGroupType,
 ]
