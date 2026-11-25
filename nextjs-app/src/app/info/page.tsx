@@ -6,12 +6,14 @@ import {
   experiencesQuery,
   educationQuery,
   volunteerQuery,
+  sideProjectsQuery,
   awardsQuery,
   type Profile,
   type ProfileStory,
   type ExperienceItem,
   type EducationItem,
   type VolunteerItem,
+  type SideProjectItem,
   type AwardItem,
 } from "@/sanity/queries";
 import {
@@ -199,10 +201,11 @@ async function resolveStorySlide(story: ProfileStory): Promise<StorySlide> {
 }
 
 export default async function InfoPage() {
-  const [profile, experiences, education, volunteering, awards] =
+  const [profile, experiences, sideProjects, education, volunteering, awards] =
     await Promise.all([
       client.fetch<Profile | null>(profileQuery),
       client.fetch<ExperienceItem[]>(experiencesQuery),
+      client.fetch<SideProjectItem[]>(sideProjectsQuery),
       client.fetch<EducationItem[]>(educationQuery),
       client.fetch<VolunteerItem[]>(volunteerQuery),
       client.fetch<AwardItem[]>(awardsQuery),
@@ -309,6 +312,30 @@ export default async function InfoPage() {
                         contractType={exp.contractType?.name ?? null}
                         startDate={exp.startDate}
                         endDate={exp.endDate}
+                        ongoingFallback
+                      />
+                    </AnimatedItem>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Side projects */}
+            {sideProjects.length > 0 && (
+              <section className="mt-20 mx-2">
+                <AnimatedItem delay={0.08}>
+                  <h4 className="mb-8">Side projects</h4>
+                </AnimatedItem>
+                <div className="flex flex-col gap-4">
+                  {sideProjects.map((sp, i) => (
+                    <AnimatedItem key={sp._id} delay={0.12 + i * 0.05}>
+                      <TimelineRow
+                        orgName={sp.organisation?.name ?? null}
+                        logoUrl={sp.organisation?.logoUrl ?? null}
+                        websiteUrl={sp.url ?? sp.organisation?.websiteUrl ?? null}
+                        title={sp.title}
+                        startDate={sp.startDate}
+                        endDate={sp.endDate}
                         ongoingFallback
                       />
                     </AnimatedItem>

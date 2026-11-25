@@ -17,6 +17,7 @@ import {
   EducationNavIcon,
   VolunteerNavIcon,
   AwardNavIcon,
+  SideProjectNavIcon,
 } from './schemaTypes/components/navIcons'
 
 export default defineConfig({
@@ -56,6 +57,13 @@ export default defineConfig({
               type: 'experience',
               title: 'Experience',
               icon: ExperienceNavIcon,
+              S,
+              context,
+            }),
+            orderableDocumentListDeskItem({
+              type: 'sideProject',
+              title: 'Side project',
+              icon: SideProjectNavIcon,
               S,
               context,
             }),
