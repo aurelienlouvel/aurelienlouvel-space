@@ -419,7 +419,8 @@ export const profileQuery = defineQuery(`
       tagline,
       cardTitle
     },
-    "tools": tools[]->{ _id, name, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format", url, referral }
+    "tools": tools[]->{ _id, name, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format", url, referral },
+    "socials": socials[defined(platform) && defined(url)]{ _key, platform, url }
   }
 `);
 
@@ -520,6 +521,24 @@ export type Profile = {
     url: string | null;
     referral: boolean | null;
   }> | null;
+  socials: ProfileSocial[] | null;
+};
+
+export type SocialPlatform = "linkedin" | "github" | "figma";
+
+// Display order on the Info page, whatever order the entries have in Sanity.
+// Lives here (not in the "use client" SocialPill) so the server page reads the
+// real array instead of a client reference.
+export const SOCIAL_PLATFORM_ORDER: SocialPlatform[] = [
+  "linkedin",
+  "github",
+  "figma",
+];
+
+export type ProfileSocial = {
+  _key: string;
+  platform: SocialPlatform;
+  url: string;
 };
 
 export const experiencesQuery = defineQuery(`

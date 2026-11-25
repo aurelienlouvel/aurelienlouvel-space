@@ -11,7 +11,7 @@ import { Accordion } from "@base-ui/react/accordion";
 import { PortableText } from "@portabletext/react";
 import { motion, useReducedMotion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
 import posthog from "posthog-js";
 import { portableComponents } from "@/components/blocks/TextBlock";
 import { cn } from "@/lib/utils";
@@ -126,13 +126,6 @@ export function TimelineEntry({
       <Accordion.Header render={<div />}>
         <Accordion.Trigger className="flex w-full cursor-pointer gap-4 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-stone-300">
           {children}
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            size={16}
-            strokeWidth={2}
-            aria-hidden
-            className="shrink-0 self-center text-stone-400 transition-transform duration-300 group-hover/entry:text-stone-600 group-data-[open]/entry:rotate-180 motion-reduce:transition-none"
-          />
         </Accordion.Trigger>
       </Accordion.Header>
       <Accordion.Panel
