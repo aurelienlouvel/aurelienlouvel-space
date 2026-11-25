@@ -481,7 +481,12 @@ export default async function InfoPage() {
                 </AnimatedItem>
                 <AnimatedItem delay={0.12}>
                   <TooltipProvider>
-                    <div className="flex flex-wrap items-center gap-4">
+                    {/* Deux rangées : autant de colonnes que la moitié des outils
+                        (sur mobile, 4 par ligne pour ne pas déborder). */}
+                    <div
+                      style={{ "--tool-cols": Math.ceil(tools.length / 2) } as React.CSSProperties}
+                      className="grid w-fit grid-cols-4 place-items-center gap-x-10 gap-y-8 sm:grid-cols-[repeat(var(--tool-cols),minmax(0,1fr))]"
+                    >
                       {tools.map((tool) => (
                         <ToolPill key={tool._id} tool={tool} />
                       ))}
