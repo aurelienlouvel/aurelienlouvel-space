@@ -26,7 +26,10 @@ import {
 import { PageShell } from "@/components/layout/PageShell";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { TimelineRow } from "@/components/blocks/TimelineRow";
-import { ToolPill } from "@/components/blocks/ToolPill";
+import {
+  SocialPill,
+  SOCIAL_PLATFORM_ORDER,
+} from "@/components/blocks/SocialPill";
 import { StoryStack, type StorySlide } from "@/components/blocks/StoryStack";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { AnimatedItem } from "@/components/AnimatedItem";
@@ -226,15 +229,19 @@ export default async function InfoPage() {
       ? stories.map((story) => resolveStorySlide(story))
       : [Promise.resolve(EMPTY_PHOTO_SLIDE)];
 
-  const leftTools = profile.tools?.filter((t) => !t.referral) ?? [];
-  const rightTools = profile.tools?.filter((t) => t.referral) ?? [];
+  // Une entrée par plateforme, dans un ordre fixe ; une plateforme sans URL
+  // dans Sanity n'est simplement pas affichée.
+  const socials = SOCIAL_PLATFORM_ORDER.flatMap((platform) => {
+    const social = profile.socials?.find((s) => s.platform === platform);
+    return social ? [social] : [];
+  });
 
   return (
     <ViewTransition default="none">
       <PageShell restore="top">
         <main className="w-full rounded-t-2xl bg-white">
           <div className="mx-auto max-w-3xl px-6 pt-12 sm:px-10 sm:pt-20">
-            {/* Hero: name + bio + tools  ↔  stories */}
+            {/* Hero: name + bio + socials  ↔  stories */}
             <div className="grid grid-cols-1 gap-10 md:grid-cols-[3fr_2fr] md:gap-12">
               {/* Left column */}
               <AnimatedItem delay={0.04} className="flex flex-col gap-6">
@@ -268,19 +275,12 @@ export default async function InfoPage() {
                   </div>
                 )}
 
-                {(leftTools.length > 0 || rightTools.length > 0) && (
+                {socials.length > 0 && (
                   <TooltipProvider>
                     <div className="flex flex-wrap items-center gap-4 mx-2">
-                      {leftTools.map((tool) => (
-                        <ToolPill key={tool._id} tool={tool} />
+                      {socials.map((social) => (
+                        <SocialPill key={social._key} social={social} />
                       ))}
-                      {rightTools.length > 0 && (
-                        <div className="ml-auto flex flex-wrap items-center gap-4">
-                          {rightTools.map((tool) => (
-                            <ToolPill key={tool._id} tool={tool} />
-                          ))}
-                        </div>
-                      )}
                     </div>
                   </TooltipProvider>
                 )}
