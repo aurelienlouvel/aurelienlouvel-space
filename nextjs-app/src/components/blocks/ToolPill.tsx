@@ -1,15 +1,13 @@
 "use client";
 
 import posthog from "posthog-js";
-import type { Profile } from "@/sanity/queries";
+import type { ToolItem } from "@/sanity/queries";
 import { ToolIcon } from "@/components/blocks/ToolIcon";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/Tooltip";
-
-type ToolItem = NonNullable<Profile["tools"]>[number];
 
 export function ToolPill({ tool }: { tool: ToolItem }) {
   return (
@@ -33,7 +31,7 @@ export function ToolPill({ tool }: { tool: ToolItem }) {
         }
       >
         <div className="transition-transform duration-150 hover:rotate-2 hover:scale-110">
-          <ToolIcon name={tool.name} logoUrl={tool.logoUrl} />
+          <ToolIcon name={tool.name} logoUrl={tool.logoUrl} className="h-10 w-10" />
         </div>
       </TooltipTrigger>
       <TooltipContent side="bottom" sideOffset={10}>

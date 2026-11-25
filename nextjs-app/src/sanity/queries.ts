@@ -419,7 +419,6 @@ export const profileQuery = defineQuery(`
       tagline,
       cardTitle
     },
-    "tools": tools[]->{ _id, name, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format", url, referral },
     "socials": socials[defined(platform) && defined(url)]{ _key, platform, url }
   }
 `);
@@ -514,13 +513,6 @@ export type Profile = {
   jobTitle: string | null;
   bio: string | null;
   stories: ProfileStory[] | null;
-  tools: Array<{
-    _id: string;
-    name: string;
-    logoUrl: string | null;
-    url: string | null;
-    referral: boolean | null;
-  }> | null;
   socials: ProfileSocial[] | null;
 };
 
@@ -629,6 +621,50 @@ export type SideProjectItem = {
   endDate: string | null;
   /** Portable Text (paragraphs, bold/italic, links) */
   description: unknown[] | null;
+};
+
+// Tous les outils, dans l'ordre manuel du Studio (le nom départage les outils
+// pas encore classés).
+export const toolsQuery = defineQuery(`
+  *[_type == "tool"] | order(orderRank asc, name asc) {
+    _id,
+    name,
+    "logoUrl": logo.asset->url + "?w=96&q=90&auto=format",
+    url,
+    referral
+  }
+`);
+
+export type ToolItem = {
+  _id: string;
+  name: string;
+  logoUrl: string | null;
+  url: string | null;
+  referral: boolean | null;
+};
+
+// Les groupes d'outils, dans l'ordre manuel du Studio, chacun avec ses outils
+// dans l'ordre de sa liste.
+export const toolGroupsQuery = defineQuery(`
+  *[_type == "toolGroup"] | order(orderRank asc) {
+    _id,
+    name,
+    color,
+    "tools": tools[]->{
+      _id,
+      name,
+      "logoUrl": logo.asset->url + "?w=96&q=90&auto=format",
+      url,
+      referral
+    }
+  }
+`);
+
+export type ToolGroupItem = {
+  _id: string;
+  name: string;
+  color: string | null;
+  tools: ToolItem[] | null;
 };
 
 export const awardsQuery = defineQuery(`
