@@ -13,10 +13,17 @@ export const toolType = defineType({
     },
   ],
   preview: {
-    select: {title: 'name', media: 'logo'},
+    select: {title: 'name', media: 'logo', subtitle: 'group.name'},
   },
   fields: [
     orderRankField({type: 'tool'}),
+    defineField({
+      name: 'group',
+      title: 'Group',
+      description: 'The tool group it is shown in on the Info page.',
+      type: 'reference',
+      to: [{type: 'toolGroup'}],
+    }),
     defineField({
       name: 'name',
       title: 'Name',
