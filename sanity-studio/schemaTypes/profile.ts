@@ -564,10 +564,57 @@ export const profileType = defineType({
       ],
     }),
     defineField({
-      name: 'tools',
-      title: 'Favorite tools',
+      name: 'socials',
+      title: 'Social links',
+      description: 'Shown under the bio on the Info page. One entry per platform.',
       type: 'array',
-      of: [{type: 'reference', to: [{type: 'tool'}]}],
+      of: [
+        {
+          type: 'object',
+          name: 'social',
+          title: 'Social link',
+          fields: [
+            defineField({
+              name: 'platform',
+              title: 'Platform',
+              type: 'string',
+              options: {
+                list: [
+                  {title: 'LinkedIn', value: 'linkedin'},
+                  {title: 'GitHub', value: 'github'},
+                  {title: 'Figma Community', value: 'figma'},
+                ],
+                layout: 'radio',
+              },
+              validation: (Rule) => Rule.required(),
+            }),
+            defineField({
+              name: 'url',
+              title: 'URL',
+              type: 'url',
+              validation: (Rule) => Rule.required(),
+            }),
+          ],
+          preview: {
+            select: {platform: 'platform', url: 'url'},
+            prepare({platform, url}: {platform?: string; url?: string}) {
+              const titles: Record<string, string> = {
+                linkedin: 'LinkedIn',
+                github: 'GitHub',
+                figma: 'Figma Community',
+              }
+              return {title: (platform && titles[platform]) || 'Social link', subtitle: url}
+            },
+          },
+        },
+      ],
+      validation: (Rule) =>
+        Rule.custom((socials?: Array<{platform?: string}>) => {
+          const platforms = (socials ?? []).map((s) => s.platform).filter(Boolean)
+          return new Set(platforms).size === platforms.length
+            ? true
+            : 'Each platform can only be added once.'
+        }),
     }),
   ],
 })

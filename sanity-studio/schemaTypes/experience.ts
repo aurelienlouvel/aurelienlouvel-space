@@ -1,5 +1,6 @@
 import {defineField, defineType} from 'sanity'
 import {orderRankField} from '@sanity/orderable-document-list'
+import {descriptionField} from './lib/descriptionField'
 
 export const experienceType = defineType({
   name: 'experience',
@@ -70,5 +71,6 @@ export const experienceType = defineType({
       type: 'date',
       options: {dateFormat: 'YYYY-MM-DD'},
     }),
+    descriptionField,
   ],
 })

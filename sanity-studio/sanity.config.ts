@@ -17,6 +17,7 @@ import {
   EducationNavIcon,
   VolunteerNavIcon,
   AwardNavIcon,
+  SideProjectNavIcon,
 } from './schemaTypes/components/navIcons'
 
 export default defineConfig({
@@ -60,6 +61,13 @@ export default defineConfig({
               context,
             }),
             orderableDocumentListDeskItem({
+              type: 'sideProject',
+              title: 'Side project',
+              icon: SideProjectNavIcon,
+              S,
+              context,
+            }),
+            orderableDocumentListDeskItem({
               type: 'education',
               title: 'Education',
               icon: EducationNavIcon,
@@ -81,7 +89,20 @@ export default defineConfig({
               context,
             }),
             S.documentTypeListItem('contractType').title('Contract type').icon(ContractTypeNavIcon),
-            S.documentTypeListItem('tool').title('Tool').icon(ToolNavIcon),
+            orderableDocumentListDeskItem({
+              type: 'tool',
+              title: 'Tool',
+              icon: ToolNavIcon,
+              S,
+              context,
+            }),
+            orderableDocumentListDeskItem({
+              type: 'toolGroup',
+              title: 'Tool group',
+              icon: ToolNavIcon,
+              S,
+              context,
+            }),
             S.documentTypeListItem('tag').title('Tag').icon(TagNavIcon),
             S.documentTypeListItem('organisation').title('Organisation').icon(OrganisationNavIcon),
             S.documentTypeListItem('person').title('Person').icon(PersonNavIcon),
