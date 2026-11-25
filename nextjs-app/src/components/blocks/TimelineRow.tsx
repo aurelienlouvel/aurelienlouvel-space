@@ -1,3 +1,6 @@
+"use client";
+
+import posthog from "posthog-js";
 import { LogoTile } from "@/components/blocks/LogoTile";
 import { formatDateRange } from "@/lib/date-utils";
 import { DateAgo } from "@/components/blocks/DateAgo";
@@ -82,6 +85,7 @@ export function TimelineRow({
         href={websiteUrl}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={() => posthog.capture("organization_website_clicked")}
         className={rowClassName}
       >
         {content}

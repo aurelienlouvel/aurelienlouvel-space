@@ -3,6 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import posthog from "posthog-js";
 import { fileRefToUrl, isVideoRef } from "@/lib/sanity-utils";
 import type { ProjectListItem } from "@/sanity/queries";
 import { getScrollY, WORK_SCROLL_KEY } from "@/lib/scroll";
@@ -52,7 +53,10 @@ export function ProjectCard({ project }: ProjectCardProps) {
       onMouseEnter={onIntent}
       onFocus={onIntent}
       onTouchStart={onIntent}
-      onClick={() => sessionStorage.setItem(WORK_SCROLL_KEY, String(getScrollY()))}
+      onClick={() => {
+        sessionStorage.setItem(WORK_SCROLL_KEY, String(getScrollY()));
+        posthog.capture("project_opened", { source: "work_gallery" });
+      }}
     >
       {/* Le média garde son ratio natif (les thumbnails sont déjà cadrés à
           l'export, contours transparents inclus) : largeur de la colonne,

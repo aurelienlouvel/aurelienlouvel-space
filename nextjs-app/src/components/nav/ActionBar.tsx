@@ -14,6 +14,7 @@ import { useActionBar } from "@/contexts/ActionBarContext";
 import { markWorkReturn } from "@/lib/scroll";
 import { cn } from "@/lib/utils";
 import { PlayPillPixels } from "@/components/nav/PlayPillPixels";
+import posthog from "posthog-js";
 
 const NAV_LINKS = [
   { href: "/work", label: "work" },
@@ -167,6 +168,7 @@ export function ActionBar() {
   }, [mode, projectData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = () => {
+    posthog.capture("contact_email_copied", { source: "action_bar" });
     navigator.clipboard.writeText("louvel.aurelien.pro@gmail.com");
     if (timerRef.current) clearTimeout(timerRef.current);
     const rotate = lastRotateRef.current === -2 ? 2 : -2;
@@ -321,6 +323,11 @@ export function ActionBar() {
                   {sep}
                   <motion.a
                     href={projectData.redirectUrl}
+                    onClick={() =>
+                      posthog.capture("project_visit_clicked", {
+                        source: "project_action_bar",
+                      })
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-main-50 px-3 text-base font-medium text-main-500"
