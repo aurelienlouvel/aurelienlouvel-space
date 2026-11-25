@@ -1,15 +1,13 @@
 "use client";
 
 import posthog from "posthog-js";
-import type { Profile } from "@/sanity/queries";
+import type { ToolItem } from "@/sanity/queries";
 import { ToolIcon } from "@/components/blocks/ToolIcon";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/Tooltip";
-
-type ToolItem = NonNullable<Profile["tools"]>[number];
 
 export function ToolPill({ tool }: { tool: ToolItem }) {
   return (

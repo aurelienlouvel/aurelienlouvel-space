@@ -8,6 +8,7 @@ import {
   volunteerQuery,
   sideProjectsQuery,
   awardsQuery,
+  toolsQuery,
   SOCIAL_PLATFORM_ORDER,
   type Profile,
   type ProfileStory,
@@ -16,6 +17,7 @@ import {
   type VolunteerItem,
   type SideProjectItem,
   type AwardItem,
+  type ToolItem,
 } from "@/sanity/queries";
 import {
   getAppleMusicPlaylistTracks,
@@ -31,6 +33,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { TimelineRow } from "@/components/blocks/TimelineRow";
 import { SocialPill } from "@/components/blocks/SocialPill";
 import { TimelineGroup } from "@/components/blocks/TimelineGroup";
+import { ToolPill } from "@/components/blocks/ToolPill";
 import { StoryStack, type StorySlide } from "@/components/blocks/StoryStack";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { AnimatedItem } from "@/components/AnimatedItem";
@@ -223,7 +226,7 @@ async function resolveStorySlide(story: ProfileStory): Promise<StorySlide> {
 }
 
 export default async function InfoPage() {
-  const [profile, experiences, sideProjects, education, volunteering, awards] =
+  const [profile, experiences, sideProjects, education, volunteering, awards, tools] =
     await Promise.all([
       client.fetch<Profile | null>(profileQuery),
       client.fetch<ExperienceItem[]>(experiencesQuery),
@@ -231,6 +234,7 @@ export default async function InfoPage() {
       client.fetch<EducationItem[]>(educationQuery),
       client.fetch<VolunteerItem[]>(volunteerQuery),
       client.fetch<AwardItem[]>(awardsQuery),
+      client.fetch<ToolItem[]>(toolsQuery),
     ]);
 
   if (!profile) {
@@ -466,6 +470,24 @@ export default async function InfoPage() {
                     </AnimatedItem>
                   ))}
                 </div>
+              </section>
+            )}
+
+            {/* Tools */}
+            {tools.length > 0 && (
+              <section className="mt-20 mx-2">
+                <AnimatedItem delay={0.08}>
+                  <h4 className="mb-4">Tools</h4>
+                </AnimatedItem>
+                <AnimatedItem delay={0.12}>
+                  <TooltipProvider>
+                    <div className="flex flex-wrap items-center gap-4">
+                      {tools.map((tool) => (
+                        <ToolPill key={tool._id} tool={tool} />
+                      ))}
+                    </div>
+                  </TooltipProvider>
+                </AnimatedItem>
               </section>
             )}
 
