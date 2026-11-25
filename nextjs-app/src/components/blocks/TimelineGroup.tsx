@@ -17,7 +17,7 @@ export type TimelineGroupRole = {
  * Plusieurs postes consécutifs dans la même organisation : l'organisation une
  * seule fois (logo, nom), puis les postes empilés dessous, chacun avec son
  * titre et ses dates, reliés par un fil sous le logo. Tout le groupe est une
- * seule cible : il ouvre une carte avec chaque poste (titre, dates,
+ * seule cible : il se déplie sur place en une carte avec chaque poste (titre, dates,
  * description) l'un sous l'autre. Un seul poste reste un `TimelineRow`. Doit
  * vivre dans une `TimelineSection`.
  */
@@ -54,16 +54,27 @@ export function TimelineGroup({
         <span aria-hidden="true" className="mt-2 w-px flex-1 bg-stone-200" />
       }
       className="-mx-2 px-4 py-4"
-    >
-      <span className="min-w-0 text-lg font-bold text-stone-900">{orgName}</span>
-      <span className="mt-1 flex flex-col gap-2">
-        {roles.map((role) => (
-          <span key={role._id} className="flex flex-col">
-            <span className="flex flex-wrap items-start justify-between gap-x-4">
-              <span className="min-w-0 text-base text-stone-500">
-                {role.title}
-                {role.contractType && (
-                  <span className="text-stone-400"> · {role.contractType}</span>
+      summary={
+        <span className="mt-1 flex flex-col gap-2">
+          {roles.map((role) => (
+            <span key={role._id} className="flex flex-col">
+              <span className="flex flex-wrap items-start justify-between gap-x-4">
+                <span className="min-w-0 text-base text-stone-500">
+                  {role.title}
+                  {role.contractType && (
+                    <span className="text-stone-400">
+                      {" "}
+                      · {role.contractType}
+                    </span>
+                  )}
+                </span>
+                {role.startDate && (
+                  <TimelineDates
+                    startDate={role.startDate}
+                    endDate={role.endDate}
+                    ongoingFallback={ongoingFallback}
+                    placement="aside"
+                  />
                 )}
               </span>
               {role.startDate && (
@@ -71,21 +82,13 @@ export function TimelineGroup({
                   startDate={role.startDate}
                   endDate={role.endDate}
                   ongoingFallback={ongoingFallback}
-                  placement="aside"
+                  placement="below"
                 />
               )}
             </span>
-            {role.startDate && (
-              <TimelineDates
-                startDate={role.startDate}
-                endDate={role.endDate}
-                ongoingFallback={ongoingFallback}
-                placement="below"
-              />
-            )}
-          </span>
-        ))}
-      </span>
-    </TimelineEntry>
+          ))}
+        </span>
+      }
+    />
   );
 }

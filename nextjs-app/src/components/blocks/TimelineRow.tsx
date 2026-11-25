@@ -44,8 +44,8 @@ export function TimelineDates({
 }
 
 /**
- * Une ligne de la timeline. Au clic, elle ouvre une carte (voir
- * `TimelineEntry`) : l'organisation en en-tête, puis le titre, les dates et la
+ * Une ligne de la timeline. Au clic, elle se déplie sur place en carte
+ * (voir `TimelineEntry`) : l'organisation en en-tête, puis le titre, les dates et la
  * description. Doit vivre dans une `TimelineSection`.
  *
  * `titleFirst` (Awards) : la ligne met le titre en gras et l'organisation
@@ -96,37 +96,40 @@ export function TimelineRow({
         },
       ]}
       ongoingFallback={ongoingFallback}
-      className="-mx-2 px-4 py-4"
-    >
-      <span className="flex flex-wrap items-start justify-between gap-x-4">
-        <span className="min-w-0 text-lg font-bold text-stone-900">
-          {primary}
-        </span>
-        {startDate && (
+      primary={primary}
+      aside={
+        startDate && (
           <TimelineDates
             startDate={startDate}
             endDate={endDate}
             ongoingFallback={ongoingFallback}
             placement="aside"
           />
-        )}
-      </span>
-      {secondary && (
-        <span className="text-base text-stone-500">
-          {secondary}
-          {contractType && (
-            <span className="text-stone-400"> · {contractType}</span>
-          )}
-        </span>
-      )}
-      {startDate && (
-        <TimelineDates
-          startDate={startDate}
-          endDate={endDate}
-          ongoingFallback={ongoingFallback}
-          placement="below"
-        />
-      )}
-    </TimelineEntry>
+        )
+      }
+      summary={
+        (secondary || startDate) && (
+          <div className="flex flex-col">
+            {secondary && (
+              <span className="text-base text-stone-500">
+                {secondary}
+                {contractType && (
+                  <span className="text-stone-400"> · {contractType}</span>
+                )}
+              </span>
+            )}
+            {startDate && (
+              <TimelineDates
+                startDate={startDate}
+                endDate={endDate}
+                ongoingFallback={ongoingFallback}
+                placement="below"
+              />
+            )}
+          </div>
+        )
+      }
+      className="-mx-2 px-4 py-4"
+    />
   );
 }

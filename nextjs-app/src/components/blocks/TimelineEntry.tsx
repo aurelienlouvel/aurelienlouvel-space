@@ -3,16 +3,19 @@
 import {
   createContext,
   useContext,
+  useEffect,
+  useId,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import { Dialog } from "@base-ui/react/dialog";
 import { PortableText } from "@portabletext/react";
 import {
   AnimatePresence,
   motion,
   useReducedMotion,
   type Transition,
+  type Variants,
 } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
@@ -23,10 +26,14 @@ import { Separator } from "@/components/ui/Separator";
 import { formatDateRange } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 
-/** Le nom de la section, pour l'événement PostHog `info_entry_expanded`. */
-const SectionContext = createContext<string>("info");
+/** Une section de la timeline : son nom (PostHog) et l'entrée ouverte (une seule à la fois). */
+const SectionContext = createContext<{
+  section: string;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+}>({ section: "info", openId: null, setOpenId: () => {} });
 
-/** Une section de la timeline (Experience, Education…) : donne son nom aux entrées. */
+/** Une section de la timeline (Experience, Education…) : une seule entrée ouverte à la fois. */
 export function TimelineSection({
   section,
   className,
@@ -36,8 +43,9 @@ export function TimelineSection({
   className?: string;
   children: ReactNode;
 }) {
+  const [openId, setOpenId] = useState<string | null>(null);
   return (
-    <SectionContext.Provider value={section}>
+    <SectionContext.Provider value={{ section, openId, setOpenId }}>
       <div className={className}>{children}</div>
     </SectionContext.Provider>
   );
@@ -51,7 +59,7 @@ export type TimelineCardOrg = {
 
 export type TimelineCardRole = {
   id: string;
-  /** Absent quand l'en-tête de la carte porte déjà le titre (entrée sans organisation). */
+  /** Absent quand l'en-tête porte déjà le titre (entrée sans organisation). */
   title?: string | null;
   contractType?: string | null;
   startDate: string | null;
@@ -64,7 +72,7 @@ function hasDescription(description: unknown[] | null | undefined) {
   return Array.isArray(description) && description.length > 0;
 }
 
-/** Le logo d'une entrée, dans la ligne comme dans la carte. */
+/** Le logo d'une entrée. */
 export function TimelineLogo({
   name,
   logoUrl,
@@ -81,25 +89,80 @@ export function TimelineLogo({
   );
 }
 
-const LAYOUT_TRANSITION: Transition = {
-  type: "spring",
-  bounce: 0.12,
-  duration: 0.5,
+/** Une seule courbe, douce et sans rebond, pour tout ce qui change de taille. */
+const EASE = [0.22, 1, 0.36, 1] as const;
+const HEIGHT: Transition = { duration: 0.48, ease: EASE };
+
+/**
+ * Hauteur qui s'ouvre puis contenu qui apparaît ; à la fermeture, le contenu
+ * part d'abord, puis la hauteur se replie.
+ */
+const panelVariants: Variants = {
+  closed: { height: 0, transition: { ...HEIGHT, delay: 0.1 } },
+  open: { height: "auto", transition: HEIGHT },
+};
+const contentVariants: Variants = {
+  closed: {
+    opacity: 0,
+    y: -6,
+    transition: { duration: 0.14, ease: "easeOut" },
+  },
+  open: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.32, ease: EASE, delay: 0.12 },
+  },
+};
+/** Ce qui n'appartient qu'à la ligne fermée (poste, dates, fil du groupe). */
+const summaryVariants: Variants = {
+  // Revient en même temps que le panneau se replie ; `overflow` reste visible
+  // au repos pour que la ligne « it was … » des dates ne soit pas coupée.
+  shown: {
+    height: "auto",
+    opacity: 1,
+    transition: {
+      ...HEIGHT,
+      delay: 0.1,
+      opacity: { duration: 0.3, ease: EASE, delay: 0.25 },
+    },
+    transitionEnd: { overflow: "visible" },
+  },
+  hidden: {
+    height: 0,
+    opacity: 0,
+    overflow: "hidden",
+    transition: { ...HEIGHT, opacity: { duration: 0.14 } },
+  },
+};
+
+/** `prefers-reduced-motion` : les mêmes états, sans transition. */
+function instant(variants: Variants): Variants {
+  return Object.fromEntries(
+    Object.entries(variants).map(([name, target]) => [
+      name,
+      { ...(target as object), transition: { duration: 0 } },
+    ]),
+  );
+}
+const INSTANT = {
+  panel: instant(panelVariants),
+  content: instant(contentVariants),
+  summary: instant(summaryVariants),
 };
 
 /**
  * Une entrée de la timeline (une ligne, ou un groupe de postes dans la même
- * organisation) : toute la ligne est un bouton qui ouvre une carte centrée
- * par-dessus la page. La carte naît de la ligne (transition d'élément partagé
- * `layoutId`, le logo compris) ; avec `prefers-reduced-motion`, simple fondu.
+ * organisation). Au clic, elle se déplie sur place et devient une carte
+ * surélevée (fond blanc, ombre douce), un peu plus large que la ligne :
  *
- * Base UI `Dialog` (la primitive du Dialog shadcn `base-*`) gère le reste :
- * `role="dialog"` + `aria-modal`, nommée par le nom de l'organisation, focus
- * piégé dans la carte, Échap et clic sur le fond pour fermer, focus rendu à la
- * ligne, défilement de la page bloqué.
+ * - en-tête : le logo et le nom de la ligne restent où ils sont ; avec un site,
+ *   logo + nom + flèche deviennent le lien (nouvel onglet) ;
+ * - un séparateur ;
+ * - chaque poste : titre, dates, description, l'un sous l'autre.
  *
- * Carte : en-tête (logo, nom, flèche ; lien vers le site s'il existe), un
- * séparateur, puis chaque poste (titre, dates, description) l'un sous l'autre.
+ * Un bouton disclosure (`aria-expanded`, `aria-controls`) couvre l'en-tête ;
+ * Échap ou un clic hors de la carte la referme. Une seule entrée ouverte par
+ * section. Avec `prefers-reduced-motion`, pas d'animation de hauteur.
  */
 export function TimelineEntry({
   id,
@@ -107,9 +170,11 @@ export function TimelineEntry({
   org,
   roles,
   ongoingFallback = false,
+  primary,
+  aside,
+  summary,
   logoAside,
   className,
-  children,
 }: {
   id: string;
   /** Le titre envoyé à PostHog (`info_entry_expanded`). */
@@ -117,220 +182,247 @@ export function TimelineEntry({
   org: TimelineCardOrg;
   roles: TimelineCardRole[];
   ongoingFallback?: boolean;
-  /** Sous le logo de la ligne (le fil d'un groupe). */
+  /** La ligne en gras quand l'entrée est fermée (par défaut, le nom de l'organisation). */
+  primary?: ReactNode;
+  /** À droite de la ligne en gras, fermée seulement (les dates). */
+  aside?: ReactNode;
+  /** Sous la ligne en gras, fermée seulement (poste, dates en mobile, postes d'un groupe). */
+  summary?: ReactNode;
+  /** Sous le logo, fermée seulement (le fil d'un groupe). */
   logoAside?: ReactNode;
-  /** Classes du bouton (marges, espacement). */
+  /** Classes du cadre (marges, espacement). */
   className?: string;
-  children: ReactNode;
 }) {
-  const section = useContext(SectionContext);
+  const { section, openId, setOpenId } = useContext(SectionContext);
+  const open = openId === id;
   const reduceMotion = useReducedMotion();
-  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
-  const cardId = reduceMotion ? undefined : `timeline-card-${id}`;
-  const logoId = reduceMotion ? undefined : `timeline-logo-${id}`;
+  // Échap et clic hors de la carte la referment.
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setOpenId(null);
+      buttonRef.current?.focus();
+    }
+    function onPointerDown(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpenId(null);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [open, setOpenId]);
 
-  return (
-    <Dialog.Root
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) {
-          posthog.capture("info_entry_expanded", { section, title: trackTitle });
-        }
-      }}
-    >
-      <Dialog.Trigger
-        className={cn(
-          "group/entry relative flex w-full cursor-pointer gap-4 rounded-2xl text-left outline-none",
-          "transition-transform duration-300 hover:scale-[0.985] focus-visible:ring-2 focus-visible:ring-stone-300",
-          "motion-reduce:transition-none motion-reduce:hover:scale-100",
-          className,
-        )}
-      >
-        {/* Le fond de la ligne : c'est lui qui devient la carte. */}
-        {!open && (
-          <motion.span
-            aria-hidden="true"
-            layoutId={cardId}
-            transition={LAYOUT_TRANSITION}
-            className="absolute inset-0 rounded-2xl bg-transparent transition-colors duration-300 group-hover/entry:bg-stone-50"
-          />
-        )}
-        <span className="relative flex flex-col items-center">
-          {open ? (
-            <span aria-hidden="true" className="block h-10 w-10" />
-          ) : (
-            <motion.span
-              layoutId={logoId}
-              transition={LAYOUT_TRANSITION}
-              className="block"
-            >
-              <TimelineLogo name={org.name} logoUrl={org.logoUrl} />
-            </motion.span>
-          )}
-          {logoAside}
-        </span>
-        <span className="relative flex min-w-0 flex-1 flex-col">{children}</span>
-      </Dialog.Trigger>
-
-      <AnimatePresence>
-        {open && (
-          <Dialog.Portal keepMounted>
-            <Dialog.Backdrop
-              render={
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.25 }}
-                />
-              }
-              className="fixed inset-0 z-60 bg-stone-900/25 backdrop-blur-xs"
-            />
-            <Dialog.Viewport className="fixed inset-0 z-60 flex items-center justify-center p-4 sm:p-8">
-              <Dialog.Popup
-                // Base UI rend le reste de la page inerte sans poser `aria-modal`.
-                aria-modal="true"
-                render={
-                  <motion.div
-                    layoutId={cardId}
-                    transition={LAYOUT_TRANSITION}
-                    initial={reduceMotion ? { opacity: 0 } : undefined}
-                    animate={reduceMotion ? { opacity: 1 } : undefined}
-                    exit={reduceMotion ? { opacity: 0 } : undefined}
-                  />
-                }
-                className="relative flex max-h-[85dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-white shadow-2xl outline-none"
-              >
-                <TimelineCard
-                  org={org}
-                  roles={roles}
-                  ongoingFallback={ongoingFallback}
-                  logoId={logoId}
-                />
-              </Dialog.Popup>
-            </Dialog.Viewport>
-          </Dialog.Portal>
-        )}
-      </AnimatePresence>
-    </Dialog.Root>
-  );
-}
-
-/** Le texte de la carte apparaît une fois qu'elle a pris sa place, et part en premier. */
-const fade = {
-  layout: "position" as const,
-  initial: { opacity: 0 },
-  animate: { opacity: 1, transition: { duration: 0.25, delay: 0.12 } },
-  exit: { opacity: 0, transition: { duration: 0.1 } },
-};
-
-function TimelineCard({
-  org,
-  roles,
-  ongoingFallback,
-  logoId,
-}: {
-  org: TimelineCardOrg;
-  roles: TimelineCardRole[];
-  ongoingFallback: boolean;
-  logoId: string | undefined;
-}) {
-  const header = (
-    <>
-      <motion.span
-        layoutId={logoId}
-        transition={LAYOUT_TRANSITION}
-        className="block shrink-0"
-      >
-        <TimelineLogo name={org.name} logoUrl={org.logoUrl} />
-      </motion.span>
-      <motion.span {...fade} className="flex min-w-0 items-center gap-1">
-        <Dialog.Title className="min-w-0 text-lg font-bold text-stone-900">
-          {org.name}
-        </Dialog.Title>
-        {org.websiteUrl && (
-          <HugeiconsIcon
-            icon={ArrowUpRight01Icon}
-            size={18}
-            strokeWidth={2}
-            aria-hidden="true"
-            className="shrink-0 text-stone-400 transition-colors duration-150 group-hover/link:text-stone-800"
-          />
-        )}
-      </motion.span>
-    </>
-  );
+  function toggle() {
+    if (open) {
+      setOpenId(null);
+    } else {
+      setOpenId(id);
+      posthog.capture("info_entry_expanded", { section, title: trackTitle });
+    }
+  }
 
   const visibleRoles = roles.filter(
     (role) => role.title || role.startDate || hasDescription(role.description),
   );
+  const v = reduceMotion
+    ? INSTANT
+    : {
+        panel: panelVariants,
+        content: contentVariants,
+        summary: summaryVariants,
+      };
 
   return (
-    <>
-      <div className="p-4">
-        {org.websiteUrl ? (
-          <a
-            href={org.websiteUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => posthog.capture("organization_website_clicked")}
-            className="group/link flex items-center gap-4 rounded-2xl p-2 transition-colors duration-150 outline-none hover:bg-stone-50 focus-visible:ring-2 focus-visible:ring-stone-300"
-          >
-            {header}
-            <span className="sr-only">(opens in a new tab)</span>
-          </a>
-        ) : (
-          <div className="flex items-center gap-4 p-2">{header}</div>
+    <div
+      ref={rootRef}
+      data-open={open ? "" : undefined}
+      className={cn(
+        "group/entry relative rounded-2xl",
+        "transition-transform duration-300 not-data-[open]:hover:scale-[0.985] motion-reduce:transition-none motion-reduce:hover:scale-100",
+        open && "z-10",
+        className,
+      )}
+    >
+      {/* La surface : transparente au repos, carte surélevée et un peu plus large ouverte. */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute inset-0 rounded-2xl transition-[inset,background-color,box-shadow,border-radius] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+          open
+            ? "-inset-x-2 -inset-y-1 rounded-3xl bg-white shadow-xl ring-1 shadow-stone-900/8 ring-stone-900/5"
+            : "group-hover/entry:bg-stone-50",
         )}
+      />
+
+      <div className="relative">
+        <button
+          ref={buttonRef}
+          type="button"
+          aria-expanded={open}
+          aria-controls={panelId}
+          aria-label={trackTitle}
+          onClick={toggle}
+          className="absolute -inset-x-4 -inset-y-4 cursor-pointer rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-stone-300"
+        />
+        {/* Le clic sur la ligne passe par ici ; le bouton porte l'état pour le clavier et les lecteurs d'écran. */}
+        <div onClick={toggle} className="relative flex cursor-pointer gap-4">
+          {!(open && org.websiteUrl) && (
+            <div className="flex shrink-0 flex-col items-center">
+              <TimelineLogo name={org.name} logoUrl={org.logoUrl} />
+              <AnimatePresence initial={false}>
+                {!open && logoAside && (
+                  <motion.span
+                    key="logo-aside"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0, transition: { duration: 0.12 } }}
+                    className="flex w-full flex-1 flex-col items-center"
+                  >
+                    {logoAside}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+          {open && org.websiteUrl ? (
+            <OrgLink org={org} />
+          ) : (
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex flex-wrap items-start justify-between gap-x-4">
+                <span className="min-w-0 text-lg font-bold text-stone-900">
+                  {open ? org.name : (primary ?? org.name)}
+                </span>
+                {!open && aside}
+              </div>
+              <AnimatePresence initial={false}>
+                {!open && summary && (
+                  <motion.div
+                    key="summary"
+                    variants={v.summary}
+                    initial="hidden"
+                    animate="shown"
+                    exit="hidden"
+                  >
+                    {summary}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
       </div>
 
-      {visibleRoles.length > 0 && (
-        <motion.div {...fade} className="flex min-h-0 flex-col">
-          <Separator className="bg-stone-100" />
-          <div className="flex flex-col gap-6 overflow-y-auto p-6">
-            {visibleRoles.map((role) => (
-              <div key={role.id} className="flex flex-col gap-2">
-                <div className="flex flex-col">
-                  {role.title && (
-                    <h3 className="text-base font-semibold text-stone-900">
-                      {role.title}
-                      {role.contractType && (
-                        <span className="font-normal text-stone-400">
-                          {" "}
-                          · {role.contractType}
-                        </span>
-                      )}
-                    </h3>
-                  )}
-                  {role.startDate && (
-                    <span className="text-sm font-medium text-stone-500">
-                      {formatDateRange(
-                        role.startDate,
-                        role.endDate,
-                        ongoingFallback,
-                      )}
-                    </span>
-                  )}
-                </div>
-                {hasDescription(role.description) && (
-                  <div className="text-base leading-relaxed text-stone-600 [&_p+p]:mt-3 [&_strong]:font-semibold [&_strong]:text-stone-800">
-                    <PortableText
-                      value={
-                        role.description as Parameters<
-                          typeof PortableText
-                        >[0]["value"]
-                      }
-                      components={portableComponents}
-                    />
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="panel"
+            id={panelId}
+            role="region"
+            aria-label={org.name}
+            variants={v.panel}
+            initial="closed"
+            animate="open"
+            exit="closed"
+            className="relative overflow-hidden"
+          >
+            <motion.div variants={v.content}>
+              {visibleRoles.length > 0 && (
+                <>
+                  <Separator className="mt-4 bg-stone-100" />
+                  <div className="flex flex-col gap-6 pt-5 pb-1">
+                    {visibleRoles.map((role) => (
+                      <RoleBlock
+                        key={role.id}
+                        role={role}
+                        ongoingFallback={ongoingFallback}
+                      />
+                    ))}
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </motion.div>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/** L'en-tête ouvert : logo + nom + flèche, un seul lien vers le site (nouvel onglet). */
+function OrgLink({ org }: { org: TimelineCardOrg }) {
+  return (
+    <a
+      href={org.websiteUrl ?? undefined}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => {
+        event.stopPropagation();
+        posthog.capture("organization_website_clicked");
+      }}
+      className="group/link -m-1 flex w-fit items-center gap-4 rounded-xl p-1 outline-none focus-visible:ring-2 focus-visible:ring-stone-300"
+    >
+      <TimelineLogo name={org.name} logoUrl={org.logoUrl} />
+      <span className="flex items-center gap-1">
+        <span className="text-lg font-bold text-stone-900 underline decoration-transparent underline-offset-4 transition-colors duration-150 group-hover/link:decoration-stone-300">
+          {org.name}
+        </span>
+        <HugeiconsIcon
+          icon={ArrowUpRight01Icon}
+          size={18}
+          strokeWidth={2}
+          aria-hidden="true"
+          className="shrink-0 text-stone-400 transition-colors duration-150 group-hover/link:text-stone-800"
+        />
+        <span className="sr-only">(opens in a new tab)</span>
+      </span>
+    </a>
+  );
+}
+
+function RoleBlock({
+  role,
+  ongoingFallback,
+}: {
+  role: TimelineCardRole;
+  ongoingFallback: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col">
+        {role.title && (
+          <h3 className="text-base font-semibold text-stone-900">
+            {role.title}
+            {role.contractType && (
+              <span className="font-normal text-stone-400">
+                {" "}
+                · {role.contractType}
+              </span>
+            )}
+          </h3>
+        )}
+        {role.startDate && (
+          <span className="text-sm font-medium text-stone-500">
+            {formatDateRange(role.startDate, role.endDate, ongoingFallback)}
+          </span>
+        )}
+      </div>
+      {hasDescription(role.description) && (
+        <div className="text-base leading-relaxed text-stone-600 [&_p+p]:mt-3 [&_strong]:font-semibold [&_strong]:text-stone-800">
+          <PortableText
+            value={
+              role.description as Parameters<typeof PortableText>[0]["value"]
+            }
+            components={portableComponents}
+          />
+        </div>
       )}
-    </>
+    </div>
   );
 }
