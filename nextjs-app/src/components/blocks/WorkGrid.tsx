@@ -143,7 +143,7 @@ export function WorkGrid({ projects }: { projects: ProjectListItem[] }) {
   );
 
   return (
-    <main className="p-4 bg-white">
+    <main className="p-4 pb-36 bg-white">
       {/* Mobile — 1 col (pas d'offset X) */}
       <div className="flex flex-col gap-4 md:hidden">
         {projects.map((p, i) => card(p, i, 0, i, 1))}
