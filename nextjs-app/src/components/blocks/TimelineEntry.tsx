@@ -89,41 +89,40 @@ export function TimelineLogo({
   );
 }
 
-/** Une seule courbe, douce et sans rebond, pour tout ce qui change de taille. */
-const EASE = [0.22, 1, 0.36, 1] as const;
-const HEIGHT: Transition = { duration: 0.48, ease: EASE };
+/** Une seule courbe, longue et douce, sans rebond, pour tout ce qui change de taille. */
+const EASE = [0.32, 0.72, 0, 1] as const;
+const HEIGHT: Transition = { duration: 0.6, ease: EASE };
 
 /**
- * Hauteur qui s'ouvre puis contenu qui apparaît ; à la fermeture, le contenu
- * part d'abord, puis la hauteur se replie.
+ * À l'ouverture, la hauteur s'ouvre et le contenu apparaît en chevauchement ;
+ * à la fermeture, le contenu s'efface vite pendant que la hauteur se replie.
  */
 const panelVariants: Variants = {
-  closed: { height: 0, transition: { ...HEIGHT, delay: 0.1 } },
+  closed: { height: 0, transition: HEIGHT },
   open: { height: "auto", transition: HEIGHT },
 };
 const contentVariants: Variants = {
   closed: {
     opacity: 0,
-    y: -6,
-    transition: { duration: 0.14, ease: "easeOut" },
+    y: -4,
+    transition: { duration: 0.2, ease: "easeOut" },
   },
   open: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.32, ease: EASE, delay: 0.12 },
+    transition: { duration: 0.45, ease: EASE, delay: 0.08 },
   },
 };
 /** Ce qui n'appartient qu'à la ligne fermée (poste, dates, fil du groupe). */
 const summaryVariants: Variants = {
-  // Revient en même temps que le panneau se replie ; `overflow` reste visible
-  // au repos pour que la ligne « it was … » des dates ne soit pas coupée.
+  // `overflow` reste visible au repos pour que la ligne « it was … » des
+  // dates ne soit pas coupée.
   shown: {
     height: "auto",
     opacity: 1,
     transition: {
       ...HEIGHT,
-      delay: 0.1,
-      opacity: { duration: 0.3, ease: EASE, delay: 0.25 },
+      opacity: { duration: 0.4, ease: EASE, delay: 0.15 },
     },
     transitionEnd: { overflow: "visible" },
   },
@@ -131,7 +130,7 @@ const summaryVariants: Variants = {
     height: 0,
     opacity: 0,
     overflow: "hidden",
-    transition: { ...HEIGHT, opacity: { duration: 0.14 } },
+    transition: { ...HEIGHT, opacity: { duration: 0.2, ease: "easeOut" } },
   },
 };
 
@@ -152,8 +151,8 @@ const INSTANT = {
 
 /**
  * Une entrée de la timeline (une ligne, ou un groupe de postes dans la même
- * organisation). Au clic, elle se déplie sur place et devient une carte
- * surélevée (fond blanc, ombre douce), un peu plus large que la ligne :
+ * organisation). Au clic, elle se déplie sur place, sur le même fond gris
+ * que la ligne survolée :
  *
  * - en-tête : le logo et le nom de la ligne restent où ils sont ; avec un site,
  *   logo + nom + flèche deviennent le lien (nouvel onglet) ;
@@ -197,6 +196,10 @@ export function TimelineEntry({
   const open = openId === id;
   const reduceMotion = useReducedMotion();
   const panelId = useId();
+  // Le fond gris reste tant que le panneau n'a pas fini de se replier, quel
+  // que soit le chemin de fermeture (ligne, Échap, clic dehors, autre entrée).
+  const [expanded, setExpanded] = useState(open);
+  if (open && !expanded) setExpanded(true);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -242,25 +245,14 @@ export function TimelineEntry({
   return (
     <div
       ref={rootRef}
-      data-open={open ? "" : undefined}
+      data-open={expanded ? "" : undefined}
       className={cn(
-        "group/entry relative rounded-2xl",
-        "transition-transform duration-300 not-data-[open]:hover:scale-[0.985] motion-reduce:transition-none motion-reduce:hover:scale-100",
-        open && "z-10",
+        "group/entry relative rounded-2xl transition-[background-color,scale] duration-300",
+        "hover:bg-stone-50 data-[open]:bg-stone-50",
+        "not-data-[open]:hover:scale-[0.985] motion-reduce:transition-none motion-reduce:hover:scale-100",
         className,
       )}
     >
-      {/* La surface : transparente au repos, carte surélevée et un peu plus large ouverte. */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          "absolute inset-0 rounded-2xl transition-[inset,background-color,box-shadow,border-radius] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-          open
-            ? "-inset-x-2 -inset-y-1 rounded-3xl bg-white shadow-xl ring-1 shadow-stone-900/8 ring-stone-900/5"
-            : "group-hover/entry:bg-stone-50",
-        )}
-      />
-
       <div className="relative">
         <button
           ref={buttonRef}
@@ -319,7 +311,10 @@ export function TimelineEntry({
         </div>
       </div>
 
-      <AnimatePresence initial={false}>
+      <AnimatePresence
+        initial={false}
+        onExitComplete={() => setExpanded(false)}
+      >
         {open && (
           <motion.div
             key="panel"
@@ -335,7 +330,7 @@ export function TimelineEntry({
             <motion.div variants={v.content}>
               {visibleRoles.length > 0 && (
                 <>
-                  <Separator className="mt-4 bg-stone-100" />
+                  <Separator className="mt-4 bg-stone-200/70" />
                   <div className="flex flex-col gap-6 pt-5 pb-1">
                     {visibleRoles.map((role) => (
                       <RoleBlock
