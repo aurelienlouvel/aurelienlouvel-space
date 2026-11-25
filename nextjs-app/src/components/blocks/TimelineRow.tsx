@@ -1,45 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
-import posthog from "posthog-js";
 import { LogoTile } from "@/components/blocks/LogoTile";
 import { formatDateRange } from "@/lib/date-utils";
 import { DateAgo } from "@/components/blocks/DateAgo";
-import { cn } from "@/lib/utils";
-
-/**
- * Le cadre d'une ligne (ou d'un groupe) de la timeline : un lien vers le site
- * de l'organisation quand il existe (avec l'événement PostHog), sinon un
- * simple bloc. Partagé par `TimelineRow` et `TimelineGroup`.
- */
-export function TimelineShell({
-  websiteUrl,
-  children,
-}: {
-  websiteUrl?: string | null;
-  children: ReactNode;
-}) {
-  const className = cn(
-    "flex gap-4 rounded-2xl px-4 py-4 -mx-2 transition-all duration-300",
-    websiteUrl && "hover:scale-[0.985] hover:bg-stone-50",
-  );
-
-  if (websiteUrl) {
-    return (
-      <a
-        href={websiteUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={() => posthog.capture("organization_website_clicked")}
-        className={className}
-      >
-        {children}
-      </a>
-    );
-  }
-
-  return <div className={className}>{children}</div>;
-}
+import { TimelineEntry } from "@/components/blocks/TimelineAccordion";
 
 export function TimelineLogo({
   name,
@@ -98,7 +62,16 @@ export function TimelineDates({
   );
 }
 
+/** Le cadre d'une ligne de la timeline (fond au survol, arrondi, marges). */
+const TIMELINE_ROW_CLASS = "-mx-2 rounded-2xl px-4 py-4";
+
+/**
+ * Une ligne de la timeline. Au clic, elle se déplie sur place pour montrer la
+ * description et le lien vers le site de l'organisation (voir `TimelineEntry`) ;
+ * elle doit vivre dans un `TimelineAccordion`.
+ */
 export function TimelineRow({
+  id,
   orgName,
   logoUrl,
   websiteUrl,
@@ -107,7 +80,9 @@ export function TimelineRow({
   startDate,
   endDate,
   ongoingFallback = false,
+  description,
 }: {
+  id: string;
   orgName: string | null;
   logoUrl: string | null;
   websiteUrl?: string | null;
@@ -116,9 +91,17 @@ export function TimelineRow({
   startDate: string | null;
   endDate: string | null;
   ongoingFallback?: boolean;
+  description?: unknown[] | null;
 }) {
   return (
-    <TimelineShell websiteUrl={websiteUrl}>
+    <TimelineEntry
+      value={id}
+      trackTitle={orgName ? `${orgName} · ${title}` : title}
+      description={description}
+      websiteUrl={websiteUrl}
+      className={TIMELINE_ROW_CLASS}
+      panelClassName="pl-14"
+    >
       <TimelineLogo name={orgName ?? title} logoUrl={logoUrl} />
       <div className="flex flex-1 flex-col">
         <div className="flex flex-wrap items-start justify-between gap-x-4">
@@ -151,6 +134,6 @@ export function TimelineRow({
           />
         )}
       </div>
-    </TimelineShell>
+    </TimelineEntry>
   );
 }
