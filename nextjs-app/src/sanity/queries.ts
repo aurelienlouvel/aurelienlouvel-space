@@ -527,7 +527,7 @@ export const experiencesQuery = defineQuery(`
     _id,
     title,
     "contractType": contractType->{ name },
-    "organisation": organisation->{ name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
+    "organisation": organisation->{ _id, name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
     "roles": roles[]->{ _id, name, color, icon },
     startDate,
     endDate
@@ -538,7 +538,7 @@ export type ExperienceItem = {
   _id: string;
   title: string;
   contractType: { name: string } | null;
-  organisation: { name: string; websiteUrl: string | null; logoUrl: string | null } | null;
+  organisation: { _id: string; name: string; websiteUrl: string | null; logoUrl: string | null } | null;
   roles: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
   startDate: string | null;
   endDate: string | null;
@@ -548,7 +548,7 @@ export const educationQuery = defineQuery(`
   *[_type == "education"] | order(orderRank) {
     _id,
     title,
-    "organisation": organisation->{ name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
+    "organisation": organisation->{ _id, name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
     startDate,
     endDate
   }
@@ -557,7 +557,7 @@ export const educationQuery = defineQuery(`
 export type EducationItem = {
   _id: string;
   title: string;
-  organisation: { name: string; websiteUrl: string | null; logoUrl: string | null } | null;
+  organisation: { _id: string; name: string; websiteUrl: string | null; logoUrl: string | null } | null;
   startDate: string | null;
   endDate: string | null;
 };
