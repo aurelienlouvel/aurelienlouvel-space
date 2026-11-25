@@ -1,6 +1,5 @@
 import { ViewTransition } from "react";
 import { PageShell } from "@/components/layout/PageShell";
-import { SiteFooter } from "@/components/layout/SiteFooter";
 
 /**
  * Coquille de la page projet — rendue AVANT que le contenu Sanity soit prêt.
@@ -28,9 +27,10 @@ export default function ProjectLayout({
     >
       <PageShell restore="top">
         <main className="w-full bg-white rounded-t-2xl">
-          <div className="mx-auto max-w-5xl pt-4 sm:pt-16">{children}</div>
+          <div className="mx-auto max-w-5xl pt-4 sm:pt-16 pb-12 sm:pb-64">
+            {children}
+          </div>
         </main>
-        <SiteFooter />
       </PageShell>
     </ViewTransition>
   );
