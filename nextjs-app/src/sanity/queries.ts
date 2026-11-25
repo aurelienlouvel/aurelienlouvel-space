@@ -526,6 +526,15 @@ export type Profile = {
 
 export type SocialPlatform = "linkedin" | "github" | "figma";
 
+// Display order on the Info page, whatever order the entries have in Sanity.
+// Lives here (not in the "use client" SocialPill) so the server page reads the
+// real array instead of a client reference.
+export const SOCIAL_PLATFORM_ORDER: SocialPlatform[] = [
+  "linkedin",
+  "github",
+  "figma",
+];
+
 export type ProfileSocial = {
   _key: string;
   platform: SocialPlatform;

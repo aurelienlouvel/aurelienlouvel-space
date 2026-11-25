@@ -7,6 +7,7 @@ import {
   educationQuery,
   volunteerQuery,
   awardsQuery,
+  SOCIAL_PLATFORM_ORDER,
   type Profile,
   type ProfileStory,
   type ExperienceItem,
@@ -26,10 +27,7 @@ import {
 import { PageShell } from "@/components/layout/PageShell";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { TimelineRow } from "@/components/blocks/TimelineRow";
-import {
-  SocialPill,
-  SOCIAL_PLATFORM_ORDER,
-} from "@/components/blocks/SocialPill";
+import { SocialPill } from "@/components/blocks/SocialPill";
 import { StoryStack, type StorySlide } from "@/components/blocks/StoryStack";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { AnimatedItem } from "@/components/AnimatedItem";

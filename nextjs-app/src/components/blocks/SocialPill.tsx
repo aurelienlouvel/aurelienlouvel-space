@@ -23,13 +23,6 @@ const PLATFORMS: Record<
   figma: { label: "Figma Community", icon: FigmaIcon },
 };
 
-// Display order on the Info page, whatever order the entries have in Sanity.
-export const SOCIAL_PLATFORM_ORDER: SocialPlatform[] = [
-  "linkedin",
-  "github",
-  "figma",
-];
-
 // Sibling of ToolPill: same tooltip and hover tilt, with a HugeIcon in place
 // of the tool logo.
 export function SocialPill({ social }: { social: ProfileSocial }) {
