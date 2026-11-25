@@ -4,6 +4,7 @@ import {organisationType} from './organisation'
 import {personType} from './person'
 import {profileType} from './profile'
 import {toolType} from './tool'
+import {toolGroupType} from './toolGroup'
 import {
   blockText,
   blockMedia,
@@ -47,4 +48,5 @@ export const schemaTypes = [
   projectType,
   profileType,
   toolType,
+  toolGroupType,
 ]

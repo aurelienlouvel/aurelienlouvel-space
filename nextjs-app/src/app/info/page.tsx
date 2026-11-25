@@ -8,6 +8,8 @@ import {
   volunteerQuery,
   sideProjectsQuery,
   awardsQuery,
+  toolsQuery,
+  toolGroupsQuery,
   SOCIAL_PLATFORM_ORDER,
   type Profile,
   type ProfileStory,
@@ -16,6 +18,8 @@ import {
   type VolunteerItem,
   type SideProjectItem,
   type AwardItem,
+  type ToolItem,
+  type ToolGroupItem,
 } from "@/sanity/queries";
 import {
   getAppleMusicPlaylistTracks,
@@ -32,6 +36,7 @@ import { TimelineRow } from "@/components/blocks/TimelineRow";
 import { SocialPill } from "@/components/blocks/SocialPill";
 import { TimelineGroup } from "@/components/blocks/TimelineGroup";
 import { TimelineSection } from "@/components/blocks/TimelineEntry";
+import { ToolGroups } from "@/components/blocks/ToolGroups";
 import { StoryStack, type StorySlide } from "@/components/blocks/StoryStack";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { AnimatedItem } from "@/components/AnimatedItem";
@@ -224,7 +229,7 @@ async function resolveStorySlide(story: ProfileStory): Promise<StorySlide> {
 }
 
 export default async function InfoPage() {
-  const [profile, experiences, sideProjects, education, volunteering, awards] =
+  const [profile, experiences, sideProjects, education, volunteering, awards, tools, toolGroups] =
     await Promise.all([
       client.fetch<Profile | null>(profileQuery),
       client.fetch<ExperienceItem[]>(experiencesQuery),
@@ -232,6 +237,8 @@ export default async function InfoPage() {
       client.fetch<EducationItem[]>(educationQuery),
       client.fetch<VolunteerItem[]>(volunteerQuery),
       client.fetch<AwardItem[]>(awardsQuery),
+      client.fetch<ToolItem[]>(toolsQuery),
+      client.fetch<ToolGroupItem[]>(toolGroupsQuery),
     ]);
 
   if (!profile) {
@@ -480,6 +487,18 @@ export default async function InfoPage() {
                     </AnimatedItem>
                   ))}
                 </TimelineSection>
+              </section>
+            )}
+
+            {/* Tools */}
+            {tools.length > 0 && (
+              <section className="mt-20 mx-2">
+                <AnimatedItem delay={0.08}>
+                  <h4 className="mb-4">Tools</h4>
+                </AnimatedItem>
+                <AnimatedItem delay={0.12}>
+                  <ToolGroups groups={toolGroups} tools={tools} />
+                </AnimatedItem>
               </section>
             )}
 

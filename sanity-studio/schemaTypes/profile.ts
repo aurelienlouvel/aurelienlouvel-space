@@ -564,12 +564,6 @@ export const profileType = defineType({
       ],
     }),
     defineField({
-      name: 'tools',
-      title: 'Favorite tools',
-      type: 'array',
-      of: [{type: 'reference', to: [{type: 'tool'}]}],
-    }),
-    defineField({
       name: 'socials',
       title: 'Social links',
       description: 'Shown under the bio on the Info page. One entry per platform.',
