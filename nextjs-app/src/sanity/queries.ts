@@ -546,10 +546,11 @@ export const experiencesQuery = defineQuery(`
     _id,
     title,
     "contractType": contractType->{ name },
-    "organisation": organisation->{ name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
+    "organisation": organisation->{ _id, name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
     "roles": roles[]->{ _id, name, color, icon },
     startDate,
-    endDate
+    endDate,
+    description
   }
 `);
 
@@ -557,28 +558,33 @@ export type ExperienceItem = {
   _id: string;
   title: string;
   contractType: { name: string } | null;
-  organisation: { name: string; websiteUrl: string | null; logoUrl: string | null } | null;
+  organisation: { _id: string; name: string; websiteUrl: string | null; logoUrl: string | null } | null;
   roles: Array<{ _id: string; name: string; color: string | null; icon: string | null }> | null;
   startDate: string | null;
   endDate: string | null;
+  /** Portable Text (paragraphs, bold/italic, links) */
+  description: unknown[] | null;
 };
 
 export const educationQuery = defineQuery(`
   *[_type == "education"] | order(orderRank) {
     _id,
     title,
-    "organisation": organisation->{ name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
+    "organisation": organisation->{ _id, name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
     startDate,
-    endDate
+    endDate,
+    description
   }
 `);
 
 export type EducationItem = {
   _id: string;
   title: string;
-  organisation: { name: string; websiteUrl: string | null; logoUrl: string | null } | null;
+  organisation: { _id: string; name: string; websiteUrl: string | null; logoUrl: string | null } | null;
   startDate: string | null;
   endDate: string | null;
+  /** Portable Text (paragraphs, bold/italic, links) */
+  description: unknown[] | null;
 };
 
 export const volunteerQuery = defineQuery(`
@@ -587,7 +593,8 @@ export const volunteerQuery = defineQuery(`
     title,
     "organisation": organisation->{ name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
     startDate,
-    endDate
+    endDate,
+    description
   }
 `);
 
@@ -597,6 +604,31 @@ export type VolunteerItem = {
   organisation: { name: string; websiteUrl: string | null; logoUrl: string | null } | null;
   startDate: string | null;
   endDate: string | null;
+  /** Portable Text (paragraphs, bold/italic, links) */
+  description: unknown[] | null;
+};
+
+export const sideProjectsQuery = defineQuery(`
+  *[_type == "sideProject"] | order(orderRank) {
+    _id,
+    title,
+    "organisation": organisation->{ name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
+    url,
+    startDate,
+    endDate,
+    description
+  }
+`);
+
+export type SideProjectItem = {
+  _id: string;
+  title: string;
+  organisation: { name: string; websiteUrl: string | null; logoUrl: string | null } | null;
+  url: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  /** Portable Text (paragraphs, bold/italic, links) */
+  description: unknown[] | null;
 };
 
 export const awardsQuery = defineQuery(`
@@ -604,7 +636,8 @@ export const awardsQuery = defineQuery(`
     _id,
     title,
     "organisation": organisation->{ name, websiteUrl, "logoUrl": logo.asset->url + "?w=96&q=90&auto=format" },
-    date
+    date,
+    description
   }
 `);
 
@@ -613,4 +646,6 @@ export type AwardItem = {
   title: string;
   organisation: { name: string; websiteUrl: string | null; logoUrl: string | null } | null;
   date: string | null;
+  /** Portable Text (paragraphs, bold/italic, links) */
+  description: unknown[] | null;
 };

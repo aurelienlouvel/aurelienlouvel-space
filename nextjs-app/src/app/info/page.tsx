@@ -6,6 +6,7 @@ import {
   experiencesQuery,
   educationQuery,
   volunteerQuery,
+  sideProjectsQuery,
   awardsQuery,
   SOCIAL_PLATFORM_ORDER,
   type Profile,
@@ -13,6 +14,7 @@ import {
   type ExperienceItem,
   type EducationItem,
   type VolunteerItem,
+  type SideProjectItem,
   type AwardItem,
 } from "@/sanity/queries";
 import {
@@ -28,12 +30,33 @@ import { PageShell } from "@/components/layout/PageShell";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { TimelineRow } from "@/components/blocks/TimelineRow";
 import { SocialPill } from "@/components/blocks/SocialPill";
+import { TimelineGroup } from "@/components/blocks/TimelineGroup";
 import { StoryStack, type StorySlide } from "@/components/blocks/StoryStack";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { AnimatedItem } from "@/components/AnimatedItem";
 import { ResumeDownload } from "@/components/ResumeDownload";
 
 export const revalidate = 60;
+
+// Regroupe les entrées CONSÉCUTIVES qui pointent vers la même organisation
+// (même `_id`), dans l'ordre manuel du Studio : deux postes chez 50a qui se
+// suivent forment un groupe, mais un poste ailleurs entre les deux coupe le
+// groupe. Une entrée sans organisation reste toujours seule.
+function groupByOrganisation<T extends { organisation: { _id: string } | null }>(
+  items: T[],
+): T[][] {
+  const groups: T[][] = [];
+  for (const item of items) {
+    const last = groups.at(-1);
+    const orgId = item.organisation?._id;
+    if (last && orgId && last[0].organisation?._id === orgId) {
+      last.push(item);
+    } else {
+      groups.push([item]);
+    }
+  }
+  return groups;
+}
 
 const EMPTY_PHOTO_SLIDE: StorySlide = {
   type: "photo",
@@ -200,10 +223,11 @@ async function resolveStorySlide(story: ProfileStory): Promise<StorySlide> {
 }
 
 export default async function InfoPage() {
-  const [profile, experiences, education, volunteering, awards] =
+  const [profile, experiences, sideProjects, education, volunteering, awards] =
     await Promise.all([
       client.fetch<Profile | null>(profileQuery),
       client.fetch<ExperienceItem[]>(experiencesQuery),
+      client.fetch<SideProjectItem[]>(sideProjectsQuery),
       client.fetch<EducationItem[]>(educationQuery),
       client.fetch<VolunteerItem[]>(volunteerQuery),
       client.fetch<AwardItem[]>(awardsQuery),
@@ -297,16 +321,59 @@ export default async function InfoPage() {
                   <h4 className="mb-8">Experience</h4>
                 </AnimatedItem>
                 <div className="flex flex-col gap-4">
-                  {experiences.map((exp, i) => (
-                    <AnimatedItem key={exp._id} delay={0.12 + i * 0.05}>
+                  {groupByOrganisation(experiences).map((group, i) => {
+                    const [exp] = group;
+                    return (
+                      <AnimatedItem key={exp._id} delay={0.12 + i * 0.05}>
+                        {group.length > 1 && exp.organisation ? (
+                          <TimelineGroup
+                            orgName={exp.organisation.name}
+                            logoUrl={exp.organisation.logoUrl}
+                            websiteUrl={exp.organisation.websiteUrl}
+                            roles={group.map((role) => ({
+                              _id: role._id,
+                              title: role.title,
+                              contractType: role.contractType?.name ?? null,
+                              startDate: role.startDate,
+                              endDate: role.endDate,
+                            }))}
+                            ongoingFallback
+                          />
+                        ) : (
+                          <TimelineRow
+                            orgName={exp.organisation?.name ?? null}
+                            logoUrl={exp.organisation?.logoUrl ?? null}
+                            websiteUrl={exp.organisation?.websiteUrl ?? null}
+                            title={exp.title}
+                            contractType={exp.contractType?.name ?? null}
+                            startDate={exp.startDate}
+                            endDate={exp.endDate}
+                            ongoingFallback
+                          />
+                        )}
+                      </AnimatedItem>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* Side projects */}
+            {sideProjects.length > 0 && (
+              <section className="mt-20 mx-2">
+                <AnimatedItem delay={0.08}>
+                  <h4 className="mb-8">Side projects</h4>
+                </AnimatedItem>
+                <div className="flex flex-col gap-4">
+                  {sideProjects.map((sp, i) => (
+                    <AnimatedItem key={sp._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
-                        orgName={exp.organisation?.name ?? null}
-                        logoUrl={exp.organisation?.logoUrl ?? null}
-                        websiteUrl={exp.organisation?.websiteUrl ?? null}
-                        title={exp.title}
-                        contractType={exp.contractType?.name ?? null}
-                        startDate={exp.startDate}
-                        endDate={exp.endDate}
+                        orgName={sp.organisation?.name ?? null}
+                        logoUrl={sp.organisation?.logoUrl ?? null}
+                        websiteUrl={sp.url ?? sp.organisation?.websiteUrl ?? null}
+                        title={sp.title}
+                        startDate={sp.startDate}
+                        endDate={sp.endDate}
                         ongoingFallback
                       />
                     </AnimatedItem>
@@ -322,18 +389,35 @@ export default async function InfoPage() {
                   <h4 className="mb-8">Education</h4>
                 </AnimatedItem>
                 <div className="flex flex-col gap-4">
-                  {education.map((edu, i) => (
-                    <AnimatedItem key={edu._id} delay={0.12 + i * 0.05}>
-                      <TimelineRow
-                        orgName={edu.organisation?.name ?? null}
-                        logoUrl={edu.organisation?.logoUrl ?? null}
-                        websiteUrl={edu.organisation?.websiteUrl ?? null}
-                        title={edu.title}
-                        startDate={edu.startDate}
-                        endDate={edu.endDate}
-                      />
-                    </AnimatedItem>
-                  ))}
+                  {groupByOrganisation(education).map((group, i) => {
+                    const [edu] = group;
+                    return (
+                      <AnimatedItem key={edu._id} delay={0.12 + i * 0.05}>
+                        {group.length > 1 && edu.organisation ? (
+                          <TimelineGroup
+                            orgName={edu.organisation.name}
+                            logoUrl={edu.organisation.logoUrl}
+                            websiteUrl={edu.organisation.websiteUrl}
+                            roles={group.map((programme) => ({
+                              _id: programme._id,
+                              title: programme.title,
+                              startDate: programme.startDate,
+                              endDate: programme.endDate,
+                            }))}
+                          />
+                        ) : (
+                          <TimelineRow
+                            orgName={edu.organisation?.name ?? null}
+                            logoUrl={edu.organisation?.logoUrl ?? null}
+                            websiteUrl={edu.organisation?.websiteUrl ?? null}
+                            title={edu.title}
+                            startDate={edu.startDate}
+                            endDate={edu.endDate}
+                          />
+                        )}
+                      </AnimatedItem>
+                    );
+                  })}
                 </div>
               </section>
             )}

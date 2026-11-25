@@ -18,6 +18,7 @@ import {contractTypeType} from './contractType'
 import {experienceType} from './experience'
 import {educationType} from './education'
 import {volunteerType} from './volunteer'
+import {sideProjectType} from './sideProject'
 import {awardType} from './award'
 import {projectType} from './project'
 
@@ -39,6 +40,7 @@ export const schemaTypes = [
   artifactType,
   contractTypeType,
   experienceType,
+  sideProjectType,
   educationType,
   volunteerType,
   awardType,
