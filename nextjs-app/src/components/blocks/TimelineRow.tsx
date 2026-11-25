@@ -1,3 +1,5 @@
+"use client";
+
 import { formatDateRange } from "@/lib/date-utils";
 import { DateAgo } from "@/components/blocks/DateAgo";
 import { TimelineEntry } from "@/components/blocks/TimelineEntry";

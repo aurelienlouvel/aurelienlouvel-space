@@ -24,6 +24,7 @@ import { portableComponents } from "@/components/blocks/TextBlock";
 import { LogoTile } from "@/components/blocks/LogoTile";
 import { Separator } from "@/components/ui/Separator";
 import { formatDateRange } from "@/lib/date-utils";
+import { refreshScrollLimit } from "@/lib/scroll";
 import { cn } from "@/lib/utils";
 
 /** Une section de la timeline : son nom (PostHog) et l'entrée ouverte (une seule à la fois). */
@@ -91,16 +92,39 @@ export function TimelineLogo({
 
 /** Une seule courbe, longue et douce, sans rebond, pour tout ce qui change de taille. */
 const EASE = [0.32, 0.72, 0, 1] as const;
-const HEIGHT: Transition = { duration: 0.6, ease: EASE };
+const GROW: Transition = { duration: 0.6, ease: EASE };
+
+/** Le cadre de la ligne (`px-4 py-4`) et ce dont la carte dépasse une fois ouverte. */
+const ROW_PADDING = 1;
+const GROW_BY = 0.625;
 
 /**
- * À l'ouverture, la hauteur s'ouvre et le contenu apparaît en chevauchement ;
- * à la fermeture, le contenu s'efface vite pendant que la hauteur se replie.
+ * La carte part exactement du cadre de la ligne et grandit un peu vers
+ * l'extérieur ; le padding grandit d'autant, l'en-tête ne bouge pas.
  */
-const panelVariants: Variants = {
-  closed: { height: 0, transition: HEIGHT },
-  open: { height: "auto", transition: HEIGHT },
+const cardVariants: Variants = {
+  closed: {
+    top: "0rem",
+    left: "0rem",
+    right: "0rem",
+    padding: `${ROW_PADDING}rem`,
+  },
+  open: {
+    top: `-${GROW_BY}rem`,
+    left: `-${GROW_BY}rem`,
+    right: `-${GROW_BY}rem`,
+    padding: `${ROW_PADDING + GROW_BY}rem`,
+  },
 };
+/**
+ * Pendant ce temps, l'intérieur s'ouvre vers le bas, depuis la hauteur du
+ * contenu de la ligne (`custom`, en px).
+ */
+const innerVariants: Variants = {
+  closed: (closedHeight: number) => ({ height: closedHeight }),
+  open: { height: "auto" },
+};
+/** Le contenu apparaît pendant que la carte s'ouvre, et s'efface vite pendant qu'elle se replie. */
 const contentVariants: Variants = {
   closed: {
     opacity: 0,
@@ -113,55 +137,25 @@ const contentVariants: Variants = {
     transition: { duration: 0.45, ease: EASE, delay: 0.08 },
   },
 };
-/** Ce qui n'appartient qu'à la ligne fermée (poste, dates, fil du groupe). */
-const summaryVariants: Variants = {
-  // `overflow` reste visible au repos pour que la ligne « it was … » des
-  // dates ne soit pas coupée.
-  shown: {
-    height: "auto",
-    opacity: 1,
-    transition: {
-      ...HEIGHT,
-      opacity: { duration: 0.4, ease: EASE, delay: 0.15 },
-    },
-    transitionEnd: { overflow: "visible" },
-  },
-  hidden: {
-    height: 0,
-    opacity: 0,
-    overflow: "hidden",
-    transition: { ...HEIGHT, opacity: { duration: 0.2, ease: "easeOut" } },
-  },
-};
-
-/** `prefers-reduced-motion` : les mêmes états, sans transition. */
-function instant(variants: Variants): Variants {
-  return Object.fromEntries(
-    Object.entries(variants).map(([name, target]) => [
-      name,
-      { ...(target as object), transition: { duration: 0 } },
-    ]),
-  );
-}
-const INSTANT = {
-  panel: instant(panelVariants),
-  content: instant(contentVariants),
-  summary: instant(summaryVariants),
+const contentInstant: Variants = {
+  closed: { opacity: 0, transition: { duration: 0 } },
+  open: { opacity: 1, transition: { duration: 0 } },
 };
 
 /**
  * Une entrée de la timeline (une ligne, ou un groupe de postes dans la même
- * organisation). Au clic, elle se déplie sur place, sur le même fond gris
- * que la ligne survolée :
+ * organisation). Au clic, une carte grise s'ouvre par-dessus la ligne, grandit
+ * un peu et recouvre ce qui suit, sans rien pousser : la ligne garde sa place
+ * dans le flux.
  *
- * - en-tête : le logo et le nom de la ligne restent où ils sont ; avec un site,
- *   logo + nom + flèche deviennent le lien (nouvel onglet) ;
+ * - en-tête : le logo et le nom restent où ils sont ; avec un site, logo + nom
+ *   + flèche sont le lien (nouvel onglet) ;
  * - un séparateur ;
  * - chaque poste : titre, dates, description, l'un sous l'autre.
  *
- * Un bouton disclosure (`aria-expanded`, `aria-controls`) couvre l'en-tête ;
- * Échap ou un clic hors de la carte la referme. Une seule entrée ouverte par
- * section. Avec `prefers-reduced-motion`, pas d'animation de hauteur.
+ * Un bouton disclosure (`aria-expanded`, `aria-controls`) couvre la ligne ;
+ * Échap ou un clic hors de la carte la referme, par la même animation. Une
+ * seule entrée ouverte par section. Avec `prefers-reduced-motion`, instantané.
  */
 export function TimelineEntry({
   id,
@@ -181,26 +175,28 @@ export function TimelineEntry({
   org: TimelineCardOrg;
   roles: TimelineCardRole[];
   ongoingFallback?: boolean;
-  /** La ligne en gras quand l'entrée est fermée (par défaut, le nom de l'organisation). */
+  /** La ligne en gras de la ligne (par défaut, le nom de l'organisation). */
   primary?: ReactNode;
-  /** À droite de la ligne en gras, fermée seulement (les dates). */
+  /** À droite de la ligne en gras (les dates). */
   aside?: ReactNode;
-  /** Sous la ligne en gras, fermée seulement (poste, dates en mobile, postes d'un groupe). */
+  /** Sous la ligne en gras (poste, dates en mobile, postes d'un groupe). */
   summary?: ReactNode;
-  /** Sous le logo, fermée seulement (le fil d'un groupe). */
+  /** Sous le logo (le fil d'un groupe). */
   logoAside?: ReactNode;
-  /** Classes du cadre (marges, espacement). */
+  /** Classes du cadre (marges ; le padding doit rester `px-4 py-4`, voir `ROW_PADDING`). */
   className?: string;
 }) {
   const { section, openId, setOpenId } = useContext(SectionContext);
   const open = openId === id;
   const reduceMotion = useReducedMotion();
   const panelId = useId();
-  // Le fond gris reste tant que le panneau n'a pas fini de se replier, quel
+  // La carte reste au-dessus tant qu'elle n'a pas fini de se replier, quel
   // que soit le chemin de fermeture (ligne, Échap, clic dehors, autre entrée).
   const [expanded, setExpanded] = useState(open);
   if (open && !expanded) setExpanded(true);
+  const [rowHeight, setRowHeight] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Échap et clic hors de la carte la referment.
@@ -226,21 +222,16 @@ export function TimelineEntry({
     if (open) {
       setOpenId(null);
     } else {
+      setRowHeight(rowRef.current?.offsetHeight ?? 0);
       setOpenId(id);
       posthog.capture("info_entry_expanded", { section, title: trackTitle });
     }
   }
 
+  const transition = reduceMotion ? { duration: 0 } : GROW;
   const visibleRoles = roles.filter(
     (role) => role.title || role.startDate || hasDescription(role.description),
   );
-  const v = reduceMotion
-    ? INSTANT
-    : {
-        panel: panelVariants,
-        content: contentVariants,
-        summary: summaryVariants,
-      };
 
   return (
     <div
@@ -248,12 +239,13 @@ export function TimelineEntry({
       data-open={expanded ? "" : undefined}
       className={cn(
         "group/entry relative rounded-2xl transition-[background-color,scale] duration-300",
-        "hover:bg-stone-50 data-[open]:bg-stone-50",
+        "hover:bg-stone-50 data-[open]:z-30 data-[open]:bg-stone-50",
         "not-data-[open]:hover:scale-[0.985] motion-reduce:transition-none motion-reduce:hover:scale-100",
         className,
       )}
     >
-      <div className="relative">
+      {/* La ligne : garde sa place dans le flux, recouverte par la carte ouverte. */}
+      <div ref={rowRef} className="relative">
         <button
           ref={buttonRef}
           type="button"
@@ -261,87 +253,86 @@ export function TimelineEntry({
           aria-controls={panelId}
           aria-label={trackTitle}
           onClick={toggle}
-          className="absolute -inset-x-4 -inset-y-4 cursor-pointer rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-stone-300"
+          className="absolute -inset-4 cursor-pointer rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-stone-300"
         />
         {/* Le clic sur la ligne passe par ici ; le bouton porte l'état pour le clavier et les lecteurs d'écran. */}
         <div onClick={toggle} className="relative flex cursor-pointer gap-4">
-          {!(open && org.websiteUrl) && (
-            <div className="flex shrink-0 flex-col items-center">
-              <TimelineLogo name={org.name} logoUrl={org.logoUrl} />
-              <AnimatePresence initial={false}>
-                {!open && logoAside && (
-                  <motion.span
-                    key="logo-aside"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, transition: { duration: 0.12 } }}
-                    className="flex w-full flex-1 flex-col items-center"
-                  >
-                    {logoAside}
-                  </motion.span>
-                )}
-              </AnimatePresence>
+          <div className="flex shrink-0 flex-col items-center">
+            <TimelineLogo name={org.name} logoUrl={org.logoUrl} />
+            {logoAside}
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex flex-wrap items-start justify-between gap-x-4">
+              <span className="min-w-0 text-lg font-bold text-stone-900">
+                {primary ?? org.name}
+              </span>
+              {aside}
             </div>
-          )}
-          {open && org.websiteUrl ? (
-            <OrgLink org={org} />
-          ) : (
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex flex-wrap items-start justify-between gap-x-4">
-                <span className="min-w-0 text-lg font-bold text-stone-900">
-                  {open ? org.name : (primary ?? org.name)}
-                </span>
-                {!open && aside}
-              </div>
-              <AnimatePresence initial={false}>
-                {!open && summary && (
-                  <motion.div
-                    key="summary"
-                    variants={v.summary}
-                    initial="hidden"
-                    animate="shown"
-                    exit="hidden"
-                  >
-                    {summary}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
+            {summary}
+          </div>
         </div>
       </div>
 
       <AnimatePresence
         initial={false}
-        onExitComplete={() => setExpanded(false)}
+        onExitComplete={() => {
+          setExpanded(false);
+          refreshScrollLimit();
+        }}
       >
         {open && (
           <motion.div
-            key="panel"
+            key="card"
             id={panelId}
             role="region"
             aria-label={org.name}
-            variants={v.panel}
+            variants={cardVariants}
             initial="closed"
             animate="open"
             exit="closed"
-            className="relative overflow-hidden"
+            transition={transition}
+            onAnimationComplete={refreshScrollLimit}
+            // `after:` : de la place sous la carte pour la faire défiler au-dessus
+            // de l'ActionBar flottante quand elle dépasse le bas de la page.
+            className="absolute rounded-2xl bg-stone-50 after:pointer-events-none after:absolute after:top-full after:left-0 after:h-36 after:w-px after:content-['']"
           >
-            <motion.div variants={v.content}>
-              {visibleRoles.length > 0 && (
-                <>
-                  <Separator className="mt-4 bg-stone-200/70" />
-                  <div className="flex flex-col gap-6 pt-5 pb-1">
-                    {visibleRoles.map((role) => (
-                      <RoleBlock
-                        key={role.id}
-                        role={role}
-                        ongoingFallback={ongoingFallback}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
+            <motion.div
+              custom={rowHeight}
+              variants={innerVariants}
+              transition={transition}
+              className="overflow-hidden"
+            >
+              {/* L'en-tête de la carte, à la place exacte de celui de la ligne ; un clic la referme. */}
+              <div onClick={toggle} className="flex cursor-pointer gap-4">
+                {org.websiteUrl ? (
+                  <OrgLink org={org} />
+                ) : (
+                  <>
+                    <TimelineLogo name={org.name} logoUrl={org.logoUrl} />
+                    <span className="min-w-0 text-lg font-bold text-stone-900">
+                      {org.name}
+                    </span>
+                  </>
+                )}
+              </div>
+              <motion.div
+                variants={reduceMotion ? contentInstant : contentVariants}
+              >
+                {visibleRoles.length > 0 && (
+                  <>
+                    <Separator className="mt-4 bg-stone-200/70" />
+                    <div className="flex flex-col gap-6 pt-5 pb-1">
+                      {visibleRoles.map((role) => (
+                        <RoleBlock
+                          key={role.id}
+                          role={role}
+                          ongoingFallback={ongoingFallback}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </motion.div>
             </motion.div>
           </motion.div>
         )}
