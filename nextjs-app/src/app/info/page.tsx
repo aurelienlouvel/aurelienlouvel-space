@@ -31,7 +31,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { TimelineRow } from "@/components/blocks/TimelineRow";
 import { SocialPill } from "@/components/blocks/SocialPill";
 import { TimelineGroup } from "@/components/blocks/TimelineGroup";
-import { TimelineAccordion } from "@/components/blocks/TimelineAccordion";
+import { TimelineSection } from "@/components/blocks/TimelineEntry";
 import { StoryStack, type StorySlide } from "@/components/blocks/StoryStack";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { AnimatedItem } from "@/components/AnimatedItem";
@@ -321,7 +321,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Experience</h4>
                 </AnimatedItem>
-                <TimelineAccordion section="experience" className="flex flex-col gap-4">
+                <TimelineSection section="experience" className="flex flex-col gap-4">
                   {groupByOrganisation(experiences).map((group, i) => {
                     const [exp] = group;
                     return (
@@ -358,7 +358,7 @@ export default async function InfoPage() {
                       </AnimatedItem>
                     );
                   })}
-                </TimelineAccordion>
+                </TimelineSection>
               </section>
             )}
 
@@ -368,7 +368,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Side projects</h4>
                 </AnimatedItem>
-                <TimelineAccordion section="side_projects" className="flex flex-col gap-4">
+                <TimelineSection section="side_projects" className="flex flex-col gap-4">
                   {sideProjects.map((sp, i) => (
                     <AnimatedItem key={sp._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
@@ -384,7 +384,7 @@ export default async function InfoPage() {
                       />
                     </AnimatedItem>
                   ))}
-                </TimelineAccordion>
+                </TimelineSection>
               </section>
             )}
 
@@ -394,7 +394,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Education</h4>
                 </AnimatedItem>
-                <TimelineAccordion section="education" className="flex flex-col gap-4">
+                <TimelineSection section="education" className="flex flex-col gap-4">
                   {groupByOrganisation(education).map((group, i) => {
                     const [edu] = group;
                     return (
@@ -427,7 +427,7 @@ export default async function InfoPage() {
                       </AnimatedItem>
                     );
                   })}
-                </TimelineAccordion>
+                </TimelineSection>
               </section>
             )}
 
@@ -437,7 +437,7 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-8">Volunteer</h4>
                 </AnimatedItem>
-                <TimelineAccordion section="volunteer" className="flex flex-col gap-4">
+                <TimelineSection section="volunteer" className="flex flex-col gap-4">
                   {volunteering.map((vol, i) => (
                     <AnimatedItem key={vol._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
@@ -453,7 +453,7 @@ export default async function InfoPage() {
                       />
                     </AnimatedItem>
                   ))}
-                </TimelineAccordion>
+                </TimelineSection>
               </section>
             )}
 
@@ -463,22 +463,23 @@ export default async function InfoPage() {
                 <AnimatedItem delay={0.08}>
                   <h4 className="mb-4">Awards</h4>
                 </AnimatedItem>
-                <TimelineAccordion section="awards" className="flex flex-col gap-4">
+                <TimelineSection section="awards" className="flex flex-col gap-4">
                   {awards.map((award, i) => (
                     <AnimatedItem key={award._id} delay={0.12 + i * 0.05}>
                       <TimelineRow
                         id={award._id}
                         description={award.description}
-                        orgName={award.title}
+                        orgName={award.organisation?.name ?? null}
                         logoUrl={award.organisation?.logoUrl ?? null}
                         websiteUrl={award.organisation?.websiteUrl ?? null}
-                        title={award.organisation?.name ?? ""}
+                        title={award.title}
                         startDate={award.date}
                         endDate={null}
+                        titleFirst
                       />
                     </AnimatedItem>
                   ))}
-                </TimelineAccordion>
+                </TimelineSection>
               </section>
             )}
 
