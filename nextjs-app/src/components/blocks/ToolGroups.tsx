@@ -26,7 +26,7 @@ function ToolGrid({ tools }: { tools: ToolItem[] }) {
 
 /**
  * La section Tools : des petits groupes (couleur de fond, nom en petit centré
- * dessous) dans l'ordre du Studio. Les outils rangés dans aucun groupe suivent,
+ * en bas du cadre, en Geist Mono) dans l'ordre du Studio. Les outils rangés dans aucun groupe suivent,
  * sans fond ni nom. Sans aucun groupe, tous les outils forment une seule grille.
  */
 export function ToolGroups({
@@ -46,18 +46,17 @@ export function ToolGroups({
     <TooltipProvider>
       <div className="flex flex-wrap items-start gap-6">
         {filled.map((group) => (
-          <figure key={group._id} className="flex flex-col items-center gap-3">
-            <div
-              className={cn(
-                "rounded-3xl p-5",
-                group.color ? `bg-${group.color}-50` : "bg-stone-50",
-              )}
-            >
-              <ToolGrid tools={group.tools ?? []} />
-            </div>
+          <figure
+            key={group._id}
+            className={cn(
+              "flex flex-col items-center gap-4 rounded-3xl p-5 pb-4",
+              group.color ? `bg-${group.color}-50` : "bg-stone-50",
+            )}
+          >
+            <ToolGrid tools={group.tools ?? []} />
             <figcaption
               className={cn(
-                "text-xs font-medium",
+                "font-mono text-xs",
                 group.color ? `text-${group.color}-700` : "text-stone-500",
               )}
             >
