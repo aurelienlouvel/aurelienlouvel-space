@@ -264,6 +264,9 @@ export default async function InfoPage() {
     const social = profile.socials?.find((s) => s.platform === platform);
     return social ? [social] : [];
   });
+  // Côté choisi dans Sanity ; sans choix, à gauche.
+  const leftSocials = socials.filter((s) => s.side !== "right");
+  const rightSocials = socials.filter((s) => s.side === "right");
 
   return (
     <ViewTransition default="none">
@@ -306,10 +309,17 @@ export default async function InfoPage() {
 
                 {socials.length > 0 && (
                   <TooltipProvider>
-                    <div className="flex flex-wrap items-center gap-4 mx-2">
-                      {socials.map((social) => (
-                        <SocialPill key={social._key} social={social} />
-                      ))}
+                    <div className="flex items-center justify-between gap-4 mx-2">
+                      <div className="flex flex-wrap items-center gap-4">
+                        {leftSocials.map((social) => (
+                          <SocialPill key={social._key} social={social} />
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-4">
+                        {rightSocials.map((social) => (
+                          <SocialPill key={social._key} social={social} />
+                        ))}
+                      </div>
                     </div>
                   </TooltipProvider>
                 )}
