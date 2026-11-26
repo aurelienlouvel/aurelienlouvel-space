@@ -419,7 +419,7 @@ export const profileQuery = defineQuery(`
       tagline,
       cardTitle
     },
-    "socials": socials[defined(platform) && defined(url)]{ _key, platform, url }
+    "socials": socials[defined(platform) && defined(url)]{ _key, platform, url, side }
   }
 `);
 
@@ -531,6 +531,7 @@ export type ProfileSocial = {
   _key: string;
   platform: SocialPlatform;
   url: string;
+  side: "left" | "right" | null;
 };
 
 export const experiencesQuery = defineQuery(`
