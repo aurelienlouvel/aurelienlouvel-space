@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ActionBar } from "@/components/nav/ActionBar";
 import { ActionBarProvider } from "@/contexts/ActionBarContext";
@@ -12,6 +13,11 @@ const neueMontreal = localFont({
   src: "./fonts/PPNeueMontreal-Variable.ttf",
   variable: "--font-sans",
   weight: "100 900",
+});
+
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
 });
 
 export const metadata: Metadata = {
@@ -41,7 +47,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${neueMontreal.variable} antialiased`}>
+    <html lang="en" className={`${neueMontreal.variable} ${geistMono.variable} antialiased`}>
       <body className="min-h-dvh bg-white text-foreground">
         <BodyTheme />
         <AnimatedTitle />
