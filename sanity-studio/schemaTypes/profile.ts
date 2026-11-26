@@ -594,16 +594,34 @@ export const profileType = defineType({
               type: 'url',
               validation: (Rule) => Rule.required(),
             }),
+            defineField({
+              name: 'side',
+              title: 'Side',
+              description: 'Where the link sits on the Info page, under the bio.',
+              type: 'string',
+              options: {
+                list: [
+                  {title: 'Left', value: 'left'},
+                  {title: 'Right', value: 'right'},
+                ],
+                layout: 'radio',
+                direction: 'horizontal',
+              },
+              initialValue: 'left',
+            }),
           ],
           preview: {
-            select: {platform: 'platform', url: 'url'},
-            prepare({platform, url}: {platform?: string; url?: string}) {
+            select: {platform: 'platform', url: 'url', side: 'side'},
+            prepare({platform, url, side}: {platform?: string; url?: string; side?: string}) {
               const titles: Record<string, string> = {
                 linkedin: 'LinkedIn',
                 github: 'GitHub',
                 figma: 'Figma Community',
               }
-              return {title: (platform && titles[platform]) || 'Social link', subtitle: url}
+              return {
+                title: (platform && titles[platform]) || 'Social link',
+                subtitle: `${side === 'right' ? 'Right' : 'Left'} · ${url ?? ''}`,
+              }
             },
           },
         },
