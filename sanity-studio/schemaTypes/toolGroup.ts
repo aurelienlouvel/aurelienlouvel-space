@@ -3,8 +3,9 @@ import {orderRankField} from '@sanity/orderable-document-list'
 import {ColorInput} from './components/ColorInput'
 
 // Un petit groupe d'outils sur la page Info (ex. « Design », « Code ») : une
-// couleur de fond, son nom en petit dessous. L'ordre des groupes se règle par
-// glisser-déposer, celui des outils par l'ordre de la liste.
+// couleur de fond, son nom en petit dessous. Chaque outil choisit son groupe
+// (champ Group du tool). L'ordre des groupes, comme celui des outils, se règle
+// par glisser-déposer.
 export const toolGroupType = defineType({
   name: 'toolGroup',
   title: 'Tool group',
@@ -17,7 +18,7 @@ export const toolGroupType = defineType({
     },
   ],
   preview: {
-    select: {title: 'name', media: 'tools.0.logo'},
+    select: {title: 'name'},
   },
   fields: [
     orderRankField({type: 'toolGroup'}),
@@ -32,14 +33,6 @@ export const toolGroupType = defineType({
       title: 'Color',
       type: 'string',
       components: {input: ColorInput},
-    }),
-    defineField({
-      name: 'tools',
-      title: 'Tools',
-      description: 'Shown in this order.',
-      type: 'array',
-      of: [{type: 'reference', to: [{type: 'tool'}]}],
-      validation: (Rule) => Rule.unique(),
     }),
   ],
 })
