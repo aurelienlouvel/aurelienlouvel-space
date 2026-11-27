@@ -26,7 +26,7 @@ function ToolGrid({ tools }: { tools: ToolItem[] }) {
   );
 }
 
-/** Un groupe large (plus de deux colonnes) prend toute la ligne en mobile. */
+/** Un groupe large (plus de deux colonnes de logos) prend deux colonnes de la grille. */
 function isWide(count: number) {
   return Math.ceil(count / 2) > 2;
 }
@@ -36,11 +36,10 @@ function isWide(count: number) {
  * en bas du cadre, en Geist Mono) dans l'ordre du Studio. Les outils rangés
  * dans aucun groupe suivent, sans fond ni nom.
  *
- * - Desktop : les groupes s'enchaînent sur des lignes, avec une largeur
- *   minimum pour que les petits groupes ne soient pas étriqués ; ceux d'une
- *   même ligne ont la même hauteur.
- * - Mobile : une grille de deux colonnes ; un groupe large prend toute la
- *   ligne, deux petits groupes se partagent une ligne.
+ * Une grille régulière (quatre colonnes, deux en mobile) : un groupe large
+ * prend deux colonnes, un petit groupe une seule, qui fait donc office de
+ * largeur minimum. Les petits groupes viennent combler les trous
+ * (`grid-flow-row-dense`), et les cadres d'une même ligne ont la même hauteur.
  */
 export function ToolGroups({
   groups,
@@ -57,14 +56,14 @@ export function ToolGroups({
 
   return (
     <TooltipProvider>
-      <div className="grid grid-flow-row-dense grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-stretch sm:gap-4">
+      <div className="grid grid-flow-row-dense grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
         {filled.map((group) => {
           const groupTools = group.tools ?? [];
           return (
             <figure
               key={group._id}
               className={cn(
-                "flex min-w-0 flex-col items-center justify-between gap-4 rounded-3xl p-5 pb-4 sm:min-w-36",
+                "flex min-w-0 flex-col items-center justify-between gap-4 rounded-3xl p-5 pb-4",
                 isWide(groupTools.length) && "col-span-2",
                 group.color ? `bg-${group.color}-50` : "bg-stone-50",
               )}
@@ -84,7 +83,7 @@ export function ToolGroups({
         {loose.length > 0 && (
           <div
             className={cn(
-              "col-span-2 flex justify-center sm:justify-start",
+              "col-span-2 flex justify-center sm:col-span-4 sm:justify-start",
               filled.length > 0 && "p-5",
             )}
           >
