@@ -90,10 +90,24 @@ export function TimelineLogo({
   );
 }
 
-/** Une seule courbe, douce et sans rebond, pour tout ce qui change de hauteur. */
-const EASE = [0.32, 0.72, 0, 1] as const;
-const HEIGHT: Transition = { duration: 0.4, ease: EASE };
+/**
+ * Deux courbes sans rebond : l'ouverture part vite et se pose longuement
+ * (ease-out marqué), la fermeture est plus courte et symétrique, pour que
+ * l'entrée se range sans traîner.
+ */
+const EASE_OPEN = [0.22, 1, 0.36, 1] as const;
+const EASE_CLOSE = [0.4, 0, 0.2, 1] as const;
+const OPEN: Transition = { duration: 0.42, ease: EASE_OPEN };
+const CLOSE: Transition = { duration: 0.3, ease: EASE_CLOSE };
 const INSTANT: Transition = { duration: 0 };
+
+/** `https://www.konexio.eu/` → `konexio.eu` */
+function displayUrl(url: string) {
+  return url
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/$/, "");
+}
 
 /**
  * Une seule ligne de temps : à l'ouverture, la hauteur s'ouvre et le contenu
@@ -103,29 +117,37 @@ const INSTANT: Transition = { duration: 0 };
  * `instant` (`prefers-reduced-motion`), les mêmes états sans transition.
  */
 function buildVariants(instant: boolean) {
-  const height = instant ? INSTANT : HEIGHT;
+  const opening = instant ? INSTANT : OPEN;
+  const closing = instant ? INSTANT : CLOSE;
   const fadeOut: Transition = instant
     ? INSTANT
-    : { duration: 0.15, ease: "easeOut" };
-  const fadeIn: Transition = instant ? INSTANT : { duration: 0.25, ease: EASE };
+    : { duration: 0.14, ease: "easeOut" };
+  const fadeIn: Transition = instant
+    ? INSTANT
+    : { duration: 0.32, ease: EASE_OPEN };
   const fadeBack: Transition = instant
     ? INSTANT
-    : { duration: 0.25, ease: EASE, delay: 0.12 };
+    : { duration: 0.28, ease: EASE_OPEN, delay: 0.1 };
 
   const panel: Variants = {
-    closed: { height: 0, transition: height },
-    open: { height: "auto", transition: height },
+    closed: { height: 0, transition: closing },
+    open: { height: "auto", transition: opening },
   };
   const content: Variants = {
-    closed: { transition: { staggerChildren: 0 } },
+    closed: {
+      transition: instant
+        ? { staggerChildren: 0 }
+        : { staggerChildren: 0.02, staggerDirection: -1 },
+    },
     open: {
       transition: instant
         ? { staggerChildren: 0 }
-        : { staggerChildren: 0.03, delayChildren: 0.05 },
+        : { staggerChildren: 0.05, delayChildren: 0.06 },
     },
   };
+  // Le contenu monte de quelques pixels en arrivant, et s'efface sur place.
   const item: Variants = {
-    closed: { opacity: 0, y: -4, transition: fadeOut },
+    closed: { opacity: 0, y: 2, transition: fadeOut },
     open: { opacity: 1, y: 0, transition: fadeIn },
   };
   // Le poste et les dates de la ligne fermée : se replient en fondu.
@@ -135,14 +157,30 @@ function buildVariants(instant: boolean) {
     shown: {
       height: "auto",
       opacity: 1,
-      transition: { ...height, opacity: fadeBack },
+      transition: { ...closing, opacity: fadeBack },
       transitionEnd: { overflow: "visible" },
     },
     hidden: {
       height: 0,
       opacity: 0,
       overflow: "hidden",
-      transition: { ...height, opacity: fadeOut },
+      transition: { ...opening, opacity: fadeOut },
+    },
+  };
+  // Le lien du site, sous le nom : l'inverse du résumé (il s'ouvre quand
+  // l'entrée s'ouvre).
+  const reveal: Variants = {
+    shown: {
+      height: "auto",
+      opacity: 1,
+      transition: { ...opening, opacity: { ...fadeIn, delay: 0.08 } },
+      transitionEnd: { overflow: "visible" },
+    },
+    hidden: {
+      height: 0,
+      opacity: 0,
+      overflow: "hidden",
+      transition: { ...closing, opacity: fadeOut },
     },
   };
   // Les dates à droite, le fil d'un groupe, la flèche, le nom qui change.
@@ -154,7 +192,7 @@ function buildVariants(instant: boolean) {
     shown: { opacity: 1, transition: fadeIn },
     hidden: { opacity: 0, transition: fadeOut },
   };
-  return { panel, content, item, summary, fade, fadeInOpen };
+  return { panel, content, item, summary, reveal, fade, fadeInOpen };
 }
 const VARIANTS = buildVariants(false);
 const VARIANTS_INSTANT = buildVariants(true);
@@ -165,7 +203,8 @@ const VARIANTS_INSTANT = buildVariants(true);
  * survol, et pousse ce qui suit :
  *
  * - en-tête : le logo et le nom de la ligne, qui restent où ils sont ; avec un
- *   site, logo + nom + flèche deviennent le lien (nouvel onglet) ;
+ *   site, son adresse (sans `https://`) apparaît sous le nom, et c'est le seul
+ *   lien de l'entrée (nouvel onglet) ;
  * - un séparateur ;
  * - chaque poste : titre, dates, description, l'un sous l'autre.
  *
@@ -244,7 +283,6 @@ export function TimelineEntry({
 
   const rowName = primary ?? org.name;
   const swapsName = rowName !== org.name;
-  const link = open && org.websiteUrl ? org.websiteUrl : undefined;
   const state = open ? "hidden" : "shown";
   const visibleRoles = roles.filter(
     (role) => role.title || role.startDate || hasDescription(role.description),
@@ -276,22 +314,7 @@ export function TimelineEntry({
           onClick={toggle}
           className="relative grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] gap-x-4"
         >
-          {/*
-           * Ouvert avec un site, logo + nom + flèche sont un seul lien. Le même
-           * élément reste en place (sans `href` quand il n'y a pas de lien) :
-           * `contents` laisse ses enfants dans la grille, rien ne bouge.
-           */}
-          <a
-            href={link}
-            target={link ? "_blank" : undefined}
-            rel={link ? "noopener noreferrer" : undefined}
-            onClick={(event) => {
-              if (!link) return;
-              event.stopPropagation();
-              posthog.capture("organization_website_clicked");
-            }}
-            className="group/link contents outline-none"
-          >
+          <span className="contents">
             <span className="row-span-2 flex flex-col items-center">
               <TimelineLogo name={org.name} logoUrl={org.logoUrl} />
               {logoAside && (
@@ -305,19 +328,8 @@ export function TimelineEntry({
                 </motion.span>
               )}
             </span>
-            <span
-              className={cn(
-                "col-start-2 row-start-1 flex min-w-0 items-center gap-1 self-start rounded-lg",
-                link &&
-                  "group-focus-visible/link:ring-2 group-focus-visible/link:ring-stone-300",
-              )}
-            >
-              <span
-                className={cn(
-                  "relative min-w-0 text-lg font-bold text-stone-900 underline decoration-transparent underline-offset-4 transition-colors duration-150",
-                  link && "group-hover/link:decoration-stone-300",
-                )}
-              >
+            <span className="col-start-2 row-start-1 flex min-w-0 items-center self-start">
+              <span className="relative min-w-0 text-lg font-bold text-stone-900">
                 {/* Awards : le titre de la ligne laisse la place au nom de l'organisation. */}
                 <motion.span
                   variants={swapsName ? v.fade : undefined}
@@ -345,26 +357,8 @@ export function TimelineEntry({
                   </motion.span>
                 )}
               </span>
-              {org.websiteUrl && (
-                <motion.span
-                  variants={v.fadeInOpen}
-                  initial={false}
-                  animate={open ? "shown" : "hidden"}
-                  aria-hidden={!open}
-                  className="flex shrink-0"
-                >
-                  <HugeiconsIcon
-                    icon={ArrowUpRight01Icon}
-                    size={18}
-                    strokeWidth={2}
-                    aria-hidden="true"
-                    className="text-stone-400 transition-colors duration-150 group-hover/link:text-stone-800"
-                  />
-                </motion.span>
-              )}
-              {link && <span className="sr-only">(opens in a new tab)</span>}
             </span>
-          </a>
+          </span>
           {aside && (
             <motion.span
               variants={v.fade}
@@ -375,15 +369,44 @@ export function TimelineEntry({
               {aside}
             </motion.span>
           )}
-          {summary && (
-            <motion.div
-              variants={v.summary}
-              initial={false}
-              animate={state}
-              className="col-span-2 col-start-2 row-start-2"
-            >
-              {summary}
-            </motion.div>
+          {(summary || org.websiteUrl) && (
+            <div className="col-span-2 col-start-2 row-start-2 flex flex-col">
+              {summary && (
+                <motion.div variants={v.summary} initial={false} animate={state}>
+                  {summary}
+                </motion.div>
+              )}
+              {org.websiteUrl && (
+                <motion.div
+                  variants={v.reveal}
+                  initial={false}
+                  animate={open ? "shown" : "hidden"}
+                  aria-hidden={!open}
+                >
+                  <a
+                    href={org.websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    tabIndex={open ? undefined : -1}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      posthog.capture("organization_website_clicked");
+                    }}
+                    className="group/link relative inline-flex items-center gap-0.5 rounded-md text-sm font-medium text-stone-500 underline decoration-transparent underline-offset-4 transition-colors duration-150 outline-none hover:text-stone-900 hover:decoration-stone-300 focus-visible:ring-2 focus-visible:ring-stone-300"
+                  >
+                    {displayUrl(org.websiteUrl)}
+                    <HugeiconsIcon
+                      icon={ArrowUpRight01Icon}
+                      size={14}
+                      strokeWidth={2}
+                      aria-hidden="true"
+                      className="text-stone-400 transition-[color,translate] duration-150 group-hover/link:-translate-y-px group-hover/link:translate-x-px group-hover/link:text-stone-800"
+                    />
+                    <span className="sr-only">(opens in a new tab)</span>
+                  </a>
+                </motion.div>
+              )}
+            </div>
           )}
         </div>
       </div>
